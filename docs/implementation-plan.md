@@ -10,7 +10,7 @@ It is intentionally biased toward:
 - likely failure points identified before coding
 - small reviewable increments instead of a single large build
 
-The detailed plans for the first three phases live under `docs/plans/`.
+The detailed plans for the first four phases live under `docs/plans/`.
 
 ---
 
@@ -75,6 +75,9 @@ At that point the implementation order should still be vertical:
 6. summary exports
 7. ECharts reporting
 8. Nextflow wrapping and validation
+
+Phase 3 implementation reference:
+- [phase-3/README.md](./plans/phase-3/README.md)
 
 ---
 
