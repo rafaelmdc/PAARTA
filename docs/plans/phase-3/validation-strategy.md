@@ -68,7 +68,7 @@ Why:
 Current implementation note:
 - the live acquisition smoke check is intentionally opt-in and lives outside the default unit-test suite
 - the same smoke now also exercises one detection path, codon extraction, SQLite assembly, and summary/report-prep on live acquisition outputs
-- a separate live detection smoke exercises `threshold` and real `diamond blastp` on previously acquired live proteins
+- a separate live detection smoke exercises `threshold` on previously acquired live proteins
 - see [live-smoke.md](../../live-smoke.md) and `scripts/smoke_live_acquisition.sh`
 - see [live-detection-smoke.md](../../live-detection-smoke.md) and `scripts/smoke_live_detection.sh`
 
@@ -116,11 +116,9 @@ Must verify:
 
 Likely problems:
 - methods accidentally drift into each other
-- fallback similarity output is treated as interchangeable with BLAST output
 
 Mitigation:
-- keep example-based checks for all three methods
-- assert backend identity in `run_params.tsv`
+- keep example-based checks for all implemented methods
 
 ### Codon extraction
 
@@ -194,10 +192,14 @@ Those belong in later smoke, integration, or workflow phases.
 ## Phase 3 acceptance gate
 
 Phase 3 should not be considered complete until:
-- all three detection methods pass worked-example validation
+- all implemented detection methods pass worked-example validation
 - at least one normalization slice passes from package input to translated proteins
 - rejected CDS cases are warning-driven and deterministic
 - SQLite can be built from validated flat outputs
 - summary/report-prep tables reconcile numerically with the underlying calls
+
+Current completion note:
+- `pure` and `threshold` have both passed live execution on acquired proteins
+- similarity-based detection has been removed from the current v1 baseline
 
 If any of those fail, Phase 3 is not ready for Nextflow wrapping.

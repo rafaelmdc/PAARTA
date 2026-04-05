@@ -79,6 +79,9 @@ At that point the implementation order should still be vertical:
 Phase 3 implementation reference:
 - [phase-3/README.md](./plans/phase-3/README.md)
 
+Phase 4 implementation reference:
+- [phase-4/README.md](./plans/phase-4/README.md)
+
 ---
 
 ## Core dependency decisions
@@ -119,13 +122,10 @@ Reason:
 
 ### Similarity backend
 
-Planned source of truth:
-- configurable production backend using `diamond blastp`
-
-Planned use:
-- record the selected backend in run metadata or parameter outputs
-- allow a deterministic local fallback only during early validation
-- validate representative cases before treating fallback and `diamond` outputs as interchangeable
+Current status:
+- similarity-based detection is removed from the current v1 implementation baseline
+- the workflow now treats `pure` and `threshold` as the only supported detection methods
+- any future similarity method should return only through a new contract and planning pass
 
 ### Reporting runtime
 

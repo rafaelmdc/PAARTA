@@ -138,7 +138,6 @@ Contains:
 Preferred names:
 - `pure_calls.tsv`
 - `threshold_calls.tsv`
-- `blast_calls.tsv`
 - `run_params.tsv`
 
 ### `merged/sqlite/`

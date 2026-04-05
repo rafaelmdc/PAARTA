@@ -43,7 +43,6 @@ File:
 
 What it contains:
 - Python 3.12
-- `diamond`
 
 What it does not contain:
 - `taxon-weaver`
@@ -65,9 +64,6 @@ That matches the currently installed local package metadata used during implemen
 
 NCBI `datasets` and `dataformat` are installed from NCBI's official v2 Linux AMD64 download endpoints:
 - https://www.ncbi.nlm.nih.gov/datasets/docs/v2/command-line-tools/download-and-install/
-
-`diamond` is installed from the official GitHub release archive for the pinned version:
-- https://github.com/bbuchfink/diamond/releases
 
 Important caveat:
 - those NCBI binary URLs are rolling endpoints, not immutable release asset URLs
@@ -104,18 +100,6 @@ Build the detection image from the repo root:
 docker build -f containers/detection.Dockerfile -t homorepeat-detection:0.1 .
 ```
 
-If you need to override the pinned DIAMOND version:
-
-```bash
-docker build \
-  -f containers/detection.Dockerfile \
-  --build-arg DIAMOND_VERSION=2.1.15 \
-  --build-arg DIAMOND_ARCHIVE_URL=https://github.com/bbuchfink/diamond/releases/download/v2.1.15/diamond-linux64.tar.gz \
-  -t homorepeat-detection:0.1 .
-```
-
----
-
 ## Smoke checks
 
 Check the core tools inside the built image:
@@ -125,7 +109,7 @@ docker run --rm homorepeat-acquisition:0.1 python --version
 docker run --rm homorepeat-acquisition:0.1 taxon-weaver --help
 docker run --rm homorepeat-acquisition:0.1 datasets version
 docker run --rm homorepeat-acquisition:0.1 dataformat --help
-docker run --rm homorepeat-detection:0.1 diamond version
+docker run --rm homorepeat-detection:0.1 python --version
 ```
 
 ---
@@ -168,30 +152,43 @@ docker run --rm \
   bash scripts/smoke_live_acquisition.sh
 ```
 
-To run similarity detection with DIAMOND inside the detection image:
+To run threshold detection inside the detection image:
 
 ```bash
 docker run --rm \
   -v "$PWD":/work \
   -w /work \
   homorepeat-detection:0.1 \
-  python bin/detect_blast.py \
+  python bin/detect_threshold.py \
   --proteins-tsv runs/run_001/merged/acquisition/proteins.tsv \
   --proteins-fasta runs/run_001/merged/acquisition/proteins.faa \
   --repeat-residue Q \
-  --backend diamond_blastp \
-  --outdir runs/run_001/merged/detection/blast_q
+  --outdir runs/run_001/merged/detection/threshold_q
 ```
 
 ---
 
-## Why this layer exists now
+## Nextflow wiring
 
-The repo does not have the Nextflow orchestration layer yet.
-So the immediate goal is not process-level container wiring.
+The repo now has a Phase 4 Nextflow layer and a `docker` profile:
+- [nextflow.config](../nextflow.config)
+- [docker.config](../conf/docker.config)
 
-The immediate goal is:
+Current label-to-image mapping:
+- `planning` -> acquisition image
+- `acquisition_download` -> acquisition image
+- `acquisition_normalize` -> acquisition image
+- `acquisition_merge` -> acquisition image
+- `detection` -> detection image
+- `database` -> detection image
+- `reporting` -> detection image
+
+Important runtime detail:
+- the images do not bake the repo source tree into the image
+- the Nextflow Docker profile mounts the project directory at runtime so the checked-out Python code remains the source of truth
+
+Why this layer exists now:
 - lock the external toolchains
 - keep acquisition and detection dependencies separate
-- stop implementation from depending on an undocumented local machine setup
-- make the later Nextflow per-process container binding straightforward
+- stop Phase 4 execution from depending on undocumented host-installed binaries
+- make later cluster profiles a runtime concern rather than a workflow-graph refactor

@@ -205,31 +205,12 @@ Acceptance checks:
 
 ### Slice 5: similarity-based detection
 
-Goal:
-- implement a runnable similarity strategy without blocking on final backend environment details
+Status:
+- removed from the current v1 implementation baseline
 
-Implementation order inside this slice:
-1. deterministic fallback (`template_local`)
-2. backend adapter for `diamond blastp`
-
-Why this order:
-- it keeps the method runnable early
-- it isolates backend-specific concerns from shared call shaping
-
-Likely problems:
-- fallback behavior gets treated as scientifically identical to BLAST
-- backend-native scores are mixed with fallback scores without labeling
-- environment setup for `diamond` becomes the blocker for all remaining work
-
-Planned mitigation:
-- always record backend identity in `run_params.tsv`
-- treat score semantics as backend-local
-- keep fallback and production adapters behind one CLI contract but separate internal code paths
-
-Acceptance checks:
-- Phase 2 blast-like worked example reproduces under `template_local`
-- backend selection is explicit in parameters
-- output schema remains method-compatible with pure and threshold
+Reason:
+- the project now freezes `pure` and `threshold` as the only supported detection methods
+- similarity-based detection will be redesigned later through a new explicit planning pass rather than retained as partial support
 
 ---
 
@@ -330,7 +311,7 @@ Acceptance checks:
 - do not write directly into SQLite from acquisition or detection steps
 - do not widen scope into annotation/domain enrichment
 - do not build a browser application
-- do not treat fallback similarity output as equivalent to validated BLAST output
+- do not reintroduce similarity-based detection without a new explicit contract change
 
 ---
 

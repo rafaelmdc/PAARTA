@@ -61,7 +61,7 @@ Decisions to freeze:
 - one biological row unit per table
 - which fields are required versus optional
 - whether absent CDS data is allowed and how it is represented
-- taxonomy lineage is stored as a readable delimited string in v1
+- taxonomy lineage is stored as explicit parent-linked taxon rows in v1
 
 Possible problems:
 - sequence-to-protein linkage is under-specified
@@ -78,7 +78,6 @@ Planned mitigation:
 Tables/files:
 - `pure_calls.tsv`
 - `threshold_calls.tsv`
-- `blast_calls.tsv`
 
 Decisions to freeze:
 - residue-agnostic required columns for homorepeat calls
@@ -236,6 +235,6 @@ Before approving Phase 1, confirm:
 ## Phase 1 status
 
 Settled defaults:
-1. `taxonomy.tsv.lineage` should be a readable delimited string in v1.
+1. `taxonomy.tsv` should materialize the lineage tree as explicit rows linked by `parent_taxon_id`.
 2. `summary_by_taxon.tsv` is taxon-level only in v1.
 3. the report layer serializes one combined `echarts_options.json` keyed by chart name.

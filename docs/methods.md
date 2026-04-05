@@ -8,7 +8,7 @@ It answers the questions that were still underspecified in the original docs:
 - how data enters the workflow
 - how local and NCBI-backed acquisition coexist
 - how one isoform per gene is selected
-- what the three detection methods mean operationally
+- what the retained v1 detection methods mean operationally
 - how codon extraction, SQLite import, summaries, and ECharts reporting are bounded
 
 These rules are the implementation target unless a later contract change is made explicitly.
@@ -22,8 +22,8 @@ The first rebuild targets general homorepeat detection rather than a single resi
 The workflow must support:
 - acquisition of CDS and annotation data, with proteins derived locally when needed
 - one retained isoform per gene
-- three peer detection strategies: `pure`, `threshold`, and `blast`
-- configurable repeat residue or repeat template targets
+- two peer detection strategies: `pure` and `threshold`
+- configurable repeat residue targets
 - codon-aware feature extraction when CDS is available
 - SQLite assembly from flat files
 - summary tables and ECharts-based reporting from finalized outputs
@@ -42,7 +42,7 @@ The first rebuild does not require:
 The rebuild is expected to remain comparable to the earlier project in terms of:
 - acquisition of user-selected taxonomic sequence data and metadata
 - taxonomy-aware homorepeat analysis
-- the three peer detection strategies
+- the retained v1 detection strategies
 - SQLite as a final integrated artifact
 - residue-neutral summary and reporting outputs in the first release
 
@@ -107,7 +107,8 @@ Taxonomy metadata is planned to be normalized into `taxonomy.tsv`.
 
 For v1:
 - `taxon_id` is the stable reporting identifier
-- `taxon_name`, `parent_taxon_id`, `rank`, and `lineage` are retained when available
+- `taxon-weaver` lineage inspection is materialized into explicit taxonomy rows
+- each ancestor taxon is stored once with `taxon_id`, `taxon_name`, `parent_taxon_id`, and `rank`
 - missing hierarchy information is allowed, but `taxon_id` must still exist
 
 Operationally:
@@ -189,9 +190,8 @@ All methods are planned to emit the shared call contract.
 Coordinates are 1-based and inclusive in amino-acid space.
 All methods must trim leading and trailing non-target residues from the final called tract.
 
-Each run is expected to define either:
+Each run is expected to define:
 - a target `repeat_residue` for single-residue homorepeats
-- or a residue-derived repeat template for the `blast`-style strategy
 
 ### Pure method
 
@@ -220,28 +220,14 @@ Default rule:
 
 The default window definition is expected to be recorded in residue-aware form such as `<residue>6/8`.
 
-### Blast method
+### Similarity method status
 
-Intent:
-- capture divergent or interrupted tracts that resemble the configured repeat template
+Similarity-based detection is not part of the current v1 implementation scope.
 
-Preferred backend:
-- external `diamond blastp`, selected by configuration
-
-Backend notes:
-- `diamond blastp` is the planned production external backend for the similarity-based method in this project
-- backend choice must be recorded in run parameters or metadata
-- the fallback and `diamond` backend should not be assumed to be scientifically identical without validation on representative cases
-- no hidden scientific default backend is assumed at the documentation layer; the run configuration must make the backend explicit
-
-v1 fallback backend:
-- deterministic local template scoring against a configured repeat template of length `10`
-- score `+2` for target-residue matches and `-1` for non-target residues
-- retain positive-scoring segments that satisfy default `min_repeat_count = 6`
-- merge hits when the gap between them is less than or equal to `template_length / 2`
-
-The fallback is explicitly a `blast` contract implementation, not a claim of identical BLAST output.
-Its purpose is to keep the workflow runnable and contract-compatible during early validation before a production similarity backend is finalized.
+Current policy:
+- only `pure` and `threshold` are implemented and supported
+- no similarity-method output is part of the current workflow contracts
+- if similarity-based detection is reintroduced later, it should return through a new explicit contract change rather than through hidden partial support
 
 ---
 
@@ -340,7 +326,7 @@ Rules:
 ## Known v1 boundaries
 
 - NCBI-backed acquisition depends on the `datasets` CLI being installed in the execution environment
-- the `blast` method may use a deterministic fallback during early validation when no production similarity backend is selected or available
+- similarity-based detection is deferred from the current v1 implementation baseline
 - annotation and domain context are deferred
 - contamination checks are documented but not enforced as a hard failure path
 - the first ECharts rebuild is expected to cover core comparative outputs before supplementary figure families

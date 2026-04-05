@@ -27,7 +27,7 @@ from lib.package_layout import (  # noqa: E402
     load_assembly_report,
     load_sequence_report,
 )
-from lib.taxonomy import build_taxonomy_row, get_build_version, inspect_lineage  # noqa: E402
+from lib.taxonomy import build_taxonomy_rows, get_build_version, inspect_lineage  # noqa: E402
 from lib.tsv_io import ContractError, write_tsv  # noqa: E402
 from lib.warnings import WARNING_FIELDNAMES, build_warning_row  # noqa: E402
 
@@ -44,7 +44,7 @@ GENOMES_FIELDNAMES = [
     "download_path",
     "notes",
 ]
-TAXONOMY_FIELDNAMES = ["taxon_id", "taxon_name", "parent_taxon_id", "rank", "lineage", "source"]
+TAXONOMY_FIELDNAMES = ["taxon_id", "taxon_name", "parent_taxon_id", "rank", "source"]
 SEQUENCES_FIELDNAMES = [
     "sequence_id",
     "genome_id",
@@ -136,11 +136,13 @@ def main() -> int:
                 raise ContractError(
                     f"taxon-weaver returned an empty lineage for taxid {taxon_id} while normalizing {accession}"
                 )
-            taxonomy_rows_by_id[taxon_id] = build_taxonomy_row(
-                taxon_id,
+            for taxonomy_row in build_taxonomy_rows(
                 lineage,
                 taxonomy_build_version=taxonomy_build_version,
-            )
+            ):
+                row_taxon_id = str(taxonomy_row.get("taxon_id", ""))
+                if row_taxon_id:
+                    taxonomy_rows_by_id[row_taxon_id] = taxonomy_row
 
         gff_path = find_annotation_file(package_root, accession, kind="gff")
         cds_path = find_annotation_file(package_root, accession, kind="cds")
@@ -272,7 +274,11 @@ def main() -> int:
             normalized_cds_records.append((sequence_id, sequence))
 
     write_tsv(outdir / "genomes.tsv", genomes_rows, fieldnames=GENOMES_FIELDNAMES)
-    write_tsv(outdir / "taxonomy.tsv", taxonomy_rows_by_id.values(), fieldnames=TAXONOMY_FIELDNAMES)
+    write_tsv(
+        outdir / "taxonomy.tsv",
+        [taxonomy_rows_by_id[key] for key in sorted(taxonomy_rows_by_id)],
+        fieldnames=TAXONOMY_FIELDNAMES,
+    )
     write_tsv(outdir / "sequences.tsv", sequences_rows, fieldnames=SEQUENCES_FIELDNAMES)
     write_fasta(normalized_cds_path, normalized_cds_records)
     write_tsv(warning_path, warnings_rows, fieldnames=WARNING_FIELDNAMES)

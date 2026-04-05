@@ -30,6 +30,10 @@ These documents assume that:
 - Phase 2 scientific defaults are frozen
 - Docker is the current reproducible runtime baseline for external tool dependencies
 
+Current implementation status:
+- acquisition, pure detection, threshold detection, codon extraction, SQLite assembly, and summary/report-prep are implemented and live-smoked
+- similarity-based detection has been removed from the current v1 codebase and planning baseline
+
 The Phase 2 implementation gate remains:
 - [../phase-2/decision-register.md](../phase-2/decision-register.md)
 - [../phase-2/worked-examples.md](../phase-2/worked-examples.md)

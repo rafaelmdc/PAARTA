@@ -28,7 +28,7 @@ PROTEINS_REQUIRED = [
     "protein_length",
     "protein_path",
 ]
-TAXONOMY_REQUIRED = ["taxon_id", "taxon_name", "parent_taxon_id", "rank", "lineage", "source"]
+TAXONOMY_REQUIRED = ["taxon_id", "taxon_name", "parent_taxon_id", "rank", "source"]
 CALLS_REQUIRED = [
     "call_id",
     "method",

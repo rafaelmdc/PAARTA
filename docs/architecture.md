@@ -49,7 +49,7 @@ They are not the primary scientific acquisition mode for the rebuild.
 ### What must remain comparable to the earlier project
 
 The rebuild should preserve comparability at the level of:
-- the three detection strategies and their intended meaning
+- the retained v1 detection strategies and their intended meaning
 - standardized homorepeat call outputs
 - taxon-aware summary tables
 - optional codon-linked outputs that can support later residue-specific analyses
@@ -65,7 +65,7 @@ The rebuild does not need to preserve:
 
 The first scientifically valid release is expected to produce:
 - canonical metadata tables
-- standardized `pure`, `threshold`, and `blast` call tables
+- standardized `pure` and `threshold` call tables
 - one integrated SQLite database assembled from flat files
 - summary tables and any generic reporting tables needed for residue-neutral outputs
 - reproducible ECharts-ready reporting outputs
@@ -96,10 +96,9 @@ They should not contain the main biological logic.
 Every process must consume and emit predictable files with documented columns and naming.
 
 ### 3. Detection methods are peers
-The three detection methods are independent strategies:
+The retained detection methods are independent strategies:
 - pure
 - threshold
-- blast
 
 They should be implemented as parallel modules with the same output schema.
 
@@ -143,10 +142,9 @@ Typical tasks:
 ### Detection
 This stage extracts homorepeat calls from the prepared inputs.
 
-It contains three parallel methods:
+It contains the current implemented methods:
 - **pure**: contiguous homorepeat detection
 - **threshold**: sliding-window density-based detection
-- **blast**: similarity-based detection against repeat templates
 
 All methods must emit the same call schema.
 
@@ -280,7 +278,6 @@ Outputs:
 
 pure_calls.tsv
 threshold_calls.tsv
-blast_calls.tsv
 subworkflows/database.nf
 
 Inputs:
@@ -316,7 +313,6 @@ FILTER_ISOFORMS
 TRANSLATE_CDS
 FIND_REPEAT_PURE
 FIND_REPEAT_THRESHOLD
-FIND_REPEAT_BLAST
 BUILD_SQLITE
 EXPORT_SUMMARIES
 MAKE_PLOTS
@@ -354,7 +350,6 @@ Examples:
 
 pure_calls.tsv
 threshold_calls.tsv
-blast_calls.tsv
 
 These are the most important portable workflow artifacts.
 
@@ -372,7 +367,7 @@ This design fits the scientific workflow already established in the current proj
 
 data retrieval
 contamination/taxonomy handling
-three detection strategies
+two detection strategies
 SQLite integration
 downstream statistical summaries and visualizations
 

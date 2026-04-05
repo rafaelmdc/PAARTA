@@ -285,6 +285,6 @@ One candidate assembly that was considered but not selected.
 These schemas are operational extensions of the main contracts.
 
 If an artifact here becomes part of the long-term public contract surface, it should be promoted into:
-- [contracts.md](/home/rafael/Documents/GitHub/homorepeat/docs/contracts.md)
+- [contracts.md](../../contracts.md)
 
 Until then, this file is the implementation reference for these support artifacts.

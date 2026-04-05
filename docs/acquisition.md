@@ -114,7 +114,7 @@ Current package contents:
 
 Current behavior:
 - `assembly_data_report.jsonl` provides genome-level metadata
-- `taxon-weaver inspect-lineage` builds `taxonomy.tsv`
+- `taxon-weaver inspect-lineage` is expanded into explicit `taxonomy.tsv` rows for the full ancestor chain
 - `sequence_report.jsonl` is used to limit normalization to allowed molecules
 - `genomic.gff` is the primary linkage authority
 - normalized CDS records are written to `cds.fna`

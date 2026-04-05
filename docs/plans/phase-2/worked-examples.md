@@ -147,33 +147,12 @@ Reasoning:
 - every `8`-residue window inside it contains at most `5` target residues
 - threshold therefore does not seed a tract under the default `6/8` rule
 - pure also fails because it does not contain a contiguous run of `6` target residues
-- under the deterministic fallback:
-  - `repeat_count = 7`
-  - `non_repeat_count = 4`
-  - `score = 7*(+2) + 4*(-1) = 10`
-  - the segment remains a positive-scoring repeat-like region
-
-Expected call under `template_local` fallback:
-
-```text
-method           blast
-start            3
-end              13
-aa_sequence      AASTAAQAAVA
-length           11
-repeat_residue   A
-repeat_count     7
-non_repeat_count 4
-purity           0.6363636364
-template_name    A10
-score            10
-```
 
 Interpretation note:
-- for production `diamond blastp`, the same biological region could be recovered with backend-native bit scores instead of the local fallback score
+- this sequence is now a negative example for the current v1 implementation because similarity-based detection is not part of the supported method set
 
 Why this matters:
-- it demonstrates the intended niche of the similarity-based strategy
+- it preserves a documented edge case without keeping a removed similarity method in the current workflow
 
 ---
 

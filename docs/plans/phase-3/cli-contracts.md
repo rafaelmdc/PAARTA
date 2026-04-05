@@ -302,25 +302,6 @@ Must enforce:
 - default `min_target_count = 6`
 - sliding-window qualification with overlap/adjacency merge
 
-### `bin/detect_blast.py`
-
-Required inputs:
-- merged `proteins.tsv`
-- merged translated protein FASTA
-- explicit backend selection
-
-Required outputs:
-- `blast_calls.tsv`
-- method-specific `run_params.tsv`
-
-Must record:
-- backend identity
-- template configuration
-- score semantics
-
-Must not:
-- treat fallback scores as backend-native bit scores
-
 ### `bin/extract_repeat_codons.py`
 
 Required inputs:

@@ -132,29 +132,12 @@ Interpretation note:
 
 ## 2.7 Similarity-based detection
 
-Settled defaults:
-- the production backend is selected explicitly by configuration
-- accepted production backends:
-  - `diamond blastp`
-- backend identity must be recorded in `run_params.tsv`
-- no hidden global backend default should exist in the scientific spec
-
-Score semantics:
-- for `diamond blastp`, `score` stores the backend bit score
-- for the deterministic fallback, `score` stores the local template score
-- scores are comparable only within the same backend and run context
-
-Deterministic fallback for early validation:
-- fallback backend name: `template_local`
-- default `template_length = 10`
-- default `match_score = +2`
-- default `mismatch_score = -1`
-- default `min_repeat_count = 6`
-- merge hits when the gap between them is `<= template_length / 2`
+Settled default:
+- removed from the current v1 baseline
 
 Why this is the default:
-- it preserves a runnable similarity path before production backend validation is complete
-- it keeps `diamond` explicitly allowed without claiming it is identical to the local fallback
+- current implementation and contracts are intentionally limited to `pure` and `threshold`
+- any future similarity method should return only through a new explicit planning and contract pass
 
 ---
 

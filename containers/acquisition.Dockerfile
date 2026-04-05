@@ -22,6 +22,7 @@ RUN apt-get update \
         ca-certificates \
         curl \
         git \
+        procps \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python -m pip install --upgrade pip setuptools wheel \

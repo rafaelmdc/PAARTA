@@ -69,12 +69,9 @@ They are meant to prevent “mostly works” milestones from slipping through.
 
 ## Slice 5 checklist: similarity-based detection
 
-- backend selection is explicit
-- backend identity is written to `run_params.tsv`
-- deterministic fallback exists as `template_local`
-- fallback score semantics are not mislabeled as bit scores
-- `diamond blastp` adapter is isolated from fallback logic
-- worked example output matches the documented fallback example
+- removed from the current v1 baseline
+- no similarity-method code paths remain in the runnable implementation
+- no similarity-method outputs remain in the current contracts
 
 ---
 
@@ -114,7 +111,7 @@ They are meant to prevent “mostly works” milestones from slipping through.
 
 - all required CLIs have explicit ownership
 - acquisition can run from request resolution through merged canonical outputs
-- all three detection methods are runnable outside Nextflow
+- all implemented detection methods are runnable outside Nextflow
 - codon enrichment is conservative and non-destructive
 - SQLite assembly works from flat files only
 - summary/report-prep outputs are reproducible

@@ -6,7 +6,7 @@ This document defines the opt-in live detection smoke check for the current stan
 
 It exists because:
 - the main live smoke now validates acquisition through summary/report-prep on one `pure` detection path
-- `threshold` and real `diamond blastp` still need focused live validation on real acquired proteins
+- `threshold` still needs a focused live check separate from the main acquisition smoke
 
 This smoke check is not part of the default unit-test suite.
 
@@ -17,14 +17,12 @@ This smoke check is not part of the default unit-test suite.
 The current detection smoke verifies, on top of an existing merged acquisition result:
 1. `detect_threshold.py` runs on real acquired proteins and emits non-empty `threshold_calls.tsv`
 2. `extract_repeat_codons.py` can enrich threshold calls conservatively
-3. `detect_blast.py --backend diamond_blastp` runs with a real DIAMOND binary and emits non-empty `blast_calls.tsv`
-4. `extract_repeat_codons.py` can enrich DIAMOND-backed blast calls conservatively
-5. both methods preserve the shared call schema and leave codon metric fields empty in v1
+3. threshold call rows preserve the shared call schema and leave codon metric fields empty in v1
 
 It does not currently test:
 - taxonomy resolution
 - live NCBI downloads
-- SQLite assembly for threshold or blast-specific outputs
+- SQLite assembly for threshold-specific outputs
 - Nextflow orchestration
 
 Those are already covered elsewhere or belong to later phases.
@@ -44,7 +42,6 @@ This script is intentionally separate from the main live smoke so the acquisitio
 
 Required:
 - Python
-- a real `diamond` executable
 - one existing merged acquisition result containing:
   - `proteins.tsv`
   - `proteins.faa`
@@ -54,12 +51,8 @@ Required:
 Optional:
 - `PYTHON_BIN`
   Defaults to `python3`
-- `DIAMOND_BIN`
-  Defaults to `diamond`
 - `HOMOREPEAT_SMOKE_REPEAT_RESIDUE`
   Defaults to `Q`
-- `HOMOREPEAT_SMOKE_DIAMOND_MAX_TARGET_SEQS`
-  Defaults to `500`
 - `HOMOREPEAT_SMOKE_SOURCE_RUN_ROOT`
   Points to a previous `live_smoke_*` run root
 - `HOMOREPEAT_SMOKE_SOURCE_ACQUISITION_DIR`
@@ -105,12 +98,10 @@ docker run --rm \
 
 The smoke check passes only if:
 - `threshold_calls.tsv` is non-empty
-- `blast_calls.tsv` is non-empty under `diamond blastp`
 - call rows remain structurally valid
 - threshold parameters record the default sliding-window settings
-- blast parameters record backend `diamond_blastp`
-- threshold and blast codon-enriched outputs are non-empty
-- at least one threshold call and at least one blast call have non-empty `codon_sequence`
+- threshold codon-enriched outputs are non-empty
+- at least one threshold call has a non-empty `codon_sequence`
 - every non-empty `codon_sequence` has length `3 * length`
 - `codon_metric_name` and `codon_metric_value` remain empty
 
@@ -137,6 +128,6 @@ at the run root.
 ## Operational Notes
 
 - this smoke reuses real acquired proteins rather than repeating NCBI download work
-- `diamond blastp` runtime depends on the selected residue and `max_target_seqs`
+- `threshold` is currently the default live-validated secondary detection method
 - the default `Q` target keeps the smoke aligned with the existing live acquisition reference case
-- run this smoke intentionally after threshold or similarity-backend changes, or before cutting a reproducibility milestone that claims live validation of all detection methods
+- run this smoke intentionally after threshold changes, or before cutting a reproducibility milestone that claims live validation of all implemented detection methods

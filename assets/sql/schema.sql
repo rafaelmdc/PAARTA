@@ -5,7 +5,6 @@ CREATE TABLE taxonomy (
     taxon_name TEXT NOT NULL,
     parent_taxon_id TEXT NOT NULL,
     rank TEXT NOT NULL,
-    lineage TEXT NOT NULL,
     source TEXT NOT NULL
 );
 
@@ -72,7 +71,7 @@ CREATE TABLE run_params (
 
 CREATE TABLE repeat_calls (
     call_id TEXT PRIMARY KEY,
-    method TEXT NOT NULL CHECK (method IN ('pure', 'threshold', 'blast')),
+    method TEXT NOT NULL CHECK (method IN ('pure', 'threshold')),
     genome_id TEXT NOT NULL,
     taxon_id TEXT NOT NULL,
     sequence_id TEXT NOT NULL,

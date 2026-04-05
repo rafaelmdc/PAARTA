@@ -29,7 +29,7 @@ This phase is complete when the project can be described without referring to:
 
 - What does each method mean conceptually, independent of implementation?
 - Which impurities or interruptions are biologically relevant enough to keep in v1?
-- What is the role of the BLAST-based method: sensitivity extension, divergence recovery, or both?
+- If a similarity method returns later, what biological role should it serve relative to `pure` and `threshold`?
 
 ### Reporting intent
 
@@ -133,7 +133,7 @@ Optional clarifying artifact if needed:
 Phase 0 is done when all of the following are true:
 - the scientific scope of v1 fits in one page without code references
 - the acquisition source and taxonomy dependency are explicit
-- the three methods are conceptually distinguished
+- the retained v1 methods are conceptually distinguished
 - mandatory outputs are named
 - deferred topics are named and excluded
 

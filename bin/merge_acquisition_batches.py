@@ -119,7 +119,7 @@ def main() -> int:
 def materially_differs(left: dict[str, str], right: dict[str, str]) -> bool:
     """Return whether two taxonomy rows disagree on stable values."""
 
-    keys = {"taxon_name", "parent_taxon_id", "rank", "lineage", "source"}
+    keys = {"taxon_name", "parent_taxon_id", "rank", "source"}
     return any((left.get(key, "") or "") != (right.get(key, "") or "") for key in keys)
 
 

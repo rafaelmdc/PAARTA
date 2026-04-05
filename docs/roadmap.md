@@ -51,7 +51,7 @@ Write down exactly what the new pipeline is supposed to do, independent of the o
 - define the biological scope of the pipeline
 - define which repeat types are in scope for v1
 - state explicitly that the first reporting release is residue-neutral
-- define the three detection strategies conceptually
+- define the retained v1 detection strategies conceptually
 - define the required metadata and outputs
 - define which analyses and figures are in scope
 - define what must remain comparable to the current project
@@ -103,7 +103,7 @@ Fully define the core biological operations before implementation begins, so the
 - decide whether contamination checking remains in scope
 - define the pure detection method
 - define the threshold detection method
-- define the BLAST-based detection method
+- defer any future similarity-based detection method until after the v1 baseline is stable
 - define codon extraction and repeat feature calculation rules
 - define database import behavior
 - define summary export behavior
@@ -131,7 +131,7 @@ Implement the core biological and data-processing operations as standalone scrip
 - implement contamination-check logic if retained
 - implement pure detection
 - implement threshold detection
-- implement BLAST-based detection
+- keep v1 detection limited to the retained methods
 - implement codon extraction and repeat feature calculation
 - implement database import logic
 - implement summary export logic
@@ -180,7 +180,7 @@ Check that the new implementation behaves in line with the intended scientific m
 ### Tasks
 - validate pure-method behavior on representative examples
 - validate threshold-method behavior on representative examples
-- validate BLAST-method behavior on representative examples
+- validate the retained detection methods on representative examples
 - validate codon extraction logic
 - validate repeat length and purity calculations
 - validate database row relationships
@@ -293,7 +293,7 @@ The first rebuild does not need to:
 Version 1 of the rebuild is complete when:
 
 - the pipeline is implemented cleanly in Nextflow
-- the three detection methods exist and share a common contract
+- the retained detection methods exist and share a common contract
 - outputs are standardized and inspectable
 - SQLite is built from flat intermediate files
 - summary tables and key figures are reproducible

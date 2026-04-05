@@ -33,15 +33,28 @@ class SliceEightSummariesTest(unittest.TestCase):
                 taxonomy_tsv,
                 [
                     {
+                        "taxon_id": "1",
+                        "taxon_name": "root",
+                        "parent_taxon_id": "",
+                        "rank": "no rank",
+                        "source": "taxon_weaver:test",
+                    },
+                    {
+                        "taxon_id": "9605",
+                        "taxon_name": "Homo",
+                        "parent_taxon_id": "1",
+                        "rank": "genus",
+                        "source": "taxon_weaver:test",
+                    },
+                    {
                         "taxon_id": "9606",
                         "taxon_name": "Homo sapiens",
                         "parent_taxon_id": "9605",
                         "rank": "species",
-                        "lineage": "root > Homo > Homo sapiens",
                         "source": "taxon_weaver:test",
                     }
                 ],
-                fieldnames=["taxon_id", "taxon_name", "parent_taxon_id", "rank", "lineage", "source"],
+                fieldnames=["taxon_id", "taxon_name", "parent_taxon_id", "rank", "source"],
             )
             write_tsv(
                 proteins_tsv,

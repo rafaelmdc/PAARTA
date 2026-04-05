@@ -127,28 +127,14 @@ Planned mitigation:
 - freeze one default operational rule for v1
 - require all parameters to be recorded in `run_params.tsv`
 
-### Work package 2.6: BLAST-based detection definition
+### Work package 2.6: similarity-based detection status
 
-Settled defaults:
-- backend is selected explicitly by configuration
-- accepted production external backend is `diamond blastp`
-- deterministic fallback remains available during early validation
-- default fallback template length is `10`
-- fallback scoring is `+2` for target residues and `-1` for non-target residues
+Settled default:
+- similarity-based detection is removed from the current v1 implementation baseline
 
-Reference:
-- [phase-2/decision-register.md](./phase-2/decision-register.md)
-- [phase-2/worked-examples.md](./phase-2/worked-examples.md)
-
-Possible problems:
-- the method is underspecified and cannot be validated
-- BLAST behavior becomes environment-dependent
-- fallback behavior is confused with true BLAST behavior
-
-Planned mitigation:
-- document the accepted production backend (`diamond blastp`) and the allowed temporary fallback separately
-- record backend type in parameters or metadata
-- define one validation set specifically for BLAST-like edge cases
+Why this is the default:
+- current v1 is now defined around the two retained methods that are implemented and validated
+- any later similarity method should be redesigned and reintroduced through a new explicit planning pass
 
 ### Work package 2.7: codon extraction and repeat feature logic
 

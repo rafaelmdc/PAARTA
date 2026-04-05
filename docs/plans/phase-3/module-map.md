@@ -52,9 +52,6 @@ The goal is to stop implementation from scattering responsibilities across rando
 - `bin/detect_threshold.py`
   Emit `threshold_calls.tsv`.
 
-- `bin/detect_blast.py`
-  Emit `blast_calls.tsv` using either `template_local` or `diamond blastp`.
-
 - `bin/extract_repeat_codons.py`
   Join calls back to CDS rows and populate codon fields conservatively.
 
@@ -112,7 +109,6 @@ The goal is to stop implementation from scattering responsibilities across rando
 - `lib/detect_threshold.py`
   Threshold-method window/merge/extend logic.
 
-- `lib/detect_blast.py`
   Similarity-method coordination across fallback and production backends.
 
 - `lib/repeat_features.py`

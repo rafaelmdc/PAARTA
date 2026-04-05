@@ -32,7 +32,7 @@ Column names are part of the contract and should not change casually.
 Missing values must be encoded consistently as empty fields unless a documented sentinel is required.
 
 ### 6. Method outputs must be schema-compatible
-Pure, threshold, and blast outputs must share the same call schema.
+Pure and threshold outputs must share the same call schema.
 
 ---
 
@@ -55,6 +55,11 @@ Rules:
 
 ## Acquisition contract
 
+Workflow driver note:
+- the current Nextflow pipeline starts from a plain-text accession list, one assembly accession per line
+- downstream acquisition normalization still emits the flat canonical artifacts documented below
+- taxonomy DB location is treated as a runtime dependency, not a biological input record
+
 ### Input: `acquisition_targets.tsv`
 
 One row per acquisition target to normalize into the workflow contracts.
@@ -75,7 +80,6 @@ Optional columns:
 - `species_name`
 - `taxon_name`
 - `parent_taxon_id`
-- `lineage`
 - `annotation_gff`
 - `cds_fasta`
 - `protein_fasta`
@@ -118,14 +122,11 @@ Required columns:
 - `taxon_id`
 - `taxon_name`
 - `parent_taxon_id`
-
-Optional columns:
 - `rank`
-- `lineage`
 - `source`
 
-Lineage format in v1:
-- `lineage` is a readable delimited string, not a JSON payload
+Optional columns:
+- none
 
 ---
 
@@ -175,7 +176,6 @@ Optional columns:
 ### Outputs
 - `pure_calls.tsv`
 - `threshold_calls.tsv`
-- `blast_calls.tsv`
 
 Each row represents one detected homorepeat region.
 
@@ -206,7 +206,7 @@ Optional but strongly recommended columns:
 - `source_file`
 
 ### Rules
-- `method` must be one of: `pure`, `threshold`, `blast`
+- `method` must be one of: `pure`, `threshold`
 - `start` and `end` use the same coordinate system across all methods
 - `repeat_residue` is the targeted amino-acid residue for the call
 - `length` is the total tract length, including non-target residues if the method definition allows them
@@ -308,7 +308,7 @@ The initial v1 database schema owns the following tables:
 - `run_params`
 
 Rules:
-- `repeat_calls` is the unified import target for `pure_calls.tsv`, `threshold_calls.tsv`, and `blast_calls.tsv`
+- `repeat_calls` is the unified import target for `pure_calls.tsv` and `threshold_calls.tsv`
 - flat files remain the canonical exchange artifacts even after import
 - table and index definitions live under `assets/sql/`
 
@@ -366,7 +366,6 @@ Preferred names:
 - `proteins.tsv`
 - `pure_calls.tsv`
 - `threshold_calls.tsv`
-- `blast_calls.tsv`
 - `run_params.tsv`
 - `summary_by_taxon.tsv`
 - `regression_input.tsv`
