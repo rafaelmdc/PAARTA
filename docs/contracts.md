@@ -212,6 +212,8 @@ Optional but strongly recommended columns:
 - `length` is the total tract length, including non-target residues if the method definition allows them
 - `purity` is a numeric fraction from 0 to 1
 - `aa_sequence` must reflect the called tract sequence exactly
+- for `pure`, `aa_sequence` is expected to be a contiguous run of `repeat_residue`
+- for `threshold`, `window_definition` should record the qualifying sliding-window rule, such as `Q6/8`
 
 ---
 

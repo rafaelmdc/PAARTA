@@ -92,8 +92,7 @@ Planned mitigation:
 
 Settled defaults:
 - default `min_repeat_count = 6`
-- merge target runs separated by single-residue non-target gaps only
-- non-target gaps of length `>= 2` break the tract
+- keep only contiguous target runs
 - trim leading and trailing non-target residues from the final tract
 
 Reference:
@@ -106,15 +105,15 @@ Possible problems:
 
 Planned mitigation:
 - specify the method with worked examples before coding
-- define edge cases explicitly: leading interruptions, repeated single interruptions, adjacent tracts
+- define edge cases explicitly: sequence edges, interruption rejection, adjacent tracts
 
 ### Work package 2.5: threshold detection definition
 
 Settled defaults:
 - default `window_size = 8`
 - default `min_target_count = 6`
+- every qualifying sliding window is threshold-positive
 - merge overlapping or directly adjacent qualifying windows
-- extend merged candidates while purity remains `>= 0.70`
 
 Reference:
 - [phase-2/decision-register.md](./phase-2/decision-register.md)

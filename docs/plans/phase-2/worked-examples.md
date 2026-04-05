@@ -9,7 +9,7 @@ They are residue-agnostic by design, even though each example uses a specific ta
 
 ---
 
-## Example 1: Pure-method tract with one tolerated interruption
+## Example 1: Pure-method contiguous tract
 
 Target residue:
 - `A`
@@ -17,7 +17,7 @@ Target residue:
 Protein sequence:
 
 ```text
-MCAAATAAAGP
+MCAAAAAAGP
 ```
 
 Indexed view:
@@ -28,19 +28,17 @@ Indexed view:
 3  A
 4  A
 5  A
-6  T
+6  A
 7  A
 8  A
-9  A
-10 G
-11 P
+9  G
+10 P
 ```
 
 Reasoning:
-- the tract from positions `3-9` is `AAATAAA`
+- the tract from positions `3-8` is `AAAAAA`
 - it contains `6` target residues
-- the only interruption is `T` at position `6`
-- the interruption gap length is `1`, which the pure method allows
+- it is fully contiguous with no interruptions
 - leading and trailing non-target residues are trimmed away already
 
 Expected call:
@@ -48,17 +46,17 @@ Expected call:
 ```text
 method           pure
 start            3
-end              9
-aa_sequence      AAATAAA
-length           7
+end              8
+aa_sequence      AAAAAA
+length           6
 repeat_residue   A
 repeat_count     6
-non_repeat_count 1
-purity           0.8571428571
+non_repeat_count 0
+purity           1.0000000000
 ```
 
 Why this matters:
-- it shows that the pure method is strict on interruption size, not absolute perfection
+- it makes contiguous-only pure detection explicit
 
 ---
 
@@ -93,12 +91,13 @@ Indexed view:
 Reasoning:
 - the window at positions `3-10` is `AATVAAAA`
 - that window has `6` target residues out of `8`, so it qualifies under the default `6/8` rule
-- extension to the right keeps purity above `0.70`, so the final tract becomes positions `3-11`
+- the overlapping window at positions `4-11` also qualifies under the default `6/8` rule
+- merging those qualifying windows yields the final tract at positions `3-11`
 - the tract `AATVAAAAA` has:
   - `7` target residues
   - `2` non-target residues
   - purity `7/9 = 0.777...`
-- the pure method should reject the full tract because it contains a non-target gap of length `2` (`TV`)
+- the pure method should reject the tract because it is not contiguous
 
 Expected call:
 
@@ -147,7 +146,7 @@ Reasoning:
 - the candidate tract contains `7` target residues and `4` non-target residues
 - every `8`-residue window inside it contains at most `5` target residues
 - threshold therefore does not seed a tract under the default `6/8` rule
-- pure also fails because the tract contains longer and denser impurity than the pure rule allows
+- pure also fails because it does not contain a contiguous run of `6` target residues
 - under the deterministic fallback:
   - `repeat_count = 7`
   - `non_repeat_count = 4`

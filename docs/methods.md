@@ -196,10 +196,10 @@ Each run is expected to define either:
 ### Pure method
 
 Intent:
-- capture canonical homorepeat tracts for the chosen repeat residue, with at most one single-residue interruption at a time
+- capture canonical contiguous homorepeat tracts for the chosen repeat residue
 
 Default rule:
-- detect maximal tracts containing target-residue runs separated by gaps of length at most 1
+- detect maximal contiguous target-residue runs only
 - default `min_repeat_count = 6`
 
 Reported features:
@@ -215,8 +215,8 @@ Intent:
 Default rule:
 - sliding window size `8`
 - default target-residue count `6` within the window
-- merge overlapping or directly adjacent qualifying windows
-- extend merged candidates while tract purity stays above `0.70`
+- every qualifying sliding window is threshold-positive
+- merge overlapping or directly adjacent qualifying windows into one reported tract
 
 The default window definition is expected to be recorded in residue-aware form such as `<residue>6/8`.
 

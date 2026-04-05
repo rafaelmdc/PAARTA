@@ -144,8 +144,8 @@ Typical tasks:
 This stage extracts homorepeat calls from the prepared inputs.
 
 It contains three parallel methods:
-- **pure**: strict or near-strict homorepeat detection
-- **threshold**: sliding-window or density-based detection
+- **pure**: contiguous homorepeat detection
+- **threshold**: sliding-window density-based detection
 - **blast**: similarity-based detection against repeat templates
 
 All methods must emit the same call schema.

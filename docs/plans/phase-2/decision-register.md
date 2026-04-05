@@ -106,14 +106,12 @@ Why this is the default:
 Settled defaults:
 - a target `repeat_residue` is required
 - default `min_repeat_count = 6`
-- merge target-residue runs separated by a non-target gap of length `1`
-- any non-target gap of length `>= 2` breaks the tract
+- any non-target residue breaks the tract
 - report the maximal tract under those rules
 - trim leading and trailing non-target residues from the final tract
 
 Interpretation note:
-- repeated single-residue interruptions are allowed as long as every interruption gap is length `1`
-- this keeps the method strict on interruption size rather than on total interruption count
+- pure calls are contiguous runs only, not interrupted tracts
 
 ---
 
@@ -125,7 +123,6 @@ Settled defaults:
 - default `min_target_count = 6`
 - any window meeting that threshold is a qualifying seed
 - overlapping or directly adjacent qualifying windows are merged
-- merged candidates are extended left and right while tract purity stays `>= 0.70`
 - the final tract is trimmed to remove leading and trailing non-target residues
 
 Interpretation note:

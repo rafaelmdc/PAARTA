@@ -284,7 +284,7 @@ Required outputs:
 
 Must enforce:
 - `min_repeat_count = 6` by default
-- single-residue interruption rule
+- contiguous-run rule
 - trimming of termini
 
 ### `bin/detect_threshold.py`
@@ -300,7 +300,7 @@ Required outputs:
 Must enforce:
 - default `window_size = 8`
 - default `min_target_count = 6`
-- merge-plus-extend logic with purity threshold `0.70`
+- sliding-window qualification with overlap/adjacency merge
 
 ### `bin/detect_blast.py`
 

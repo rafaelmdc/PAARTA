@@ -48,7 +48,7 @@ They are meant to prevent “mostly works” milestones from slipping through.
 ## Slice 3 checklist: pure detection
 
 - default `min_repeat_count = 6` is implemented explicitly
-- single-residue interruption rule matches Phase 2
+- contiguous-run rule matches Phase 2
 - termini are trimmed correctly
 - coordinates are 1-based and inclusive
 - `pure_calls.tsv` satisfies the shared call schema
@@ -60,8 +60,8 @@ They are meant to prevent “mostly works” milestones from slipping through.
 
 - default `window_size = 8` is explicit
 - default `min_target_count = 6` is explicit
-- window merge logic is implemented separately from pure logic
-- extension purity threshold `0.70` is explicit
+- sliding-window logic is implemented separately from pure logic
+- overlap/adjacency merge is explicit
 - worked example output matches the documented example
 - `threshold_calls.tsv` is schema-compatible with `pure_calls.tsv`
 

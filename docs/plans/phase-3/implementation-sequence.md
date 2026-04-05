@@ -160,7 +160,7 @@ Why this is the first detection slice:
 Likely problems:
 - coordinate handling drifts from the contract
 - trimming behavior is applied inconsistently
-- interruptions are implemented differently than specified
+- contiguous-run handling is implemented differently than specified
 
 Planned mitigation:
 - build directly against the Phase 2 worked examples
@@ -199,7 +199,7 @@ Planned mitigation:
 Acceptance checks:
 - Phase 2 threshold worked example reproduces exactly
 - threshold output contract matches pure output contract
-- parameter recording captures window size, minimum count, and extension purity
+- parameter recording captures window size and minimum count
 
 ---
 
