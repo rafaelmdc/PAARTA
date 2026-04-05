@@ -19,8 +19,9 @@ The detailed plans for the first three phases live under `docs/plans/`.
 These plans assume:
 - the current repository remains documentation-first until implementation is explicitly approved
 - `taxon-weaver` will be used as a real dependency for taxonomy resolution and lineage retrieval
-- NCBI Datasets is the primary acquisition source for genome/protein/CDS data
-- the first end-to-end release targets polyQ only
+- NCBI Datasets is the primary acquisition source for assembly metadata plus CDS/GFF annotation data
+- the first end-to-end release supports generic homorepeat detection with residue-neutral reporting
+- taxonomic scope is configured by taxon name or taxid rather than hardcoded to Deuterostomia
 - the first reporting rebuild will end with reproducible ECharts outputs, but ECharts implementation starts only after the scientific core is stable
 
 ---
@@ -85,7 +86,7 @@ Planned source of truth:
 - NCBI Datasets CLI metadata and data packages
 
 Reason:
-- it provides assembly metadata, package manifests, protein/CDS files, and a documented rehydration path for large downloads
+- it provides assembly metadata, package manifests, CDS/GFF files, and a documented rehydration path for large downloads
 
 Detailed plan:
 - [ncbi-acquisition-taxon-weaver.md](./plans/ncbi-acquisition-taxon-weaver.md)
@@ -101,6 +102,16 @@ Planned use:
 - fetch lineage for taxids returned by NCBI assembly metadata
 - keep fuzzy suggestions as review-only, not silent auto-accepts
 
+### Similarity backend
+
+Planned source of truth:
+- configurable production backend using `blastp` or `diamond blastp`
+
+Planned use:
+- record the selected backend in run metadata or parameter outputs
+- allow a deterministic local fallback only during early validation
+- validate representative cases before treating backend outputs as interchangeable
+
 ### Reporting runtime
 
 Planned output layer:
@@ -110,29 +121,43 @@ Planned output layer:
 Reason:
 - charting should not drive early scientific-contract decisions
 
+### Execution model
+
+Planned default:
+- perform one global metadata enumeration pass first
+- freeze a `selected_assemblies.tsv` manifest before large downloads begin
+- process selected assemblies in bounded batches rather than as one unbounded run
+- import into SQLite only after batch outputs validate
+
+Reason:
+- reduces the risk of overloading NCBI services
+- makes retries and resume behavior tractable
+- keeps SQLite as a final assembly artifact rather than a live parallel workspace
+
 ---
 
-## Approval gates before coding
+## Settled defaults before coding
 
-Implementation should wait for explicit agreement on these points:
+The current documentation baseline assumes:
 
-1. Acquisition scope
-   Is v1 restricted to reference assemblies, or should non-reference assemblies be allowed behind a flag?
+1. Assembly source policy
+   v1 defaults to `RefSeq only`.
 
-2. Assembly source policy
-   Should v1 default to RefSeq-only, or include GenBank when RefSeq is absent?
+2. Isoform policy
+   v1 keeps the deterministic `longest protein per gene` rule.
 
-3. Isoform policy
-   Is “longest protein per gene” acceptable as the first deterministic rule?
+3. Taxonomy review policy
+   unresolved or fuzzy `taxon-weaver` results are emitted into a review queue rather than hard-failing the full run.
 
-4. BLAST policy
-   Should v1 require real `blastp`, or is a documented fallback acceptable for early development?
+4. Contamination policy
+   contamination remains note-only in v1.
 
-5. Taxonomy review policy
-   Should unresolved or fuzzy `taxon-weaver` results hard-fail acquisition, or be emitted into a review queue?
+5. Execution policy
+   large runs use a frozen selection manifest plus bounded execution batches.
 
-6. Reporting scope
-   Which plots are mandatory for the first ECharts rebuild, and which are later nice-to-haves?
+The detailed operational defaults are recorded in:
+- [phase-2/decision-register.md](./plans/phase-2/decision-register.md)
+- [phase-2/worked-examples.md](./plans/phase-2/worked-examples.md)
 
 ---
 
@@ -147,6 +172,16 @@ Mitigation:
 - plan around package manifest inspection and schema-aware parsing
 - preserve raw package paths and package metadata in outputs
 - separate metadata enumeration from sequence normalization
+
+### Risk: large runs fail late after excessive downloading
+
+Why it matters:
+- a single monolithic run is harder to retry, audit, and rate-limit safely
+
+Mitigation:
+- freeze the global selection manifest first
+- process downloads and normalization in bounded batches
+- assemble SQLite only from validated flat outputs after batch completion
 
 ### Risk: taxonomy ambiguity is hidden instead of surfaced
 

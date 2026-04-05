@@ -17,21 +17,46 @@ These rules are the implementation target unless a later contract change is made
 
 ## Scientific scope for v1
 
-The first rebuild targets polyglutamine (`Q`) tracts only.
+The first rebuild targets general homorepeat detection rather than a single residue only.
 
 The workflow must support:
-- acquisition of protein and optionally CDS data
+- acquisition of CDS and annotation data, with proteins derived locally when needed
 - one retained isoform per gene
 - three peer detection strategies: `pure`, `threshold`, and `blast`
+- configurable repeat residue or repeat template targets
 - codon-aware feature extraction when CDS is available
 - SQLite assembly from flat files
 - summary tables and ECharts-based reporting from finalized outputs
 
 The first rebuild does not require:
-- non-polyQ repeat classes
 - annotation/domain enrichment
 - browser-facing applications
 - direct database mutation during earlier pipeline stages
+- bespoke downstream reporting for every residue in the first release
+- any residue-specific downstream analysis in the first release
+
+---
+
+## Comparability Policy
+
+The rebuild is expected to remain comparable to the earlier project in terms of:
+- acquisition of user-selected taxonomic sequence data and metadata
+- taxonomy-aware homorepeat analysis
+- the three peer detection strategies
+- SQLite as a final integrated artifact
+- residue-neutral summary and reporting outputs in the first release
+
+The rebuild is not required to preserve:
+- legacy code layout
+- undocumented tie-breaking behavior
+- exact row ordering of historical outputs
+- any old heuristic that is not explicitly documented in the new specification
+
+When the rebuilt project differs from the old one, the preferred interpretation order is:
+1. documented new contracts
+2. documented method definitions
+3. scientific plausibility
+4. legacy behavior only where it was already explicit and defensible
 
 ---
 
@@ -54,7 +79,9 @@ The planned acquisition step uses the NCBI `datasets` CLI for assembly/package r
 Current intent:
 - enumerate candidate assemblies from NCBI metadata before downloading sequence packages
 - request reference assemblies by accession
-- include protein and CDS sequence files when available
+- download annotation-focused package contents: CDS, GFF3, and metadata reports
+- avoid raw genomic FASTA in v1
+- translate retained CDS records locally into canonical protein FASTA for detection
 - retain the raw package on disk for reproducibility
 - normalize package contents into the canonical TSVs and normalized FASTA files
 
@@ -62,7 +89,8 @@ The implementation should tolerate either a hydrated local package or an already
 
 ### Local acquisition
 
-Local mode is planned to accept protein FASTA and optional CDS FASTA paths directly from the manifest.
+Local mode is planned to accept CDS FASTA and optional annotation GFF paths directly from the manifest.
+Protein FASTA may still be accepted as a smoke-test bypass, but it is not the preferred scientific path.
 
 This mode must:
 - preserve the same downstream contracts as NCBI-backed acquisition
@@ -93,6 +121,9 @@ For the rebuild:
 - the acquisition layer records notes and source metadata
 - explicit contamination validation can be added later as a separate single-purpose step
 
+Settled v1 policy:
+- contamination remains note-only and does not act as a hard validation gate
+
 ---
 
 ## Sequence preparation
@@ -103,28 +134,29 @@ Acquisition is planned to write normalized FASTA files so downstream scripts do 
 
 Rules:
 - CDS FASTA headers become `sequence_id`
-- protein FASTA headers become `protein_id`
+- translated protein FASTA headers become `protein_id`
 - normalized rows point to those normalized FASTA paths
 
-### Sequence-to-protein linkage
+### CDS normalization and translation
 
 Default normalization authority:
 1. `genomic.gff` feature relationships and attributes
 2. structured package metadata and assembly reports
-3. FASTA header metadata only as a documented fallback
+3. CDS FASTA header metadata only as a documented fallback
 
 The preferred linkage order is:
-1. GFF-backed protein/CDS/transcript/gene relationships
-2. explicit `protein_id` or transcript linkage carried in package metadata
-3. shared transcript identifier recovered from FASTA metadata
-4. shared gene identifier recovered from FASTA metadata
+1. GFF-backed CDS/transcript/gene relationships
+2. explicit transcript or gene linkage carried in package metadata
+3. shared transcript identifier recovered from CDS FASTA metadata
+4. shared gene identifier recovered from CDS FASTA metadata
 
 The workflow must not default to pairing records by normalized file order.
 If a confident biological linkage cannot be established from the sources above, the record is emitted with a linkage warning rather than silently guessed.
 
-When a confident CDS-to-protein mapping is not available:
-- protein records are still emitted
-- codon extraction is skipped for that record
+Derived-protein policy:
+- normalized CDS records are translated locally and become the canonical protein input for detection
+- translation should follow the retained CDS record and documented translation rules, not an external protein FASTA by default
+- if a CDS record cannot be translated confidently, it is excluded from protein-based detection and emitted as a warning state rather than patched heuristically
 
 ### Isoform selection
 
@@ -145,51 +177,61 @@ This rule is deterministic and easy to validate, even if it does not recover all
 All methods are planned to emit the shared call contract.
 
 Coordinates are 1-based and inclusive in amino-acid space.
-All methods must trim leading and trailing non-`Q` residues from the final called tract.
+All methods must trim leading and trailing non-target residues from the final called tract.
+
+Each run is expected to define either:
+- a target `repeat_residue` for single-residue homorepeats
+- or a residue-derived repeat template for the `blast`-style strategy
 
 ### Pure method
 
 Intent:
-- capture canonical polyQ tracts with at most one single-residue interruption at a time
+- capture canonical homorepeat tracts for the chosen repeat residue, with at most one single-residue interruption at a time
 
 Default rule:
-- detect maximal tracts containing `Q` runs separated by gaps of length at most 1
-- require at least `min_q_count=6`
+- detect maximal tracts containing target-residue runs separated by gaps of length at most 1
+- default `min_repeat_count = 6`
 
 Reported features:
-- `q_count`
-- `non_q_count`
-- `purity = q_count / length`
+- `repeat_count`
+- `non_repeat_count`
+- `purity = repeat_count / length`
 
 ### Threshold method
 
 Intent:
-- capture biologically plausible but slightly impure tracts using a density rule
+- capture biologically plausible but slightly impure tracts for the chosen repeat residue using a density rule
 
 Default rule:
 - sliding window size `8`
-- minimum `Q` count `6`
+- default target-residue count `6` within the window
 - merge overlapping or directly adjacent qualifying windows
 - extend merged candidates while tract purity stays above `0.70`
 
-The default window definition is reported as `Q6/8`.
+The default window definition is expected to be recorded in residue-aware form such as `<residue>6/8`.
 
 ### Blast method
 
 Intent:
-- capture divergent or interrupted Q-rich tracts that resemble a polyQ template
+- capture divergent or interrupted tracts that resemble the configured repeat template
 
 Preferred backend:
-- external `blastp` when available
+- external `blastp` or `diamond blastp`, selected by configuration
+
+Backend notes:
+- `diamond` is an acceptable alternative backend for the similarity-based method in this project
+- backend choice must be recorded in run parameters or metadata
+- backends should not be assumed to be scientifically identical without validation on representative cases
+- no hidden scientific default backend is assumed at the documentation layer; the run configuration must make the backend explicit
 
 v1 fallback backend:
-- deterministic local template scoring against a polyQ template of length `10`
-- score `+2` for `Q`, `-1` for non-`Q`
-- retain positive-scoring segments that satisfy `min_q_count=6`
+- deterministic local template scoring against a configured repeat template of length `10`
+- score `+2` for target-residue matches and `-1` for non-target residues
+- retain positive-scoring segments that satisfy default `min_repeat_count = 6`
 - merge hits when the gap between them is less than or equal to `template_length / 2`
 
 The fallback is explicitly a `blast` contract implementation, not a claim of identical BLAST output.
-Its purpose is to keep the workflow runnable and contract-compatible before a strict `blastp` integration is validated.
+Its purpose is to keep the workflow runnable and contract-compatible during early validation before a production similarity backend is finalized.
 
 ---
 
@@ -200,13 +242,22 @@ Codon extraction is planned to be attempted only when a CDS sequence can be link
 Rules:
 - derive codon coordinates directly from amino-acid coordinates
 - use the normalized CDS sequence as the nucleotide source of truth
-- if translated CDS length disagrees with the retained protein sequence, leave `codon_sequence` empty
-- compute CAG ratio only from glutamine codons within the extracted tract
+- detection should run on proteins derived from validated CDS records by default
+- accepted CDS translation requires conservative validation before a protein is emitted:
+  - translation table from annotation when available, otherwise table `1`
+  - coding length divisible by `3` after terminal-stop handling
+  - no internal stop codons
+  - no unsupported ambiguity that would yield unresolved amino acids
+- if codon slicing or downstream translation checks fail for a retained record, leave `codon_sequence` empty and emit a warning rather than guessing
+- keep residue-specific codon metric fields empty in the first residue-neutral release unless a later contract explicitly enables them
+
+The first release remains residue-neutral even when codon sequence evidence is available.
+Codon extraction may still be retained as groundwork for later residue-specific analysis tracks.
 
 Reported feature semantics:
 - `length` counts the full amino-acid tract after trimming termini
-- `q_count` counts only `Q` residues
-- `non_q_count = length - q_count`
+- `repeat_count` counts only residues matching `repeat_residue`
+- `non_repeat_count = length - repeat_count`
 - `purity` is a decimal fraction in `[0, 1]`
 
 ---
@@ -218,7 +269,7 @@ SQLite is planned to be assembled only after metadata and call files validate.
 v1 rules:
 - create schema from `assets/sql/schema.sql`
 - import flat files inside transactions
-- import method outputs into a unified `poly_calls` table
+- import method outputs into a unified `repeat_calls` table
 - create indexes after bulk import
 - validate row counts and foreign-key reachability after import
 
@@ -232,6 +283,7 @@ SQLite remains a build artifact, not a workspace.
 
 Grouped by:
 - `method`
+- `repeat_residue`
 - `taxon_id`
 - `taxon_name`
 
@@ -241,19 +293,20 @@ Metrics:
 - call counts
 - tract length summary statistics
 - purity summary statistics
-- mean CAG ratio
 - mean start fraction when protein length is known
 
 ### `regression_input.tsv`
 
 Grouped by:
 - `method`
-- `macro_group`
-- `poly_length`
+- `repeat_residue`
+- `group_label`
+- `repeat_length`
 
 For v1:
-- `macro_group` defaults to `taxon_name`
-- a later extension may derive coarser macro-groups from taxonomy lineage
+- regression grouping should default directly to taxon in v1
+- the `group_label` field should mirror `taxon_name` or another explicit taxon label derived directly from the selected taxon grouping
+- curated higher-level macro-groups can be added later as an optional reporting layer
 
 ---
 
@@ -263,7 +316,8 @@ The reporting layer is downstream only.
 
 v1 reporting outputs:
 - a grouped bar chart summarizing calls by taxon and method
-- a line/scatter style chart for mean CAG ratio by polyQ length
+- a length-distribution view by taxon, method, and repeat residue
+- a residue-composition or residue-frequency view across taxa and methods
 - a single reproducible HTML report backed by serialized ECharts options
 
 Rules:
@@ -276,6 +330,10 @@ Rules:
 ## Known v1 boundaries
 
 - NCBI-backed acquisition depends on the `datasets` CLI being installed in the execution environment
-- the `blast` method uses a deterministic fallback when `blastp` is unavailable
+- the `blast` method may use a deterministic fallback during early validation when no production similarity backend is selected or available
 - annotation and domain context are deferred
 - contamination checks are documented but not enforced as a hard failure path
+- the first ECharts rebuild is expected to cover core comparative outputs before supplementary figure families
+- residue-agnostic detection and reporting should exist in v1
+- residue-specific downstream analyses may roll out only after the first residue-neutral release
+- the first repeat-length distribution view should use a histogram or other explicit binned layout rather than a donut-style chart

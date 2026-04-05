@@ -15,8 +15,8 @@ This phase is complete when the project can be described without referring to:
 
 ### Scope
 
-- Is v1 strictly polyQ, or does the repository need placeholders for future homorepeat classes?
-- Is the biological scope still “annotated deuterostome reference assemblies” by default?
+- Is v1 residue-agnostic across homorepeats in both detection and the first reporting release?
+- Is the biological scope taxon-agnostic and configured by taxon name or taxid?
 - Are local inputs a testing/development mode only, or a supported scientific mode?
 
 ### Comparability
@@ -49,7 +49,9 @@ Docs to update:
 - `docs/roadmap.md` only if scope wording needs correction
 
 Deliverables:
-- explicit statement that v1 targets polyQ only
+- explicit statement that v1 supports generic homorepeat detection
+- explicit statement that the first reporting release remains residue-neutral
+- explicit statement that residue-specific downstream analyses are deferred from the first release
 - explicit statement that acquisition starts from NCBI Datasets plus local test mode
 - explicit statement that annotation/domain enrichment is deferred
 
@@ -103,9 +105,9 @@ Planned mitigation:
 
 Non-goals to state clearly:
 - full annotation enrichment
-- support for every repeat class
 - web application features beyond reproducible HTML/JSON reporting
 - aggressive performance tuning before validation
+- custom downstream figure suites for every residue in the first release
 
 Possible problems:
 - implementation effort leaks into domain mapping, UI, or backend generalization
@@ -149,6 +151,4 @@ Before approving Phase 0, confirm:
 
 ## Open questions requiring user decision
 
-1. Should v1 default to Deuterostomia only, or should the rebuilt pipeline already be taxon-agnostic with Deuterostomia as a preset?
-2. Is the BLAST-based method scientifically mandatory for the first runnable version, or can implementation start with pure and threshold while BLAST is specified in detail but deferred?
-3. Which figures from the dissertation are mandatory in the first ECharts reporting rebuild?
+No additional Phase 0 decisions are currently blocking the documentation baseline.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-HomoRepeat is a modular Nextflow-based pipeline for detecting and analyzing homorepeat regions, with an initial focus on polyglutamine (polyQ) tracts.
+HomoRepeat is a modular Nextflow-based pipeline for detecting and analyzing homorepeat regions across repeat residues.
 
 The project is intentionally split into two layers:
 
@@ -21,6 +21,63 @@ Python scripts and small reusable libraries are responsible for:
 - plotting
 
 The goal is to keep the workflow easy to rerun and the scientific logic easy to test independently.
+
+---
+
+## Scientific Scope
+
+### v1 target
+
+Version 1 is scoped to general homorepeat detection and analysis.
+
+The detection, normalization, and first reporting layers are expected to work for any repeat residue.
+
+By default, the scientific target is:
+- user-configurable taxonomic scope defined by taxon name or taxid
+- NCBI-backed acquisition through the Datasets ecosystem
+- taxonomy enrichment using NCBI-derived taxonomy data through `taxon-weaver`
+
+Deuterostomes remain an important reference validation case because the current scientific reference material is strongest there, but they are not the only supported target scope.
+
+Local sequence inputs remain supported for:
+- smoke tests
+- offline development
+- debugging normalization and detection logic
+
+They are not the primary scientific acquisition mode for the rebuild.
+
+### What must remain comparable to the earlier project
+
+The rebuild should preserve comparability at the level of:
+- the three detection strategies and their intended meaning
+- standardized homorepeat call outputs
+- taxon-aware summary tables
+- optional codon-linked outputs that can support later residue-specific analyses
+- the main biological trends for the configured validation case
+
+The rebuild does not need to preserve:
+- legacy code structure
+- undocumented implementation quirks
+- exact intermediate filenames from the old project
+- historical behavior that depended on implicit heuristics rather than stated rules
+
+### Mandatory v1 outputs
+
+The first scientifically valid release is expected to produce:
+- canonical metadata tables
+- standardized `pure`, `threshold`, and `blast` call tables
+- one integrated SQLite database assembled from flat files
+- summary tables and any generic reporting tables needed for residue-neutral outputs
+- reproducible ECharts-ready reporting outputs
+
+### Non-goals for v1
+
+The first release does not need to include:
+- annotation or protein-domain enrichment
+- heavy UI or web application features
+- direct mutation of SQLite during upstream processing
+- premature generalization beyond the current scientific scope
+- fully bespoke downstream figure families for every residue from day one
 
 ---
 
@@ -75,10 +132,12 @@ The pipeline is divided into four main stages:
 This stage is responsible for obtaining and normalizing the biological inputs.
 
 Typical tasks:
-- fetch genome or CDS/protein inputs
-- add taxonomy metadata
+- enumerate and retrieve NCBI-backed assemblies or local test inputs
+- download annotation-focused package contents rather than raw genomic FASTA in v1
+- resolve and enrich taxonomy with `taxon-weaver`
 - run contamination checks
 - normalize metadata
+- translate retained CDS records into canonical protein inputs
 - optionally filter isoforms
 
 ### Detection
@@ -108,7 +167,7 @@ Responsibilities:
 - generate summary tables
 - compute grouped statistics
 - prepare regression inputs
-- render figures
+- render reproducible ECharts outputs
 - export publication-ready outputs
 
 ---
@@ -255,9 +314,9 @@ FETCH_GENOMES
 ADD_TAXONOMY
 FILTER_ISOFORMS
 TRANSLATE_CDS
-FIND_POLY_PURE
-FIND_POLY_THRESHOLD
-FIND_POLY_BLAST
+FIND_REPEAT_PURE
+FIND_REPEAT_THRESHOLD
+FIND_REPEAT_BLAST
 BUILD_SQLITE
 EXPORT_SUMMARIES
 MAKE_PLOTS
@@ -274,7 +333,7 @@ genome_id
 taxon_id
 sequence_id
 protein_id
-poly_id
+call_id
 
 External identifiers may also be stored, but internal IDs should be the stable relational backbone.
 

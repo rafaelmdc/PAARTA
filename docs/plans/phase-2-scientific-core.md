@@ -14,6 +14,10 @@ This phase answers:
 
 If Phase 1 is “what the files mean”, Phase 2 is “what the steps do”.
 
+Phase 2 implementation-gating references:
+- [phase-2/decision-register.md](./phase-2/decision-register.md)
+- [phase-2/worked-examples.md](./phase-2/worked-examples.md)
+
 ---
 
 ## Planned work packages
@@ -26,7 +30,7 @@ Planned scope:
 - enumerate NCBI candidate assemblies
 - download selected data packages
 - retain raw package provenance
-- extract normalized protein/CDS files
+- extract normalized CDS files and derive translated proteins
 - emit canonical metadata tables
 
 Detailed acquisition plan:
@@ -34,7 +38,7 @@ Detailed acquisition plan:
 
 Possible problems:
 - package layouts differ across assemblies or over time
-- annotated proteins exist but CDS files are missing or incomplete
+- CDS files are missing, partial, or inconsistently annotated
 - package parsing becomes dependent on fragile FASTA deflines
 
 Planned mitigation:
@@ -50,6 +54,7 @@ Planned behavior:
 - treat taxids returned by NCBI as authoritative identifiers when present
 - use `taxon-weaver` lineage lookup to enrich `taxonomy.tsv`
 - preserve status/warning information from taxonomy resolution
+- emit fuzzy or otherwise review-required resolutions into a review queue artifact
 
 Possible problems:
 - name-based requests resolve ambiguously
@@ -66,15 +71,16 @@ Planned mitigation:
 Planned behavior:
 - select one isoform per gene per genome
 - prefer longest protein when multiple isoforms remain
-- use GFF-backed joins by default to connect genes, transcripts, CDS, and proteins
+- use GFF-backed joins by default to connect genes, transcripts, and CDS records
+- derive canonical proteins by translating retained CDS records
 - allow metadata-backed or FASTA-backed linkage only as an explicit degraded fallback
-- emit unresolved-linkage warnings when codon extraction will be impossible
+- emit unresolved-linkage or translation warnings when protein-based detection will be impossible
 
 Possible problems:
 - eukaryotic annotations are inconsistent across assemblies
-- some records have proteins without clean transcript or gene identifiers
+- some records have CDS without clean transcript or gene identifiers
 - the “longest isoform” rule may drift from old project behavior
-- fallback sources disagree with GFF-backed relationships
+- fallback sources disagree with GFF-backed relationships or translation expectations
 
 Planned mitigation:
 - make the selection rule deterministic and documented
@@ -84,11 +90,15 @@ Planned mitigation:
 
 ### Work package 2.4: pure detection definition
 
-Questions to freeze:
-- minimum Q count
-- how single-residue interruptions are handled
-- whether adjacent qualifying segments are merged or kept separate
-- whether termini are always trimmed to Q
+Settled defaults:
+- default `min_repeat_count = 6`
+- merge target runs separated by single-residue non-target gaps only
+- non-target gaps of length `>= 2` break the tract
+- trim leading and trailing non-target residues from the final tract
+
+Reference:
+- [phase-2/decision-register.md](./phase-2/decision-register.md)
+- [phase-2/worked-examples.md](./phase-2/worked-examples.md)
 
 Possible problems:
 - the method becomes too permissive and overlaps conceptually with threshold detection
@@ -100,11 +110,15 @@ Planned mitigation:
 
 ### Work package 2.5: threshold detection definition
 
-Questions to freeze:
-- default window size and Q threshold
-- extension rule after a qualifying window is found
-- merge rule for overlapping windows
-- purity threshold during extension
+Settled defaults:
+- default `window_size = 8`
+- default `min_target_count = 6`
+- merge overlapping or directly adjacent qualifying windows
+- extend merged candidates while purity remains `>= 0.70`
+
+Reference:
+- [phase-2/decision-register.md](./phase-2/decision-register.md)
+- [phase-2/worked-examples.md](./phase-2/worked-examples.md)
 
 Possible problems:
 - different extension rules produce materially different tract boundaries
@@ -116,11 +130,16 @@ Planned mitigation:
 
 ### Work package 2.6: BLAST-based detection definition
 
-Questions to freeze:
-- whether real `blastp` is mandatory in the first implementation
-- what template is used
-- how hits are merged
-- what score field means in the shared schema
+Settled defaults:
+- backend is selected explicitly by configuration
+- accepted production backends are `blastp` and `diamond blastp`
+- deterministic fallback remains available during early validation
+- default fallback template length is `10`
+- fallback scoring is `+2` for target residues and `-1` for non-target residues
+
+Reference:
+- [phase-2/decision-register.md](./phase-2/decision-register.md)
+- [phase-2/worked-examples.md](./phase-2/worked-examples.md)
 
 Possible problems:
 - the method is underspecified and cannot be validated
@@ -128,34 +147,43 @@ Possible problems:
 - fallback behavior is confused with true BLAST behavior
 
 Planned mitigation:
-- document the preferred real-BLAST path and any allowed temporary fallback separately
+- document the accepted production backends (`blastp` and/or `diamond blastp`) and any allowed temporary fallback separately
 - record backend type in parameters or metadata
 - define one validation set specifically for BLAST-like edge cases
 
 ### Work package 2.7: codon extraction and repeat feature logic
 
-Questions to freeze:
-- what happens when translated CDS does not match the retained protein
-- whether codon extraction is skipped or partially rescued
-- how CAG ratio is computed for interrupted tracts
-- whether non-Q codons inside a tract are stored unchanged
+Settled defaults:
+- CDS translation is conservative and happens before detection
+- CDS records that cannot be translated confidently are excluded from protein-based detection
+- codon metric fields remain empty in the residue-neutral first release
+- non-target codons inside retained interrupted tracts are preserved unchanged when extraction succeeds
+
+Reference:
+- [phase-2/decision-register.md](./phase-2/decision-register.md)
+- [phase-2/worked-examples.md](./phase-2/worked-examples.md)
 
 Possible problems:
-- codon ratios are computed from invalid sequence alignments
+- translated proteins diverge from intended annotation because translation rules are underspecified
 - off-by-one coordinate bugs corrupt codon extraction silently
+- legacy residue-specific codon assumptions leak into the residue-agnostic core
 
 Planned mitigation:
+- define CDS-to-protein translation rules before detection starts
 - define amino-acid coordinates as the single source for codon slicing
-- require translation cross-checks before codon extraction
-- defer to empty codon output on mismatch rather than guessing
+- exclude records that fail conservative translation validation from protein-based detection rather than mixing sources
+- defer to empty codon output on slicing failure rather than guessing
 
 ### Work package 2.8: database import logic
 
-Questions to freeze:
-- import order
-- transaction boundaries
-- index timing
-- validation failures: warn, skip, or hard-fail
+Settled defaults:
+- validate before import
+- hard-fail on structural import errors
+- import inside transactions
+- build indexes after bulk load
+
+Reference:
+- [phase-2/decision-register.md](./phase-2/decision-register.md)
 
 Possible problems:
 - invalid rows are partially imported
@@ -167,11 +195,14 @@ Planned mitigation:
 
 ### Work package 2.9: summary export logic
 
-Questions to freeze:
-- exact groupings for summary and regression tables
-- macro-group source
-- how mean CAG ratio is handled when codon data is missing
-- whether low-observation groups are filtered upstream or only flagged
+Settled defaults:
+- summary exports group directly by taxon in v1
+- `group_label` mirrors the direct taxon grouping
+- codon metric fields remain empty or omitted in the residue-neutral first release
+- low-observation groups are retained rather than filtered upstream
+
+Reference:
+- [phase-2/decision-register.md](./phase-2/decision-register.md)
 
 Possible problems:
 - reporting code starts inventing biological groupings not present upstream
@@ -180,13 +211,17 @@ Possible problems:
 Planned mitigation:
 - document aggregation semantics and missing-data behavior now
 - keep group derivation in explicit helper logic, not chart code
+- keep the first reporting release residue-neutral even if codon-aware infrastructure exists underneath
 
 ### Work package 2.10: ECharts boundary
 
-What to freeze now:
-- chart inputs come from finalized summary/regression outputs only
+Settled defaults:
+- chart inputs come from finalized tables only
 - chart configs are serialized as inspectable JSON
 - the HTML report is a rendering shell, not the location of scientific logic
+
+Reference:
+- [phase-2/decision-register.md](./phase-2/decision-register.md)
 
 Possible problems:
 - plotting code reimplements grouping/filtering logic
@@ -200,12 +235,8 @@ Planned mitigation:
 
 ## Required written examples before implementation
 
-Before approving Phase 2, the docs should include at least:
-- one pure-method worked example
-- one threshold-method worked example
-- one BLAST-method worked example
-- one CDS/protein mismatch example and expected behavior
-- one ambiguous taxonomy example and expected review behavior
+Implemented here:
+- [phase-2/worked-examples.md](./phase-2/worked-examples.md)
 
 ---
 
@@ -213,7 +244,8 @@ Before approving Phase 2, the docs should include at least:
 
 - `docs/methods.md`
 - `docs/plans/ncbi-acquisition-taxon-weaver.md`
-- optional edge-case note file if the examples become too long for `docs/methods.md`
+- `docs/plans/phase-2/decision-register.md`
+- `docs/plans/phase-2/worked-examples.md`
 
 ---
 
@@ -225,6 +257,11 @@ Phase 2 is done when:
 - taxonomy behavior is conservative and explicit
 - the report layer has documented upstream inputs
 - implementation could start without inventing new method rules
+
+Current status:
+- the required decision register exists
+- the required worked examples exist
+- contamination policy is settled as note-only for v1
 
 ---
 
@@ -239,8 +276,6 @@ Before approving Phase 2, confirm:
 
 ---
 
-## Open questions requiring user decision
+## Phase 2 status
 
-1. Should unresolved CDS/protein mismatches drop the affected call entirely, or keep the amino-acid call with empty codon fields?
-2. Is contamination checking a documented note-only step in v1, or a hard validation gate?
-3. For BLAST, do you want the first implementation to wait for a real `blastp` path, or is a temporary documented fallback acceptable while validation is being built?
+No remaining Phase 2 blockers are recorded in the scientific-core docs.

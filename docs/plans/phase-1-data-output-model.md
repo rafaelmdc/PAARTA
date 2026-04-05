@@ -61,15 +61,16 @@ Decisions to freeze:
 - one biological row unit per table
 - which fields are required versus optional
 - whether absent CDS data is allowed and how it is represented
-- whether taxonomy lineage is stored as text, JSON, or both
+- taxonomy lineage is stored as a readable delimited string in v1
 
 Possible problems:
 - sequence-to-protein linkage is under-specified
+- locally translated proteins are not distinguished cleanly from externally provided proteins
 - acquisition outputs become impossible to validate because nullable behavior is vague
 
 Planned mitigation:
 - define null semantics explicitly
-- document fallback behavior when CDS-to-protein linkage is missing or partial
+- document fallback behavior when CDS normalization or translation is missing or partial
 - state one normalization authority explicitly: GFF-backed joins first, metadata second, FASTA headers last
 
 ### Work package 1.3: freeze detection-call schema
@@ -80,6 +81,7 @@ Tables/files:
 - `blast_calls.tsv`
 
 Decisions to freeze:
+- residue-agnostic required columns for homorepeat calls
 - coordinate system
 - purity semantics
 - codon sequence semantics
@@ -87,12 +89,14 @@ Decisions to freeze:
 - provenance fields for method settings
 
 Possible problems:
+- the current draft remains residue-biased and leaks residue-specific assumptions into the canonical schema
 - methods end up emitting comparable-looking but semantically incompatible fields
 - later summary code has to branch by method because the shared schema is not actually shared
 
 Planned mitigation:
 - define one required shared core
 - keep method-specific extras optional and clearly named
+- generalize residue-specific draft fields before treating the contract as stable
 
 ### Work package 1.4: freeze SQLite ownership
 
@@ -101,7 +105,7 @@ Database artifacts:
 - `assets/sql/indexes.sql`
 
 Decisions to freeze:
-- unified `poly_calls` table versus one table per method
+- unified `repeat_calls` table versus one table per method
 - foreign-key relationships
 - import order
 - which integrity checks are mandatory post-import
@@ -124,13 +128,13 @@ Outputs:
 
 Decisions to freeze:
 - grouping keys
-- codon ratio field semantics
-- macro-group derivation source
+- generic codon-metric field semantics
+- report-group derivation source
 - how chart configs are serialized
 
 Possible problems:
 - charts need fields that are not present in the summaries
-- macro-group logic is hidden inside plotting code instead of documented upstream
+- report-group logic is hidden inside plotting code instead of documented upstream
 
 Planned mitigation:
 - define chart input tables before plotting starts
@@ -143,11 +147,11 @@ Planned mitigation:
 The following must be finalized before coding:
 - whether `taxon_id` is stored as NCBI taxid directly
 - whether `genome_id`, `sequence_id`, and `protein_id` are deterministic internal IDs or preserved accessions
-- how `poly_id` is generated and whether it must be reproducible across reruns with the same inputs
+- how `call_id` is generated and whether it must be reproducible across reruns with the same inputs
 
 Recommended direction:
 - keep `taxon_id` as NCBI taxid when available
-- use internal deterministic IDs for genome/sequence/protein/poly rows
+- use internal deterministic IDs for genome/sequence/protein/call rows
 - preserve source accessions in separate columns or metadata
 
 Possible problems:
@@ -180,7 +184,7 @@ Planned mitigation:
 - no negative lengths
 - no purity outside `[0, 1]`
 - no `start > end`
-- `q_count + non_q_count = length`
+- `repeat_count + non_repeat_count = length`
 
 ### Reporting validation
 
@@ -229,8 +233,9 @@ Before approving Phase 1, confirm:
 
 ---
 
-## Open questions requiring user decision
+## Phase 1 status
 
-1. Should `taxonomy.tsv.lineage` be a readable delimited string, JSON, or both?
-2. Should `summary_by_taxon.tsv` be taxon-level only in v1, or also emit family/order-level summaries from the start?
-3. Should the report layer serialize one combined ECharts options file or one JSON file per chart?
+Settled defaults:
+1. `taxonomy.tsv.lineage` should be a readable delimited string in v1.
+2. `summary_by_taxon.tsv` is taxon-level only in v1.
+3. the report layer serializes one combined `echarts_options.json` keyed by chart name.

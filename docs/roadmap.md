@@ -50,6 +50,7 @@ Write down exactly what the new pipeline is supposed to do, independent of the o
 ### Tasks
 - define the biological scope of the pipeline
 - define which repeat types are in scope for v1
+- state explicitly that the first reporting release is residue-neutral
 - define the three detection strategies conceptually
 - define the required metadata and outputs
 - define which analyses and figures are in scope
@@ -249,11 +250,11 @@ Make the project easy to run, inspect, and maintain.
 Prepare the project for later expansion without blocking v1.
 
 ### Possible extensions
-- support additional homorepeat types beyond polyQ
 - add functional annotation integration
 - add protein domain context
 - add richer database exports
 - add better comparative analysis layers
+- add richer residue-specific downstream analyses and figure families
 - add support for alternative databases or backends if needed
 
 ### Rule

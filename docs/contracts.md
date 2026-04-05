@@ -44,7 +44,7 @@ The following internal identifiers are recommended:
 - `taxon_id`
 - `sequence_id`
 - `protein_id`
-- `poly_id`
+- `call_id`
 
 Rules:
 - internal IDs must be stable within a pipeline run
@@ -66,7 +66,7 @@ Required columns:
 
 Source-specific required columns:
 - for `source=ncbi_datasets`: `accession`
-- for `source=local`: `protein_fasta`
+- for `source=local`: at least one of `cds_fasta` or `protein_fasta`
 
 Optional columns:
 - `accession`
@@ -76,6 +76,7 @@ Optional columns:
 - `taxon_name`
 - `parent_taxon_id`
 - `lineage`
+- `annotation_gff`
 - `cds_fasta`
 - `protein_fasta`
 - `notes`
@@ -84,6 +85,7 @@ Rules:
 - `source` must currently be one of: `ncbi_datasets`, `local`
 - rows in `acquisition_targets.tsv` are intent records, not downstream biological entities
 - local-mode paths must be readable from the execution environment
+- local mode should prefer `cds_fasta` plus `annotation_gff` when translation-driven normalization is desired
 - NCBI mode must retain the downloaded package path in `genomes.tsv.download_path`
 
 ### Output: `genomes.tsv`
@@ -122,13 +124,16 @@ Optional columns:
 - `lineage`
 - `source`
 
+Lineage format in v1:
+- `lineage` is a readable delimited string, not a JSON payload
+
 ---
 
 ## Sequence contract
 
 ### Output: `sequences.tsv`
 
-One row per nucleotide sequence or CDS.
+One row per retained CDS or other nucleotide sequence used as a translation source.
 
 Required columns:
 - `sequence_id`
@@ -148,7 +153,7 @@ Optional columns:
 
 ### Output: `proteins.tsv`
 
-One row per translated or provided protein.
+One row per locally translated or explicitly provided protein.
 
 Required columns:
 - `protein_id`
@@ -161,6 +166,7 @@ Required columns:
 Optional columns:
 - `gene_symbol`
 - `translation_method`
+- `translation_status`
 
 ---
 
@@ -174,7 +180,7 @@ Optional columns:
 Each row represents one detected homorepeat region.
 
 Required columns:
-- `poly_id`
+- `call_id`
 - `method`
 - `genome_id`
 - `taxon_id`
@@ -183,14 +189,16 @@ Required columns:
 - `start`
 - `end`
 - `length`
-- `q_count`
-- `non_q_count`
+- `repeat_residue`
+- `repeat_count`
+- `non_repeat_count`
 - `purity`
 - `aa_sequence`
 
 Optional but strongly recommended columns:
 - `codon_sequence`
-- `repeat_residue`
+- `codon_metric_name`
+- `codon_metric_value`
 - `window_definition`
 - `template_name`
 - `merge_rule`
@@ -200,7 +208,8 @@ Optional but strongly recommended columns:
 ### Rules
 - `method` must be one of: `pure`, `threshold`, `blast`
 - `start` and `end` use the same coordinate system across all methods
-- `length` is the total tract length, including non-Q residues if the method definition allows them
+- `repeat_residue` is the targeted amino-acid residue for the call
+- `length` is the total tract length, including non-target residues if the method definition allows them
 - `purity` is a numeric fraction from 0 to 1
 - `aa_sequence` must reflect the called tract sequence exactly
 
@@ -232,6 +241,7 @@ One row per taxon and method.
 
 Required columns:
 - `method`
+- `repeat_residue`
 - `taxon_id`
 - `taxon_name`
 - `n_genomes`
@@ -239,9 +249,10 @@ Required columns:
 - `n_calls`
 - `mean_length`
 - `mean_purity`
-- `mean_cag_ratio`
 
 Optional columns:
+- `codon_metric_name`
+- `mean_codon_metric`
 - `median_length`
 - `max_length`
 - `mean_start_fraction`
@@ -256,14 +267,16 @@ One row per grouped observation used in downstream regression.
 
 Required columns:
 - `method`
-- `macro_group`
-- `poly_length`
-- `mean_cag_ratio`
+- `repeat_residue`
+- `group_label`
+- `repeat_length`
 - `n_observations`
 
 Optional columns:
+- `codon_metric_name`
+- `mean_codon_metric`
 - `filtered_max_length`
-- `transformed_codon_ratio`
+- `transformed_codon_metric`
 
 ---
 
@@ -289,11 +302,11 @@ The initial v1 database schema owns the following tables:
 - `taxonomy`
 - `sequences`
 - `proteins`
-- `poly_calls`
+- `repeat_calls`
 - `run_params`
 
 Rules:
-- `poly_calls` is the unified import target for `pure_calls.tsv`, `threshold_calls.tsv`, and `blast_calls.tsv`
+- `repeat_calls` is the unified import target for `pure_calls.tsv`, `threshold_calls.tsv`, and `blast_calls.tsv`
 - flat files remain the canonical exchange artifacts even after import
 - table and index definitions live under `assets/sql/`
 
