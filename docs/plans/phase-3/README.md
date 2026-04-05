@@ -3,6 +3,8 @@
 This folder contains the implementation-oriented documents for Phase 3.
 
 Contents:
+- `../../acquisition.md`
+  The current implemented acquisition behavior, including default ignore/exclude rules and live-smoke status.
 - `acquisition-implementation.md`
   The explicit download, rehydration, normalization, translation, and batch-merge plan for Phase 3.
 - `cli-contracts.md`
@@ -26,6 +28,7 @@ These documents assume that:
 - Phase 0 scope is frozen
 - Phase 1 contracts are frozen
 - Phase 2 scientific defaults are frozen
+- Docker is the current reproducible runtime baseline for external tool dependencies
 
 The Phase 2 implementation gate remains:
 - [../phase-2/decision-register.md](../phase-2/decision-register.md)

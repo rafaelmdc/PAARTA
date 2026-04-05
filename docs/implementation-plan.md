@@ -105,6 +105,18 @@ Planned use:
 - fetch lineage for taxids returned by NCBI assembly metadata
 - keep fuzzy suggestions as review-only, not silent auto-accepts
 
+### Runtime environment
+
+Planned baseline:
+- Docker image(s) are the first reproducible runtime layer
+- acquisition tooling is pinned in a dedicated acquisition image
+- the taxonomy DB and NCBI caches remain external runtime artifacts
+- cluster-oriented container execution can be added later without changing the core toolchain contract
+
+Reason:
+- it removes dependence on undocumented local environments before Nextflow wrapping exists
+- it gives the future workflow layer one stable runtime target to bind to
+
 ### Similarity backend
 
 Planned source of truth:

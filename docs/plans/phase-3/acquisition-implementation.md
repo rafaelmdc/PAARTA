@@ -16,6 +16,9 @@ It covers the part of Phase 3 that:
 This is the front half of Phase 3.
 Detection, SQLite assembly, and reporting depend on it.
 
+For the current implemented behavior, including ignore rules and live-smoke observations, see:
+- [../../acquisition.md](../../acquisition.md)
+
 ---
 
 ## Core rule
@@ -81,6 +84,7 @@ Responsibilities:
 - enumerate RefSeq assemblies from NCBI metadata
 - prefer RefSeq reference assemblies
 - allow RefSeq representative assemblies when no suitable reference exists
+- allow annotated uncategorized RefSeq rows when they still satisfy the v1 automated-processing requirements
 - exclude assemblies lacking the annotation needed for v1 automatic processing
 
 Likely problems:
@@ -142,6 +146,7 @@ Responsibilities:
 - use dehydrated downloads for large runs
 - rehydrate explicitly before normalization
 - record batch-level provenance
+- do not download raw genomic FASTA in the canonical v1 path
 
 Likely problems:
 - interrupted downloads
@@ -173,6 +178,7 @@ Per-batch outputs:
 Responsibilities:
 - parse package metadata
 - parse GFF-backed relationships
+- filter normalized molecules to `Primary Assembly` and `non-nuclear` sequence-report entries
 - retain one isoform per gene
 - translate retained CDS conservatively
 - exclude invalid CDS translations with warning codes
@@ -185,6 +191,7 @@ Likely problems:
 Mitigation:
 - treat GFF as the primary authority
 - preserve degraded states explicitly
+- resolve rearrangement-dependent immune segment CDS rows through an explicit GFF gene-segment alias rule instead of broad fuzzy matching
 - exclude translation failures instead of substituting external protein sequences silently
 
 ---

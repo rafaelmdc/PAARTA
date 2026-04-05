@@ -204,6 +204,7 @@ Purpose:
 
 Required inputs:
 - batch-local package directory
+- taxonomy DB path for `taxon-weaver` lineage enrichment
 
 Required outputs:
 - batch-local `genomes.tsv`
@@ -215,6 +216,7 @@ Required outputs:
 Must encode:
 - deterministic IDs
 - linkage warning rows
+- taxonomy rows derived from `taxon-weaver` lineage inspection
 
 Must not:
 - translate CDS

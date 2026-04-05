@@ -74,11 +74,12 @@ Two acquisition modes are supported in the same manifest contract:
 
 ### NCBI-backed acquisition
 
-The planned acquisition step uses the NCBI `datasets` CLI for assembly/package retrieval and `taxon-weaver` as the canonical local taxonomy layer.
+The current production acquisition path uses the NCBI `datasets` CLI for assembly/package retrieval and `taxon-weaver` as the canonical local taxonomy layer.
 
-Current intent:
+Current behavior:
 - enumerate candidate assemblies from NCBI metadata before downloading sequence packages
-- request reference assemblies by accession
+- select `RefSeq` current annotated assemblies only
+- prefer `reference genome`, allow `representative genome`, and still accept annotated uncategorized RefSeq rows
 - download annotation-focused package contents: CDS, GFF3, and metadata reports
 - avoid raw genomic FASTA in v1
 - translate retained CDS records locally into canonical protein FASTA for detection
@@ -86,6 +87,9 @@ Current intent:
 - normalize package contents into the canonical TSVs and normalized FASTA files
 
 The implementation should tolerate either a hydrated local package or an already-downloaded package directory.
+
+Current implementation details and ignore rules live in:
+- [acquisition.md](./acquisition.md)
 
 ### Local acquisition
 
@@ -145,18 +149,24 @@ Default normalization authority:
 3. CDS FASTA header metadata only as a documented fallback
 
 The preferred linkage order is:
-1. GFF-backed CDS/transcript/gene relationships
-2. explicit transcript or gene linkage carried in package metadata
-3. shared transcript identifier recovered from CDS FASTA metadata
-4. shared gene identifier recovered from CDS FASTA metadata
+1. GFF transcript-like aliases
+2. GFF protein aliases
+3. GFF CDS ID aliases
+4. GFF gene-segment alias `cds-<gene_symbol>` for rearrangement-dependent immune segment CDS rows lacking transcript and protein IDs
+5. CDS FASTA header fallback with warning
 
 The workflow must not default to pairing records by normalized file order.
 If a confident biological linkage cannot be established from the sources above, the record is emitted with a linkage warning rather than silently guessed.
+
+Default molecule filter:
+- normalize only sequence-report rows in `Primary Assembly` and `non-nuclear`
+- ignore alternate loci and patch units in the canonical v1 path
 
 Derived-protein policy:
 - normalized CDS records are translated locally and become the canonical protein input for detection
 - translation should follow the retained CDS record and documented translation rules, not an external protein FASTA by default
 - if a CDS record cannot be translated confidently, it is excluded from protein-based detection and emitted as a warning state rather than patched heuristically
+- immune receptor segment rows that link successfully but remain `partial` are kept in normalized CDS outputs and excluded from retained protein outputs
 
 ### Isoform selection
 

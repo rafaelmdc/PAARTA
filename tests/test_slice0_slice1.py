@@ -10,7 +10,10 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from lib.fasta_io import extract_ncbi_molecule_accession, parse_ncbi_fasta_header
+from lib.gff_norm import build_gff_index, resolve_linkage
 from lib.ids import stable_id
+from lib.ncbi_datasets import project_assembly_record
 from lib.tsv_io import read_tsv, write_tsv
 from lib.warnings import build_warning_row
 
@@ -51,6 +54,84 @@ class SliceZeroHelpersTest(unittest.TestCase):
         self.assertEqual(row["warning_scope"], "sequence")
         self.assertEqual(row["sequence_id"], "seq_001")
         self.assertEqual(row["protein_id"], "")
+
+    def test_project_assembly_record_accepts_snake_case_datasets_payload(self) -> None:
+        row = project_assembly_record(
+            {
+                "request_id": "req_001",
+                "matched_taxid": "9606",
+                "matched_name": "Homo sapiens",
+                "input_type": "assembly_accession",
+            },
+            {
+                "accession": "GCF_000001405.40",
+                "current_accession": "GCF_000001405.40",
+                "source_database": "SOURCE_DATABASE_REFSEQ",
+                "assembly_info": {
+                    "assembly_level": "Chromosome",
+                    "assembly_type": "haploid-with-alt-loci",
+                    "assembly_status": "current",
+                    "refseq_category": "reference genome",
+                },
+                "annotation_info": {"status": "Updated annotation"},
+                "organism": {"tax_id": 9606, "organism_name": "Homo sapiens"},
+            },
+        )
+        self.assertEqual(row["source_database"], "REFSEQ")
+        self.assertEqual(row["assembly_status"], "current")
+        self.assertEqual(row["annotation_status"], "annotated:Updated annotation")
+        self.assertEqual(row["organism_name"], "Homo sapiens")
+        self.assertEqual(row["taxid"], "9606")
+
+    def test_parse_ncbi_fasta_header_handles_nested_brackets(self) -> None:
+        header = (
+            "lcl|NC_000001.11_cds_NP_001394290.1_1456 "
+            "[gene=SDHB] "
+            "[protein=succinate dehydrogenase [ubiquinone] iron-sulfur subunit, mitochondrial isoform 2] "
+            "[protein_id=NP_001394290.1] "
+            "[gbkey=CDS]"
+        )
+        metadata = parse_ncbi_fasta_header(header)
+        self.assertEqual(metadata["record_id"], "NC_000001.11_cds_NP_001394290.1_1456")
+        self.assertEqual(metadata["protein_id"], "NP_001394290.1")
+        self.assertEqual(
+            metadata["protein"],
+            "succinate dehydrogenase [ubiquinone] iron-sulfur subunit, mitochondrial isoform 2",
+        )
+        self.assertEqual(
+            extract_ncbi_molecule_accession(metadata["record_id"]),
+            "NC_000001.11",
+        )
+
+    def test_resolve_linkage_handles_gene_segment_cds_without_protein_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            gff_path = Path(tmpdir) / "segment.gff"
+            gff_path.write_text(
+                "\n".join(
+                    [
+                        "NC_000002.12\tCurated Genomic\tgene\t1\t100\t.\t-\t.\tID=gene-IGKC;gene=IGKC",
+                        "NC_000002.12\tCurated Genomic\tC_gene_segment\t1\t100\t.\t-\t.\tID=id-IGKC;Parent=gene-IGKC;gene=IGKC;standard_name=IGKC",
+                        "NC_000002.12\tCurated Genomic\tCDS\t1\t100\t.\t-\t2\tID=cds-IGKC;Parent=id-IGKC;gene=IGKC;partial=true",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            metadata = parse_ncbi_fasta_header(
+                "lcl|NC_000002.12_cds_16040 "
+                "[gene=IGKC] "
+                "[frame=3] "
+                "[partial=5'] "
+                "[exception=rearrangement required for product] "
+                "[location=complement(88857361..>88857683)] "
+                "[gbkey=CDS]"
+            )
+            linkage = resolve_linkage(metadata, build_gff_index(gff_path))
+            self.assertIsNotNone(linkage)
+            assert linkage is not None
+            self.assertEqual(linkage.gene_symbol, "IGKC")
+            self.assertEqual(linkage.source_record_id, "cds-IGKC")
+            self.assertEqual(linkage.match_source, "gff_gene_segment_alias")
 
 
 class SliceOneCliTest(unittest.TestCase):

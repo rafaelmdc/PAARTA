@@ -1,0 +1,16 @@
+.git
+.gitignore
+.idea
+__pycache__/
+bin/__pycache__/
+lib/__pycache__/
+tests/__pycache__/
+.pytest_cache/
+.nextflow*
+work/
+runs/
+dist/
+build/
+*.pyc
+*.pyo
+*.pyd

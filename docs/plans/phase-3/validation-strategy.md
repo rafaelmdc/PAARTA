@@ -65,6 +65,10 @@ Use for:
 Why:
 - this is the nearest substitute for Phase 4 workflow checks without introducing workflow orchestration yet
 
+Current implementation note:
+- the live acquisition smoke check is intentionally opt-in and lives outside the default unit-test suite
+- see [live-smoke.md](../../live-smoke.md) and `scripts/smoke_live_acquisition.sh`
+
 ---
 
 ## Validation targets by slice

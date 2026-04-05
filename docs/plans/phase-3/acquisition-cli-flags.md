@@ -236,6 +236,8 @@ Normalize one batch-local package directory into canonical acquisition outputs.
 
 - `--package-dir`
   Path to the batch-local rehydrated package directory.
+- `--taxonomy-db`
+  Path to the local `taxon-weaver` SQLite taxonomy DB used for lineage enrichment.
 - `--batch-id`
 - `--outdir`
   Batch-local normalized output directory.
@@ -245,6 +247,8 @@ Normalize one batch-local package directory into canonical acquisition outputs.
 - `--log-file`
 - `--warning-out`
   Explicit warning path when not using the canonical filename under `--outdir`.
+- `--taxon-weaver-bin`
+  Path to the `taxon-weaver` executable when it is not on `PATH`.
 
 ### Required outputs
 
@@ -259,6 +263,7 @@ Normalize one batch-local package directory into canonical acquisition outputs.
 ```bash
 bin/normalize_cds.py \
   --package-dir runs/run_001/batches/batch_0001/raw/ncbi_package \
+  --taxonomy-db cache/taxonomy/ncbi_taxonomy.sqlite \
   --batch-id batch_0001 \
   --outdir runs/run_001/batches/batch_0001/normalized
 ```
