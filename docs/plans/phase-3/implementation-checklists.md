@@ -73,7 +73,7 @@ They are meant to prevent “mostly works” milestones from slipping through.
 - backend identity is written to `run_params.tsv`
 - deterministic fallback exists as `template_local`
 - fallback score semantics are not mislabeled as bit scores
-- `blastp` and `diamond blastp` adapters are isolated from fallback logic
+- `diamond blastp` adapter is isolated from fallback logic
 - worked example output matches the documented fallback example
 
 ---

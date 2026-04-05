@@ -18,6 +18,7 @@ NCBI_CACHE_DIR="${NCBI_CACHE_DIR:-}"
 
 SMOKE_TAXON_NAME="${HOMOREPEAT_SMOKE_TAXON_NAME:-Homo sapiens}"
 SMOKE_ACCESSION="${HOMOREPEAT_SMOKE_ACCESSION:-GCF_000001405.40}"
+SMOKE_REPEAT_RESIDUE="${HOMOREPEAT_SMOKE_REPEAT_RESIDUE:-Q}"
 
 fail() {
   echo "smoke failure: $*" >&2
@@ -71,8 +72,10 @@ PLANNING_DIR="$RUN_ROOT/planning"
 BATCH_RAW_DIR="$RUN_ROOT/batches/batch_0001/raw"
 BATCH_NORMALIZED_DIR="$RUN_ROOT/batches/batch_0001/normalized"
 MERGED_DIR="$RUN_ROOT/merged/acquisition"
+DETECTION_DIR="$RUN_ROOT/merged/calls"
+CODON_DIR="$RUN_ROOT/merged/calls_with_codons"
 
-mkdir -p "$TAXONOMY_CHECK_DIR" "$PLANNING_DIR" "$BATCH_RAW_DIR" "$BATCH_NORMALIZED_DIR" "$MERGED_DIR"
+mkdir -p "$TAXONOMY_CHECK_DIR" "$PLANNING_DIR" "$BATCH_RAW_DIR" "$BATCH_NORMALIZED_DIR" "$MERGED_DIR" "$DETECTION_DIR" "$CODON_DIR"
 
 cat > "$TAXONOMY_CHECK_DIR/requested_taxa.tsv" <<EOF
 request_id	input_value	input_type	provided_rank	selection_policy	notes
@@ -198,6 +201,48 @@ for key in [
 ]:
     if not payload.get("checks", {}).get(key, False):
         raise SystemExit(f"validation check failed: {key}")
+PY
+
+echo "smoke: running pure detection for codon extraction check"
+run_py "$ROOT_DIR/bin/detect_pure.py" \
+  --proteins-tsv "$MERGED_DIR/proteins.tsv" \
+  --proteins-fasta "$MERGED_DIR/proteins.faa" \
+  --repeat-residue "$SMOKE_REPEAT_RESIDUE" \
+  --outdir "$DETECTION_DIR"
+
+assert_tsv_has_data_rows "$DETECTION_DIR/pure_calls.tsv"
+
+echo "smoke: extracting codons for pure calls"
+run_py "$ROOT_DIR/bin/extract_repeat_codons.py" \
+  --calls-tsv "$DETECTION_DIR/pure_calls.tsv" \
+  --sequences-tsv "$MERGED_DIR/sequences.tsv" \
+  --cds-fasta "$MERGED_DIR/cds.fna" \
+  --outdir "$CODON_DIR"
+
+assert_tsv_has_data_rows "$CODON_DIR/pure_calls.tsv"
+assert_nonempty_file "$CODON_DIR/pure_calls_codon_warnings.tsv"
+
+run_py - <<'PY' "$CODON_DIR/pure_calls.tsv"
+import csv, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8", newline="") as handle:
+    rows = list(csv.DictReader(handle, delimiter="\t"))
+if not rows:
+    raise SystemExit("expected codon-enriched pure calls to be non-empty")
+success_count = 0
+for row in rows:
+    codon_sequence = row.get("codon_sequence", "")
+    codon_metric_name = row.get("codon_metric_name", "")
+    codon_metric_value = row.get("codon_metric_value", "")
+    length = int(row["length"])
+    if codon_metric_name or codon_metric_value:
+        raise SystemExit("v1 smoke found unexpected codon metric fields")
+    if codon_sequence:
+        success_count += 1
+        if len(codon_sequence) != length * 3:
+            raise SystemExit("codon extraction length mismatch in smoke output")
+if success_count < 1:
+    raise SystemExit("expected at least one successful codon extraction in smoke output")
 PY
 
 echo "smoke: completed successfully"

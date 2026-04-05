@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the opt-in live acquisition smoke check for the current standalone Phase 3 implementation.
+This document defines the opt-in live acquisition and codon-enrichment smoke check for the current standalone Phase 3 implementation.
 
 It exists because:
 - routine tests should stay deterministic and offline
@@ -25,12 +25,15 @@ The current live smoke check verifies:
    - `normalize_cds.py`
    - `translate_cds.py`
    - `merge_acquisition_batches.py`
-3. canonical acquisition outputs are non-empty and structurally sane
+3. one real residue can pass through:
+   - `detect_pure.py`
+   - `extract_repeat_codons.py`
+4. canonical acquisition outputs and codon-enriched call outputs are non-empty and structurally sane
 
 It does not currently test:
 - large taxon enumeration
 - multi-batch retry behavior under real failure
-- BLAST/DIAMOND
+- threshold or similarity detection backends
 - Nextflow orchestration
 
 ---
@@ -77,10 +80,16 @@ Optional:
   Defaults to `Homo sapiens`
 - `HOMOREPEAT_SMOKE_ACCESSION`
   Defaults to `GCF_000001405.40`
+- `HOMOREPEAT_SMOKE_REPEAT_RESIDUE`
+  Defaults to `Q`
 
 Why the accession default is explicit:
 - it keeps the live smoke bounded to one accession
 - it avoids accidentally enumerating an entire broad taxon during the real acquisition check
+
+Why the residue default is explicit:
+- the codon-enrichment step needs at least one real detected call
+- `Q` on the default human accession is expected to yield a bounded but non-empty pure-call set
 
 ---
 
@@ -123,6 +132,11 @@ The smoke check passes only if:
 - merged `genomes.tsv`, `taxonomy.tsv`, `sequences.tsv`, and `proteins.tsv` are non-empty
 - merged `acquisition_validation.json` has status `pass` or `warn`
 - all structural validation checks in that JSON are `true`
+- `pure_calls.tsv` is non-empty for the chosen smoke residue
+- codon-enriched `pure_calls.tsv` is non-empty
+- at least one smoke call has a non-empty `codon_sequence`
+- every non-empty smoke `codon_sequence` has length `3 * length`
+- `codon_metric_name` and `codon_metric_value` remain empty in the smoke output
 
 Warnings are allowed.
 Structural failure is not.

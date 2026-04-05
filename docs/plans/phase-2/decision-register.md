@@ -135,13 +135,12 @@ Interpretation note:
 Settled defaults:
 - the production backend is selected explicitly by configuration
 - accepted production backends:
-  - `blastp`
   - `diamond blastp`
 - backend identity must be recorded in `run_params.tsv`
 - no hidden global backend default should exist in the scientific spec
 
 Score semantics:
-- for `blastp` or `diamond blastp`, `score` stores the backend bit score
+- for `diamond blastp`, `score` stores the backend bit score
 - for the deterministic fallback, `score` stores the local template score
 - scores are comparable only within the same backend and run context
 
@@ -155,7 +154,7 @@ Deterministic fallback for early validation:
 
 Why this is the default:
 - it preserves a runnable similarity path before production backend validation is complete
-- it keeps `diamond` explicitly allowed without claiming it is identical to `blastp`
+- it keeps `diamond` explicitly allowed without claiming it is identical to the local fallback
 
 ---
 

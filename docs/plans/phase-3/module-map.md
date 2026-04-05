@@ -53,7 +53,7 @@ The goal is to stop implementation from scattering responsibilities across rando
   Emit `threshold_calls.tsv`.
 
 - `bin/detect_blast.py`
-  Emit `blast_calls.tsv` using either `template_local`, `blastp`, or `diamond blastp`.
+  Emit `blast_calls.tsv` using either `template_local` or `diamond blastp`.
 
 - `bin/extract_repeat_codons.py`
   Join calls back to CDS rows and populate codon fields conservatively.

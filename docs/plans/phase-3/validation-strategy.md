@@ -67,6 +67,7 @@ Why:
 
 Current implementation note:
 - the live acquisition smoke check is intentionally opt-in and lives outside the default unit-test suite
+- the same smoke now also exercises one detection path plus codon extraction on live acquisition outputs
 - see [live-smoke.md](../../live-smoke.md) and `scripts/smoke_live_acquisition.sh`
 
 ---

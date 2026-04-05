@@ -170,7 +170,7 @@ score            10
 ```
 
 Interpretation note:
-- for production `blastp` or `diamond blastp`, the same biological region could be recovered with backend-native bit scores instead of the local fallback score
+- for production `diamond blastp`, the same biological region could be recovered with backend-native bit scores instead of the local fallback score
 
 Why this matters:
 - it demonstrates the intended niche of the similarity-based strategy

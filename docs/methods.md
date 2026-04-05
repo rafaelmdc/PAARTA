@@ -226,12 +226,12 @@ Intent:
 - capture divergent or interrupted tracts that resemble the configured repeat template
 
 Preferred backend:
-- external `blastp` or `diamond blastp`, selected by configuration
+- external `diamond blastp`, selected by configuration
 
 Backend notes:
-- `diamond` is an acceptable alternative backend for the similarity-based method in this project
+- `diamond blastp` is the planned production external backend for the similarity-based method in this project
 - backend choice must be recorded in run parameters or metadata
-- backends should not be assumed to be scientifically identical without validation on representative cases
+- the fallback and `diamond` backend should not be assumed to be scientifically identical without validation on representative cases
 - no hidden scientific default backend is assumed at the documentation layer; the run configuration must make the backend explicit
 
 v1 fallback backend:

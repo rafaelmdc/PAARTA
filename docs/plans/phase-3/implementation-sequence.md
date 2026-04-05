@@ -210,8 +210,7 @@ Goal:
 
 Implementation order inside this slice:
 1. deterministic fallback (`template_local`)
-2. backend adapter for `blastp`
-3. backend adapter for `diamond blastp`
+2. backend adapter for `diamond blastp`
 
 Why this order:
 - it keeps the method runnable early
@@ -220,7 +219,7 @@ Why this order:
 Likely problems:
 - fallback behavior gets treated as scientifically identical to BLAST
 - backend-native scores are mixed with fallback scores without labeling
-- environment setup for `blastp` or `diamond` becomes the blocker for all remaining work
+- environment setup for `diamond` becomes the blocker for all remaining work
 
 Planned mitigation:
 - always record backend identity in `run_params.tsv`

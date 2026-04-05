@@ -131,7 +131,7 @@ Planned mitigation:
 
 Settled defaults:
 - backend is selected explicitly by configuration
-- accepted production backends are `blastp` and `diamond blastp`
+- accepted production external backend is `diamond blastp`
 - deterministic fallback remains available during early validation
 - default fallback template length is `10`
 - fallback scoring is `+2` for target residues and `-1` for non-target residues
@@ -146,7 +146,7 @@ Possible problems:
 - fallback behavior is confused with true BLAST behavior
 
 Planned mitigation:
-- document the accepted production backends (`blastp` and/or `diamond blastp`) and any allowed temporary fallback separately
+- document the accepted production backend (`diamond blastp`) and the allowed temporary fallback separately
 - record backend type in parameters or metadata
 - define one validation set specifically for BLAST-like edge cases
 

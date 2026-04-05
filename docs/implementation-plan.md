@@ -120,12 +120,12 @@ Reason:
 ### Similarity backend
 
 Planned source of truth:
-- configurable production backend using `blastp` or `diamond blastp`
+- configurable production backend using `diamond blastp`
 
 Planned use:
 - record the selected backend in run metadata or parameter outputs
 - allow a deterministic local fallback only during early validation
-- validate representative cases before treating backend outputs as interchangeable
+- validate representative cases before treating fallback and `diamond` outputs as interchangeable
 
 ### Reporting runtime
 
