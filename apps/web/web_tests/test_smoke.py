@@ -1,0 +1,34 @@
+from django.test import Client, SimpleTestCase
+from django.urls import reverse
+
+
+class RouteSmokeTests(SimpleTestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_home_page_renders(self):
+        response = self.client.get(reverse("core:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "core/home.html")
+        self.assertContains(response, "Run-aware browsing for homorepeat pipeline outputs.")
+
+    def test_browser_placeholder_renders(self):
+        response = self.client.get(reverse("browser:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "browser/home.html")
+        self.assertContains(response, "Run-first database browser")
+
+    def test_imports_placeholder_renders(self):
+        response = self.client.get(reverse("imports:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "imports/home.html")
+        self.assertContains(response, "Published run ingestion")
+
+    def test_healthcheck_returns_json(self):
+        response = self.client.get(reverse("core:healthcheck"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "app": "homorepeat-web"})
