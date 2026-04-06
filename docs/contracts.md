@@ -176,6 +176,7 @@ Optional columns:
 ### Outputs
 - `pure_calls.tsv`
 - `threshold_calls.tsv`
+- `repeat_calls.tsv`
 
 Each row represents one detected homorepeat region.
 
@@ -207,6 +208,7 @@ Optional but strongly recommended columns:
 
 ### Rules
 - `method` must be one of: `pure`, `threshold`
+- `repeat_calls.tsv` is the canonical merged export for downstream database and app ingestion
 - `start` and `end` use the same coordinate system across all methods
 - `repeat_residue` is the targeted amino-acid residue for the call
 - `length` is the total tract length, including non-target residues if the method definition allows them
@@ -232,6 +234,33 @@ Purpose:
 - preserve method settings used in a given run
 - support traceability
 - make database builds auditable
+
+---
+
+## Run manifest contract
+
+### Output: `publish/manifest/run_manifest.json`
+
+Required top-level keys:
+- `run_id`
+- `status`
+- `started_at_utc`
+- `finished_at_utc`
+- `profile`
+- `git_revision`
+- `inputs`
+- `paths`
+- `params`
+- `enabled_methods`
+- `repeat_residues`
+- `artifacts`
+
+Rules:
+- `params.detection` is derived from the canonical published `calls/run_params.tsv` when present
+- `enabled_methods` is the sorted list of methods present in `params.detection`
+- `repeat_residues` is the sorted set of `repeat_residue` values present in the published run params
+- artifact paths are stored relative to the run root so the manifest remains portable inside `runs/<run_id>/`
+- `params.params_file_values` may be empty when no params file was provided or when the supplied file is not JSON
 
 ---
 
@@ -313,7 +342,7 @@ The initial v1 database schema owns the following tables:
 Rules:
 - `repeat_calls` is the unified import target for `pure_calls.tsv` and `threshold_calls.tsv`
 - flat files remain the canonical exchange artifacts even after import
-- table and index definitions live under `assets/sql/`
+- table and index definitions live under `src/homorepeat/resources/sql/sqlite/`
 
 ---
 

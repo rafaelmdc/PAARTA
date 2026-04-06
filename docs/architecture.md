@@ -22,6 +22,10 @@ Python scripts and small reusable libraries are responsible for:
 
 The goal is to keep the workflow easy to rerun and the scientific logic easy to test independently.
 
+The current development runtime is also split into two operator-facing surfaces:
+- a Nextflow pipeline app under `apps/pipeline/`
+- a Docker Compose development stack at the repo root for Django plus PostgreSQL
+
 ---
 
 ## Scientific Scope
@@ -116,6 +120,15 @@ Figures and summary tables should be generated only from finalized analysis-read
 ### 6. Simplicity over cleverness
 Prefer explicit modules, explicit file contracts, and small subworkflows over deeply clever channel logic.
 
+### 7. Compose is for app/runtime services, not workflow logic
+The repo-root `compose.yaml` is the operator entrypoint for:
+- the Django development server
+- the local PostgreSQL instance
+- building the pipeline runtime images expected by the Nextflow `docker` profile
+
+It should not become a second workflow orchestrator.
+Scientific execution still belongs to Nextflow plus the package-backed CLIs.
+
 ---
 
 ## Conceptual workflow
@@ -174,11 +187,11 @@ Responsibilities:
 
 ### Workflow layer
 Owns:
-- `main.nf`
-- `nextflow.config`
-- `conf/*.config`
-- `modules/local/*.nf`
-- `subworkflows/*.nf`
+- `apps/pipeline/main.nf`
+- `apps/pipeline/nextflow.config`
+- `apps/pipeline/conf/*.config`
+- `apps/pipeline/modules/local/*.nf`
+- `apps/pipeline/workflows/*.nf`
 
 Responsibilities:
 - orchestration
@@ -188,9 +201,13 @@ Responsibilities:
 - file routing
 - resumability
 
+Current validated runtime note:
+- on April 6, 2026, the `docker` profile completed a smoke run end-to-end on `examples/accessions/smoke_human.txt`
+- the validated run root is `runs/phase4_pipeline_2026-04-06_12-03-46Z`
+
 ### Script layer
 Owns:
-- `bin/*.py`
+- `src/homorepeat/cli/*.py`
 
 Responsibilities:
 - one script per operational task
@@ -199,7 +216,7 @@ Responsibilities:
 
 ### Library layer
 Owns:
-- `lib/*.py`
+- `src/homorepeat/**/*.py`
 
 Responsibilities:
 - shared reusable code
@@ -212,8 +229,8 @@ Responsibilities:
 ### Data contract layer
 Owns:
 - `docs/contracts.md`
-- `assets/sql/schema.sql`
-- `assets/sql/indexes.sql`
+- `src/homorepeat/resources/sql/sqlite/schema.sql`
+- `src/homorepeat/resources/sql/sqlite/indexes.sql`
 
 Responsibilities:
 - document canonical columns
@@ -232,6 +249,18 @@ Responsibilities:
 - repo conventions
 - local agent instructions
 
+### Compose and web layer
+Owns:
+- `compose.yaml`
+- `containers/web.Dockerfile`
+- `apps/web/`
+
+Responsibilities:
+- Django development runtime
+- local PostgreSQL service
+- future frontend integration against published run artifacts or Postgres tables derived from them
+- convenient image builds for the pipeline Docker profile
+
 ---
 
 ## Recommended repository structure
@@ -239,24 +268,26 @@ Responsibilities:
 text
 homorepeat/
 ├── README.md
-├── nextflow.config
-├── main.nf
-├── conf/
-├── modules/
-│   └── local/
-├── subworkflows/
-├── bin/
-├── lib/
-├── assets/
-│   ├── sql/
-│   └── templates/
-├── params/
+├── apps/
+│   ├── pipeline/
+│   │   ├── main.nf
+│   │   ├── nextflow.config
+│   │   ├── conf/
+│   │   ├── modules/
+│   │   ├── workflows/
+│   │   └── scripts/
+│   └── web/
+├── src/
+│   └── homorepeat/
 ├── docs/
+├── examples/
+├── runtime/
+├── runs/
 ├── tests/
 └── containers/
 
-Subworkflow boundaries
-subworkflows/acquisition.nf
+Workflow boundaries
+apps/pipeline/workflows/acquisition_from_accessions.nf
 
 Inputs:
 
@@ -267,7 +298,7 @@ Outputs:
 normalized sequence inputs
 normalized metadata
 taxonomy-linked records
-subworkflows/detection.nf
+apps/pipeline/workflows/detection_from_acquisition.nf
 
 Inputs:
 
@@ -278,7 +309,7 @@ Outputs:
 
 pure_calls.tsv
 threshold_calls.tsv
-subworkflows/database.nf
+apps/pipeline/workflows/database_reporting.nf
 
 Inputs:
 
@@ -289,7 +320,7 @@ schema files
 Outputs:
 
 homorepeat.sqlite
-subworkflows/reporting.nf
+published reporting artifacts
 
 Inputs:
 
@@ -301,6 +332,7 @@ summary tables
 regression input tables
 figures
 supplementary exports
+
 Process-level philosophy
 
 Each process should do one thing only.

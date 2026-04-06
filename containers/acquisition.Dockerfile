@@ -37,6 +37,11 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 RUN mkdir -p /work /data/taxonomy /data/ncbi-cache
 
+COPY pyproject.toml README.md /opt/homorepeat/
+COPY src /opt/homorepeat/src
+
+RUN python -m pip install /opt/homorepeat
+
 WORKDIR /work
 
 ENV HOMOREPEAT_ACQUISITION_IMAGE=1 \

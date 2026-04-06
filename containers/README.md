@@ -13,6 +13,7 @@ The runtime is split by process class where the toolchains are materially differ
 Current images:
 - acquisition
 - detection
+- web
 
 ---
 
@@ -30,9 +31,9 @@ What it contains:
 What it does not contain:
 - the taxonomy SQLite database
 - downloaded NCBI package caches
-- project source code copied into the image
+- checked-out workflow scripts from `apps/pipeline/`
 
-Those are runtime artifacts and should stay outside the image.
+Those are runtime artifacts or repo-owned orchestration files and should stay outside the image.
 
 ---
 
@@ -47,10 +48,25 @@ What it contains:
 What it does not contain:
 - `taxon-weaver`
 - NCBI `datasets`
-- project source code copied into the image
+- checked-out workflow scripts from `apps/pipeline/`
 
 This split is intentional.
 Acquisition and detection have different external toolchains, and later Nextflow process labels should be able to pin different images without carrying unnecessary binaries into every task.
+
+---
+
+## Web image
+
+File:
+- `containers/web.Dockerfile`
+
+What it contains:
+- Python 3.12
+- Django
+- `psycopg`
+- the installable `homorepeat` package
+
+It is intended for the Django development container defined in the repo-root `compose.yaml`.
 
 ---
 
@@ -81,7 +97,18 @@ So the practical model is:
 Fast path from the repo root:
 
 ```bash
-bash scripts/build_dev_containers.sh
+bash apps/pipeline/scripts/build_dev_containers.sh
+```
+
+That helper builds the image tags expected by the pipeline today:
+- `homorepeat-acquisition:dev`
+- `homorepeat-detection:dev`
+
+Build the web image and Postgres-backed dev stack from the repo root:
+
+```bash
+docker compose build web
+docker compose up web postgres
 ```
 
 Equivalent manual commands:
@@ -89,7 +116,7 @@ Equivalent manual commands:
 Build the acquisition image from the repo root:
 
 ```bash
-docker build -f containers/acquisition.Dockerfile -t homorepeat-acquisition:0.1 .
+docker build -f containers/acquisition.Dockerfile -t homorepeat-acquisition:dev .
 ```
 
 If you need to override the `taxon-weaver` source ref:
@@ -99,13 +126,13 @@ docker build \
   -f containers/acquisition.Dockerfile \
   --build-arg TAXON_WEAVER_REF=v.0.1.1 \
   --build-arg TAXON_WEAVER_COMMIT=aff9709a82ac09fa3f97a71cca809f8e8f98c213 \
-  -t homorepeat-acquisition:0.1 .
+  -t homorepeat-acquisition:dev .
 ```
 
 Build the detection image from the repo root:
 
 ```bash
-docker build -f containers/detection.Dockerfile -t homorepeat-detection:0.1 .
+docker build -f containers/detection.Dockerfile -t homorepeat-detection:dev .
 ```
 
 ## Smoke checks
@@ -113,11 +140,11 @@ docker build -f containers/detection.Dockerfile -t homorepeat-detection:0.1 .
 Check the core tools inside the built image:
 
 ```bash
-docker run --rm homorepeat-acquisition:0.1 python --version
-docker run --rm homorepeat-acquisition:0.1 taxon-weaver --help
-docker run --rm homorepeat-acquisition:0.1 datasets version
-docker run --rm homorepeat-acquisition:0.1 dataformat --help
-docker run --rm homorepeat-detection:0.1 python --version
+docker run --rm homorepeat-acquisition:dev python --version
+docker run --rm homorepeat-acquisition:dev taxon-weaver --help
+docker run --rm homorepeat-acquisition:dev datasets version
+docker run --rm homorepeat-acquisition:dev dataformat --help
+docker run --rm homorepeat-detection:dev python --version
 ```
 
 ---
@@ -125,25 +152,26 @@ docker run --rm homorepeat-detection:0.1 python --version
 ## Runtime expectations
 
 The acquisition scripts expect the taxonomy DB to be available by path.
+The images include the installable `homorepeat` package, but they still expect run inputs and workflow scripts to come from the mounted repo.
 
 Recommended mount pattern:
 
 ```bash
 docker run --rm \
   -v "$PWD":/work \
-  -v "$PWD/cache/taxonomy":/data/taxonomy \
+  -v "$PWD/runtime/cache/taxonomy":/data/taxonomy \
   -w /work \
-  homorepeat-acquisition:0.1 \
-  python bin/resolve_taxa.py \
-  --requested-taxa runs/run_001/planning/requested_taxa.tsv \
+  homorepeat-acquisition:dev \
+  python -m homorepeat.cli.resolve_taxa \
+  --requested-taxa runs/run_001/internal/planning/requested_taxa.tsv \
   --taxonomy-db /data/taxonomy/ncbi_taxonomy.sqlite \
-  --outdir runs/run_001/planning
+  --outdir runs/run_001/internal/planning
 ```
 
 For larger runs, mount an external cache directory as well:
 
 ```bash
--v "$PWD/cache/ncbi":/data/ncbi-cache
+-v "$PWD/runtime/cache/ncbi":/data/ncbi-cache
 ```
 
 To run the live acquisition smoke check inside the container:
@@ -151,13 +179,13 @@ To run the live acquisition smoke check inside the container:
 ```bash
 docker run --rm \
   -v "$PWD":/work \
-  -v "$PWD/cache/taxonomy":/data/taxonomy \
-  -v "$PWD/cache/ncbi":/data/ncbi-cache \
+  -v "$PWD/runtime/cache/taxonomy":/data/taxonomy \
+  -v "$PWD/runtime/cache/ncbi":/data/ncbi-cache \
   -w /work \
   -e TAXONOMY_DB_PATH=/data/taxonomy/ncbi_taxonomy.sqlite \
   -e NCBI_API_KEY="$NCBI_API_KEY" \
-  homorepeat-acquisition:0.1 \
-  bash scripts/smoke_live_acquisition.sh
+  homorepeat-acquisition:dev \
+  bash apps/pipeline/scripts/smoke_live_acquisition.sh
 ```
 
 To run threshold detection inside the detection image:
@@ -166,12 +194,12 @@ To run threshold detection inside the detection image:
 docker run --rm \
   -v "$PWD":/work \
   -w /work \
-  homorepeat-detection:0.1 \
-  python bin/detect_threshold.py \
-  --proteins-tsv runs/run_001/merged/acquisition/proteins.tsv \
-  --proteins-fasta runs/run_001/merged/acquisition/proteins.faa \
+  homorepeat-detection:dev \
+  python -m homorepeat.cli.detect_threshold \
+  --proteins-tsv runs/run_001/publish/acquisition/proteins.tsv \
+  --proteins-fasta runs/run_001/publish/acquisition/proteins.faa \
   --repeat-residue Q \
-  --outdir runs/run_001/merged/detection/threshold_q
+  --outdir runs/run_001/publish/calls/by_method/threshold/Q
 ```
 
 ---
@@ -179,8 +207,8 @@ docker run --rm \
 ## Nextflow wiring
 
 The repo now has a Phase 4 Nextflow layer and a `docker` profile:
-- [nextflow.config](../nextflow.config)
-- [docker.config](../conf/docker.config)
+- [nextflow.config](../apps/pipeline/nextflow.config)
+- [docker.config](../apps/pipeline/conf/docker.config)
 
 Current label-to-image mapping:
 - `planning` -> acquisition image
@@ -192,8 +220,13 @@ Current label-to-image mapping:
 - `reporting` -> detection image
 
 Important runtime detail:
-- the images do not bake the repo source tree into the image
-- the Nextflow Docker profile mounts the project directory at runtime so the checked-out Python code remains the source of truth
+- the images bake the installable `homorepeat` package into the image
+- Nextflow mounts task work directories and required inputs at runtime, so the Docker profile does not need an extra repo-root bind mount
+
+Verified on April 6, 2026:
+- `docker compose build web pipeline-acquisition pipeline-detection` succeeded
+- the Django `web` service and `postgres` service came up successfully from `compose.yaml`
+- the Nextflow `docker` profile completed a smoke pipeline run after removing an invalid duplicate repo mount from `apps/pipeline/conf/docker.config`
 
 Why this layer exists now:
 - lock the external toolchains

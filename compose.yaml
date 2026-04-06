@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: homorepeat
+      POSTGRES_USER: homorepeat
+      POSTGRES_PASSWORD: homorepeat
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  web:
+    build:
+      context: .
+      dockerfile: containers/web.Dockerfile
+    image: homorepeat-web:dev
+    working_dir: /app/apps/web
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+    environment:
+      DJANGO_SECRET_KEY: dev-secret-key
+      DJANGO_DEBUG: "1"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+      DATABASE_ENGINE: django.db.backends.postgresql
+      DATABASE_NAME: homorepeat
+      DATABASE_USER: homorepeat
+      DATABASE_PASSWORD: homorepeat
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  pipeline-acquisition:
+    profiles: ["pipeline-images"]
+    build:
+      context: .
+      dockerfile: containers/acquisition.Dockerfile
+    image: homorepeat-acquisition:dev
+    command: ["python", "--version"]
+
+  pipeline-detection:
+    profiles: ["pipeline-images"]
+    build:
+      context: .
+      dockerfile: containers/detection.Dockerfile
+    image: homorepeat-detection:dev
+    command: ["python", "--version"]
+
+volumes:
+  postgres_data:

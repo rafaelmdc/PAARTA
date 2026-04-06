@@ -89,7 +89,7 @@ Current behavior:
 The implementation should tolerate either a hydrated local package or an already-downloaded package directory.
 
 Current implementation details and ignore rules live in:
-- [acquisition.md](./acquisition.md)
+- [operations.md](./operations.md)
 
 ### Local acquisition
 

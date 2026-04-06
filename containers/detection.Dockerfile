@@ -21,6 +21,11 @@ RUN python --version
 
 RUN mkdir -p /work
 
+COPY pyproject.toml README.md /opt/homorepeat/
+COPY src /opt/homorepeat/src
+
+RUN python -m pip install /opt/homorepeat
+
 WORKDIR /work
 
 ENV HOMOREPEAT_DETECTION_IMAGE=1

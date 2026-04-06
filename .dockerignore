@@ -9,6 +9,8 @@ tests/__pycache__/
 .nextflow*
 work/
 runs/
+runtime/cache/
+.venv/
 dist/
 build/
 *.pyc
