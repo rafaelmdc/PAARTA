@@ -1,6 +1,6 @@
 # HomoRepeat
 
-Monorepo for the HomoRepeat workflow core and the future web frontend.
+Monorepo for the HomoRepeat workflow core and the Django web frontend.
 
 Current workflow baseline:
 - accession-driven acquisition from NCBI RefSeq packages
@@ -13,7 +13,7 @@ Current workflow baseline:
 ## Repo layout
 
 - `apps/pipeline/`: Nextflow workflow, configs, and operator scripts
-- `apps/web/`: reserved Django scaffold for the future frontend
+- `apps/web/`: Django project for browsing, imports, and later graph views
 - `src/homorepeat/`: shared Python package used by CLI tasks and future app code
 - `examples/`: checked-in example inputs and params
 - `runs/`: published run roots
@@ -75,7 +75,7 @@ docker compose build pipeline-acquisition pipeline-detection
 ```
 
 Current services:
-- `postgres`: development PostgreSQL for the future Django app
+- `postgres`: development PostgreSQL for the Django app
 - `web`: Django development server from `apps/web`
 - `pipeline-acquisition`: build target for the acquisition runtime image
 - `pipeline-detection`: build target for the detection runtime image
@@ -85,7 +85,7 @@ Current services:
 Verified on April 6, 2026:
 - `docker compose build web pipeline-acquisition pipeline-detection` completed successfully
 - `docker compose up web postgres` started the Django and Postgres stack successfully
-- `curl http://127.0.0.1:8000/` returned the web health response
+- `curl http://127.0.0.1:8000/healthz/` returned the web health response
 - the Nextflow wrapper completed successfully with the `docker` profile on `examples/accessions/smoke_human.txt`
 
 Latest verified run:

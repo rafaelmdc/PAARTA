@@ -1,13 +1,12 @@
-"""URL configuration scaffold for the future HomoRepeat web app."""
+"""URL configuration for the HomoRepeat web project."""
 
-from django.http import JsonResponse
-from django.urls import path
-
-
-def healthcheck(_request):
-    return JsonResponse({"status": "ok", "app": "homorepeat-web"})
+from django.contrib import admin
+from django.urls import include, path
 
 
 urlpatterns = [
-    path("", healthcheck, name="healthcheck"),
+    path("", include("apps.core.urls")),
+    path("admin/", admin.site.urls),
+    path("browser/", include("apps.browser.urls")),
+    path("imports/", include("apps.imports.urls")),
 ]

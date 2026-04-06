@@ -1,11 +1,11 @@
 # HomoRepeat Web App
 
-Reserved Django application area for the future HomoRepeat frontend.
+Django project area for the HomoRepeat website.
 
-Planned responsibilities:
-- browse published pipeline runs
-- ingest published TSV/SQLite/Postgres artifacts
-- support later run-launch orchestration without coupling to Nextflow internals
+Current app split:
+- `apps/core/`: home page, shared site shell, healthcheck, and future graph pages
+- `apps/browser/`: run-first data browser
+- `apps/imports/`: staff-facing published-run ingestion
 
 Current containerized dev setup:
 - image: `containers/web.Dockerfile`
@@ -18,8 +18,10 @@ Run the development stack from the repo root with:
 docker compose up web postgres
 ```
 
-Verified on April 6, 2026:
-- `docker compose up web postgres` started successfully
-- the root URL returned `{"status": "ok", "app": "homorepeat-web"}`
+Current endpoints:
+- `/`: site home
+- `/healthz/`: JSON healthcheck
+- `/browser/`: browser placeholder
+- `/imports/`: imports placeholder
 
-This scaffold is intentionally minimal until the data model and ingestion layer are implemented.
+The data model, import backend, and graph views are implemented in later slices.

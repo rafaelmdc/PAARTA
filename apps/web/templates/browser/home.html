@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Browser{% endblock %}
+
+{% block content %}
+<section class="hero-panel hero-panel-compact">
+  <p class="eyebrow">Browser</p>
+  <h1>Run-first database browser</h1>
+  <p class="lead">
+    This placeholder marks the browser surface for the first real data slices.
+    The browser will be centered on imported runs and expose lineage-aware views
+    over taxa, genomes, proteins, and repeat calls.
+  </p>
+</section>
+
+<section class="card">
+  <h2>Planned sections</h2>
+  <ul class="simple-list">
+    {% for section in planned_sections %}
+      <li>{{ section }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

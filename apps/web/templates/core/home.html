@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}HomoRepeat Web{% endblock %}
+
+{% block content %}
+<section class="hero-panel">
+  <p class="eyebrow">Django frontend</p>
+  <h1>Run-aware browsing for homorepeat pipeline outputs.</h1>
+  <p class="lead">
+    The web project is now structured around a core site shell, a browser app,
+    and an imports app. The next slices will land the relational model and the
+    TSV-backed import path.
+  </p>
+</section>
+
+<section class="card-grid">
+  {% for section in sections %}
+    <article class="card">
+      <h2>{{ section.title }}</h2>
+      <p>{{ section.description }}</p>
+      <a class="card-link" href="{% url section.url_name %}">Open {{ section.title }}</a>
+    </article>
+  {% endfor %}
+</section>
+{% endblock %}

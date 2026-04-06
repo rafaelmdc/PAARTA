@@ -5,14 +5,14 @@
 The repository now has:
 - a packaged workflow core under `src/homorepeat/`
 - a Nextflow app under `apps/pipeline/`
-- a Django scaffold under `apps/web/`
+- a Django project foundation under `apps/web/`
 - a Compose development stack with Django plus PostgreSQL
 - a stable published run layout under `runs/<run_id>/publish/`
 
 ## Next
 
 The next practical milestone is the web data layer:
-- define the Django app structure under `apps/web/apps/`
+- land the browser data model under `apps/web/apps/`
 - model the published run artifacts for browsing and ingestion
 - add PostgreSQL loaders derived from the canonical published TSV contracts
 

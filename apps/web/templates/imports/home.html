@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Imports{% endblock %}
+
+{% block content %}
+<section class="hero-panel hero-panel-compact">
+  <p class="eyebrow">Imports</p>
+  <h1>Published run ingestion</h1>
+  <p class="lead">
+    This placeholder marks the staff-facing import area. Later slices will add
+    TSV and manifest validation, transactional run import, and import history.
+  </p>
+</section>
+
+<section class="card">
+  <h2>Import contract</h2>
+  <p>
+    The website will ingest canonical TSV artifacts plus the published run
+    manifest. SQLite remains a workflow artifact and is not part of the web
+    import path.
+  </p>
+</section>
+{% endblock %}
