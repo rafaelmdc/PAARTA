@@ -1,24 +1,81 @@
 {% extends "base.html" %}
 
 {% block title %}Browser{% endblock %}
+{% block body_class %}browser-home-page{% endblock %}
 
 {% block content %}
-<section class="hero-panel hero-panel-compact">
-  <p class="eyebrow">Browser</p>
-  <h1>Run-first database browser</h1>
-  <p class="lead">
-    This placeholder marks the browser surface for the first real data slices.
-    The browser will be centered on imported runs and expose lineage-aware views
-    over taxa, genomes, proteins, and repeat calls.
-  </p>
+<section class="landing-band mb-4">
+  <div class="landing-band-shell">
+    <div class="landing-copy">
+      <span class="section-kicker mb-3">Browser</span>
+      <h1 class="landing-title mb-3">Run-first database browser with room for lineage views and graph layers.</h1>
+      <p class="landing-lead mb-0">
+        Inspect imported runs, enter scoped browse views, and keep the
+        connection between taxa, genomes, proteins, repeat calls, and pipeline
+        provenance visible at every step.
+      </p>
+    </div>
+    <aside class="landing-aside">
+      <p class="sheet-label">Start here</p>
+      <p class="mb-3">Begin with imported runs, then branch into taxa, genomes, proteins, and repeat calls.</p>
+      <a class="btn btn-brand w-100" href="{% url 'browser:run-list' %}">Open run browser</a>
+    </aside>
+  </div>
 </section>
 
-<section class="card">
-  <h2>Planned sections</h2>
-  <ul class="simple-list">
-    {% for section in planned_sections %}
-      <li>{{ section }}</li>
-    {% endfor %}
-  </ul>
+<section class="row g-4 mb-4">
+  {% for card in cards %}
+    <div class="col-md-6 col-xl-4">
+      <article class="metric-panel h-100">
+        <p class="sheet-label">{{ card.title }}</p>
+        <p class="metric-panel-value">{{ card.count }}</p>
+        <p class="mb-4">{{ card.description }}</p>
+        <div class="mt-auto">
+          <a class="btn btn-outline-dark" href="{% url card.url_name %}">Open {{ card.title }}</a>
+        </div>
+      </article>
+    </div>
+  {% endfor %}
+</section>
+
+<section class="surface-card surface-card-wide">
+  <div class="section-header">
+    <div>
+      <p class="section-kicker mb-2">Recent runs</p>
+      <h2>Latest imported runs</h2>
+    </div>
+    <a class="btn btn-outline-dark" href="{% url 'browser:run-list' %}">All runs</a>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table align-middle mb-0 data-table">
+      <thead>
+        <tr>
+          <th>Run</th>
+          <th>Status</th>
+          <th>Profile</th>
+          <th>Genomes</th>
+          <th>Proteins</th>
+          <th>Repeat calls</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pipeline_run in recent_runs %}
+          <tr>
+            <td><a href="{% url 'browser:run-detail' pipeline_run.pk %}">{{ pipeline_run.run_id }}</a></td>
+            <td><span class="badge rounded-pill status-badge">{{ pipeline_run.status }}</span></td>
+            <td>{{ pipeline_run.profile|default:"-" }}</td>
+            <td>{{ pipeline_run.genomes_count }}</td>
+            <td>{{ pipeline_run.proteins_count }}</td>
+            <td>{{ pipeline_run.repeat_calls_count }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="empty-cell">No runs have been imported yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endblock %}

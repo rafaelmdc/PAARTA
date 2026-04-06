@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}{{ pipeline_run.run_id }}{% endblock %}
+{% block body_class %}run-detail-page{% endblock %}
+
+{% block content %}
+<section class="hero-panel py-4 py-lg-5 mb-4">
+  <div class="row g-4 align-items-start">
+    <div class="col-lg-8">
+      <p class="eyebrow mb-3">Run detail</p>
+      <h1 class="display-4 fw-semibold mb-3">{{ pipeline_run.run_id }}</h1>
+      <p class="lead text-secondary mb-3">
+        Imported {{ pipeline_run.imported_at|date:"Y-m-d H:i" }}{% if pipeline_run.profile %} using the <strong>{{ pipeline_run.profile }}</strong> profile{% endif %}.
+        This is the provenance root for every run-scoped browser view.
+      </p>
+      <div class="d-flex flex-wrap gap-2 mb-4">
+        <span class="badge rounded-pill text-bg-light border status-badge">Status: {{ pipeline_run.status }}</span>
+        {% if pipeline_run.git_revision %}
+          <span class="badge rounded-pill text-bg-light border status-badge">Git: {{ pipeline_run.git_revision|slice:":12" }}</span>
+        {% endif %}
+        {% for method in methods %}
+          <span class="badge rounded-pill text-bg-light border status-badge">Method: {{ method }}</span>
+        {% endfor %}
+        {% for residue in repeat_residues %}
+          <span class="badge rounded-pill text-bg-light border status-badge">Residue: {{ residue }}</span>
+        {% endfor %}
+      </div>
+      <a class="btn btn-outline-primary" href="{% url 'browser:run-list' %}">Back to runs</a>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card h-100 border-0 shadow-sm detail-card stat-panel">
+        <div class="card-body p-4">
+          <p class="text-uppercase text-secondary small mb-3">At a glance</p>
+          <ul class="stack-list mb-0">
+            <li>{{ pipeline_run.genomes_count }} genome{{ pipeline_run.genomes_count|pluralize }}</li>
+            <li>{{ pipeline_run.proteins_count }} protein{{ pipeline_run.proteins_count|pluralize }}</li>
+            <li>{{ pipeline_run.repeat_calls_count }} repeat call{{ pipeline_run.repeat_calls_count|pluralize }}</li>
+            <li>{{ distinct_taxa_count }} distinct taxa referenced</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="row g-4 mb-4">
+  <div class="col-sm-6 col-xl-4">
+    <article class="card h-100 border-0 shadow-sm stat-card">
+      <div class="card-body">
+        <p class="text-uppercase text-secondary small mb-2">Taxa</p>
+        <p class="display-5 fw-semibold mb-3">{{ distinct_taxa_count }}</p>
+        <p class="text-secondary mb-0">Distinct taxa referenced by this run’s imported biological records.</p>
+      </div>
+    </article>
+  </div>
+  <div class="col-sm-6 col-xl-4">
+    <article class="card h-100 border-0 shadow-sm stat-card">
+      <div class="card-body">
+        <p class="text-uppercase text-secondary small mb-2">Genomes</p>
+        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.genomes_count }}</p>
+        <p class="text-secondary mb-0">Assembly-level records imported for this run.</p>
+      </div>
+    </article>
+  </div>
+  <div class="col-sm-6 col-xl-4">
+    <article class="card h-100 border-0 shadow-sm stat-card">
+      <div class="card-body">
+        <p class="text-uppercase text-secondary small mb-2">Sequences</p>
+        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.sequences_count }}</p>
+        <p class="text-secondary mb-0">Retained translated sequence records linked to imported genomes.</p>
+      </div>
+    </article>
+  </div>
+  <div class="col-sm-6 col-xl-4">
+    <article class="card h-100 border-0 shadow-sm stat-card">
+      <div class="card-body">
+        <p class="text-uppercase text-secondary small mb-2">Proteins</p>
+        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.proteins_count }}</p>
+        <p class="text-secondary mb-0">Imported protein records available for run-scoped browsing.</p>
+      </div>
+    </article>
+  </div>
+  <div class="col-sm-6 col-xl-4">
+    <article class="card h-100 border-0 shadow-sm stat-card">
+      <div class="card-body">
+        <p class="text-uppercase text-secondary small mb-2">Repeat calls</p>
+        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.repeat_calls_count }}</p>
+        <p class="text-secondary mb-0">Canonical merged repeat-call rows available for browser and graphs.</p>
+      </div>
+    </article>
+  </div>
+  <div class="col-sm-6 col-xl-4">
+    <article class="card h-100 border-0 shadow-sm stat-card">
+      <div class="card-body">
+        <p class="text-uppercase text-secondary small mb-2">Run parameters</p>
+        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.run_parameters_count }}</p>
+        <p class="text-secondary mb-0">Imported method parameter rows from the published run artifacts.</p>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="row g-4">
+  <div class="col-lg-6">
+    <article class="card h-100 border-0 shadow-sm detail-card">
+      <div class="card-body">
+        <p class="eyebrow">Metadata</p>
+        <h2>Run provenance</h2>
+        <dl class="info-grid">
+      <dt>Status</dt>
+      <dd>{{ pipeline_run.status }}</dd>
+      <dt>Profile</dt>
+      <dd>{{ pipeline_run.profile|default:"-" }}</dd>
+      <dt>Started</dt>
+      <dd>{{ pipeline_run.started_at_utc|date:"Y-m-d H:i:s T"|default:"-" }}</dd>
+      <dt>Finished</dt>
+      <dd>{{ pipeline_run.finished_at_utc|date:"Y-m-d H:i:s T"|default:"-" }}</dd>
+      <dt>Manifest</dt>
+      <dd>{{ pipeline_run.manifest_path|default:"-" }}</dd>
+      <dt>Publish root</dt>
+      <dd>{{ pipeline_run.publish_root|default:"-" }}</dd>
+      <dt>Import batch</dt>
+      <dd>
+        {% if latest_import_batch %}
+          {{ latest_import_batch.status }} at {{ latest_import_batch.finished_at|date:"Y-m-d H:i:s"|default:"-" }}
+        {% else %}
+          -
+        {% endif %}
+      </dd>
+        </dl>
+      </div>
+    </article>
+  </div>
+
+  <div class="col-lg-6">
+    <article class="card h-100 border-0 shadow-sm detail-card">
+      <div class="card-body">
+        <p class="eyebrow">Next browser sections</p>
+        <h2>Run-scoped links</h2>
+        <div class="link-grid">
+          {% for section in linked_sections %}
+            <a class="section-link" href="{% url section.url_name %}?run={{ pipeline_run.run_id|urlencode }}">
+              <strong>{{ section.title }}</strong>
+              <span>{{ section.description }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+{% endblock %}

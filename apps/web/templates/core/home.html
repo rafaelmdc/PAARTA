@@ -1,25 +1,88 @@
 {% extends "base.html" %}
 
 {% block title %}HomoRepeat Web{% endblock %}
+{% block body_class %}home-page{% endblock %}
 
 {% block content %}
-<section class="hero-panel">
-  <p class="eyebrow">Django frontend</p>
-  <h1>Run-aware browsing for homorepeat pipeline outputs.</h1>
-  <p class="lead">
-    The web project is now structured around a core site shell, a browser app,
-    and an imports app. The next slices will land the relational model and the
-    TSV-backed import path.
-  </p>
+<section class="home-hero mb-4">
+  <div class="hero-stage hero-stage-wide">
+    <div class="hero-copy-block">
+      <span class="section-kicker mb-3">Pipeline-backed website</span>
+      <h1 class="hero-display mb-3">Explore homorepeat runs in a cleaner browser, not a directory tree.</h1>
+      <p class="hero-lead mb-4">
+        HomoRepeat is becoming a lineage-aware Django frontend for imported
+        pipeline outputs, with genomes, proteins, repeat calls, and future
+        graph views all anchored to explicit run provenance and stable TSV
+        contracts.
+      </p>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <a class="btn btn-brand btn-lg" href="{% url 'browser:home' %}">Open browser</a>
+        <a class="btn btn-ghost-light btn-lg" href="{% url 'imports:home' %}">Open imports</a>
+      </div>
+    </div>
+
+    <div class="row g-3 hero-mini-stats">
+      <div class="col-md-6 col-xl-4">
+        <div class="mini-stat">
+          <span class="mini-stat-label">Contracts</span>
+          <strong>TSV + manifest</strong>
+        </div>
+      </div>
+      <div class="col-md-6 col-xl-4">
+        <div class="mini-stat">
+          <span class="mini-stat-label">Identity</span>
+          <strong>Run first, merge ready</strong>
+        </div>
+      </div>
+      <div class="col-md-12 col-xl-4">
+        <div class="mini-stat">
+          <span class="mini-stat-label">Stack</span>
+          <strong>Django + Postgres</strong>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 
-<section class="card-grid">
-  {% for section in sections %}
-    <article class="card">
-      <h2>{{ section.title }}</h2>
-      <p>{{ section.description }}</p>
-      <a class="card-link" href="{% url section.url_name %}">Open {{ section.title }}</a>
+<section class="row g-4">
+  <div class="col-lg-7">
+    <article class="feature-panel feature-panel-primary h-100 feature-panel-large">
+      <div class="feature-index">01</div>
+      <div class="feature-body">
+        <h2 class="h3 mb-3">Browser</h2>
+        <p class="mb-4">
+          Run-first browsing for taxa, genomes, proteins, and repeat calls,
+          with explicit provenance instead of loose artifact folders.
+        </p>
+        <ul class="stack-list compact-list mb-3">
+          <li>Imported runs as the main entrypoint</li>
+          <li>Genome-aware identity ready for later merging</li>
+        </ul>
+        <div class="mt-auto">
+          <a class="btn btn-outline-dark" href="{% url 'browser:home' %}">Open browser</a>
+        </div>
+      </div>
     </article>
-  {% endfor %}
+  </div>
+
+  <div class="col-lg-5">
+    <div class="row g-4 h-100">
+      <div class="col-12">
+        <article class="feature-panel feature-panel-primary h-100">
+          <div class="feature-index">02</div>
+          <div class="feature-body">
+            <h2 class="h4 mb-3">Imports</h2>
+            <p class="mb-4">
+              Staff-facing tooling for validating and importing published runs
+              from canonical TSV artifacts plus the run manifest.
+            </p>
+            <div class="mt-auto">
+              <a class="btn btn-outline-dark" href="{% url 'imports:home' %}">Open imports</a>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </div>
 </section>
 {% endblock %}

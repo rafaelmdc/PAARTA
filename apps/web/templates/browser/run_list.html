@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Runs{% endblock %}
+{% block body_class %}run-list-page{% endblock %}
+
+{% block content %}
+<section class="page-intro d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-3 mb-4">
+  <div>
+    <p class="eyebrow mb-3">Runs</p>
+    <h1 class="mb-2">Imported pipeline runs</h1>
+    <p class="lead text-secondary mb-0">
+      Search imported runs, inspect provenance, and jump into the run-scoped
+      browser surface from a single entrypoint.
+    </p>
+  </div>
+  <span class="count-badge">{{ page_obj.paginator.count }} run{{ page_obj.paginator.count|pluralize }}</span>
+</section>
+
+<section class="card border-0 shadow-sm filter-card mb-4">
+  <form class="row g-3 align-items-end" method="get">
+    <div class="col-lg-5">
+      <label class="form-label" for="id_q">Search</label>
+      <input class="form-control" id="id_q" type="text" name="q" value="{{ current_query }}" placeholder="Run id, status, profile, git revision">
+    </div>
+    <div class="col-md-4 col-lg-3">
+      <label class="form-label" for="id_status">Status</label>
+      <select class="form-select" id="id_status" name="status">
+        <option value="">All statuses</option>
+        {% for status in status_choices %}
+          <option value="{{ status }}" {% if current_status == status %}selected{% endif %}>{{ status }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4 col-lg-2">
+      <label class="form-label" for="id_order_by">Sort</label>
+      <select class="form-select" id="id_order_by" name="order_by">
+        <option value="">Default</option>
+        {% for option in ordering_options %}
+          <option value="{{ option.value }}" {% if current_order_by == option.value %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4 col-lg-2">
+      <div class="filter-actions">
+        <button class="btn btn-primary" type="submit">Apply</button>
+        <a class="btn btn-outline-secondary" href="{% url 'browser:run-list' %}">Reset</a>
+      </div>
+    </div>
+  </form>
+</section>
+
+<section class="card border-0 shadow-sm detail-card">
+  <div class="section-header">
+    <div>
+      <p class="eyebrow">Inventory</p>
+      <h2>{{ page_obj.paginator.count }} imported run{{ page_obj.paginator.count|pluralize }}</h2>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 data-table">
+      <thead>
+        <tr>
+          <th>Run</th>
+          <th>Status</th>
+          <th>Profile</th>
+          <th>Genomes</th>
+          <th>Sequences</th>
+          <th>Proteins</th>
+          <th>Repeat calls</th>
+          <th>Imported</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pipeline_run in runs %}
+          <tr>
+            <td><a href="{% url 'browser:run-detail' pipeline_run.pk %}">{{ pipeline_run.run_id }}</a></td>
+            <td><span class="badge rounded-pill text-bg-light border status-badge">{{ pipeline_run.status }}</span></td>
+            <td>{{ pipeline_run.profile|default:"-" }}</td>
+            <td>{{ pipeline_run.genomes_count }}</td>
+            <td>{{ pipeline_run.sequences_count }}</td>
+            <td>{{ pipeline_run.proteins_count }}</td>
+            <td>{{ pipeline_run.repeat_calls_count }}</td>
+            <td>{{ pipeline_run.imported_at|date:"Y-m-d H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="8" class="empty-cell">No imported runs matched these filters.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% include "browser/includes/pagination.html" %}
+</section>
+{% endblock %}

@@ -59,3 +59,101 @@ def build_minimal_publish_root(base_dir: Path, *, run_id: str = "run-alpha") -> 
         encoding="utf-8",
     )
     return publish_root
+
+
+def create_imported_run_fixture(
+    *,
+    run_id: str,
+    genome_id: str,
+    sequence_id: str,
+    protein_id: str,
+    call_id: str,
+    accession: str,
+):
+    from apps.browser.models import Genome, PipelineRun, Protein, RepeatCall, RunParameter, Sequence, Taxon
+
+    root, _ = Taxon.objects.get_or_create(
+        taxon_id=1,
+        defaults={"taxon_name": "root", "rank": "no rank"},
+    )
+    species, _ = Taxon.objects.get_or_create(
+        taxon_id=9606,
+        defaults={"taxon_name": "Homo sapiens", "rank": "species", "parent_taxon": root},
+    )
+    if species.parent_taxon_id != root.pk:
+        species.parent_taxon = root
+        species.save(update_fields=["parent_taxon", "updated_at"])
+
+    pipeline_run = PipelineRun.objects.create(
+        run_id=run_id,
+        status="success",
+        profile="docker",
+        git_revision="abc123",
+        manifest_path=f"/tmp/{run_id}/manifest/run_manifest.json",
+        publish_root=f"/tmp/{run_id}/publish",
+        manifest_payload={"run_id": run_id},
+    )
+    genome = Genome.objects.create(
+        pipeline_run=pipeline_run,
+        genome_id=genome_id,
+        source="ncbi_datasets",
+        accession=accession,
+        genome_name=f"Genome for {run_id}",
+        assembly_type="haploid",
+        taxon=species,
+        assembly_level="Chromosome",
+        species_name="Homo sapiens",
+    )
+    sequence = Sequence.objects.create(
+        pipeline_run=pipeline_run,
+        genome=genome,
+        taxon=species,
+        sequence_id=sequence_id,
+        sequence_name=f"NM_{run_id}",
+        sequence_length=900,
+        sequence_path=f"/tmp/{run_id}/cds.fna",
+        gene_symbol="GENE1",
+    )
+    protein = Protein.objects.create(
+        pipeline_run=pipeline_run,
+        genome=genome,
+        sequence=sequence,
+        taxon=species,
+        protein_id=protein_id,
+        protein_name=f"NP_{run_id}",
+        protein_length=300,
+        protein_path=f"/tmp/{run_id}/proteins.faa",
+        gene_symbol="GENE1",
+    )
+    run_parameter = RunParameter.objects.create(
+        pipeline_run=pipeline_run,
+        method=RunParameter.Method.PURE,
+        param_name="repeat_residue",
+        param_value="Q",
+    )
+    repeat_call = RepeatCall.objects.create(
+        pipeline_run=pipeline_run,
+        genome=genome,
+        sequence=sequence,
+        protein=protein,
+        taxon=species,
+        call_id=call_id,
+        method=RepeatCall.Method.PURE,
+        start=10,
+        end=20,
+        length=11,
+        repeat_residue="Q",
+        repeat_count=11,
+        non_repeat_count=0,
+        purity=1.0,
+        aa_sequence="QQQQQQQQQQQ",
+    )
+    return {
+        "pipeline_run": pipeline_run,
+        "genome": genome,
+        "sequence": sequence,
+        "protein": protein,
+        "run_parameter": run_parameter,
+        "repeat_call": repeat_call,
+        "taxon": species,
+    }

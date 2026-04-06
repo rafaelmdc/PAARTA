@@ -1,8 +1,8 @@
-from django.test import Client, SimpleTestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 
-class RouteSmokeTests(SimpleTestCase):
+class RouteSmokeTests(TestCase):
     def setUp(self):
         self.client = Client()
 
@@ -11,7 +11,7 @@ class RouteSmokeTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "core/home.html")
-        self.assertContains(response, "Run-aware browsing for homorepeat pipeline outputs.")
+        self.assertContains(response, "Explore homorepeat runs in a cleaner browser, not a directory tree.")
 
     def test_browser_placeholder_renders(self):
         response = self.client.get(reverse("browser:home"))

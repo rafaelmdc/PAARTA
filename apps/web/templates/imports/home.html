@@ -1,23 +1,48 @@
 {% extends "base.html" %}
 
 {% block title %}Imports{% endblock %}
+{% block body_class %}imports-page{% endblock %}
 
 {% block content %}
-<section class="hero-panel hero-panel-compact">
-  <p class="eyebrow">Imports</p>
-  <h1>Published run ingestion</h1>
-  <p class="lead">
-    This placeholder marks the staff-facing import area. Later slices will add
-    TSV and manifest validation, transactional run import, and import history.
-  </p>
+<section class="landing-band mb-4">
+  <div class="landing-band-shell">
+    <div class="landing-copy">
+      <span class="section-kicker mb-3">Imports</span>
+      <h1 class="landing-title mb-3">Published run ingestion built around the same stable contracts.</h1>
+      <p class="landing-lead mb-0">
+        The imports area stays focused on published pipeline artifacts: validate
+        a run, ingest it transactionally, and preserve a clear import history.
+      </p>
+    </div>
+    <aside class="landing-aside">
+      <p class="sheet-label">Contract</p>
+      <p class="mb-0">The website imports canonical TSV artifacts plus the published run manifest. SQLite is not part of the web ingest path.</p>
+    </aside>
+  </div>
 </section>
 
-<section class="card">
-  <h2>Import contract</h2>
-  <p>
-    The website will ingest canonical TSV artifacts plus the published run
-    manifest. SQLite remains a workflow artifact and is not part of the web
-    import path.
-  </p>
+<section class="row g-4">
+  <div class="col-lg-6">
+    <article class="surface-card info-sheet info-sheet-warm h-100">
+        <p class="eyebrow">Import contract</p>
+        <h2>TSV + manifest only</h2>
+        <p class="text-secondary mb-0">
+          The website ingests canonical TSV artifacts plus the published run
+          manifest. SQLite remains a workflow artifact and is not part of the web
+          import path.
+        </p>
+    </article>
+  </div>
+
+  <div class="col-lg-6">
+    <article class="surface-card info-sheet info-sheet-cool h-100">
+        <p class="eyebrow">Why this matters</p>
+        <h2>Stable inputs, app-specific schema</h2>
+        <p class="text-secondary mb-0">
+          That split keeps the pipeline contracts stable while letting the Django
+          browser grow a lineage-aware relational model and later graph views.
+        </p>
+    </article>
+  </div>
 </section>
 {% endblock %}
