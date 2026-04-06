@@ -17,6 +17,7 @@ From the repo root, the minimal host-side commands are:
 ```bash
 python3 apps/web/manage.py migrate
 python3 apps/web/manage.py test web_tests
+python3 apps/web/manage.py import_run --publish-root runs/latest/publish
 python3 apps/web/manage.py runserver 0.0.0.0:8000
 ```
 
