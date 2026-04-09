@@ -34,8 +34,20 @@ If you want the import UI to auto-detect published runs, set `HOMOREPEAT_RUNS_RO
 Run the development stack from the repo root with:
 
 ```bash
-docker compose up web postgres
+docker compose up web worker postgres
 ```
+
+The Compose `web` service also mounts the sibling repo `../homorepeat_pipeline`
+read-only at `/workspace/homorepeat_pipeline` and defaults
+`HOMOREPEAT_RUNS_ROOT` to `/workspace/homorepeat_pipeline/runs`.
+That means the import UI can auto-detect runs from the sibling pipeline repo in
+the common local checkout layout.
+
+With the Compose stack running, you can:
+
+- use `/imports/` to queue a run from the detected sibling pipeline outputs and let the `worker` service process it automatically
+- process the oldest queued batch manually with `docker compose exec web python manage.py import_run --next-pending`
+- import one run directly with `docker compose exec web python manage.py import_run --publish-root /workspace/homorepeat_pipeline/runs/<run-id>/publish`
 
 Current endpoints:
 - `/`: site home

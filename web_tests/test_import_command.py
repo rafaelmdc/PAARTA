@@ -313,6 +313,30 @@ class ImportRunCommandTests(TestCase):
 
         self.assertIn("No pending import batches were available.", stdout.getvalue())
 
+    def test_import_worker_once_processes_next_pending_batch(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-worker")
+            ImportBatch.objects.create(
+                source_path=str(Path(publish_root).resolve()),
+                status=ImportBatch.Status.PENDING,
+                phase="queued",
+                progress_payload={"message": "Queued for background import."},
+            )
+            stdout = StringIO()
+
+            call_command("import_worker", once=True, stdout=stdout)
+
+            self.assertIn("Imported run run-worker", stdout.getvalue())
+            self.assertTrue(PipelineRun.objects.filter(run_id="run-worker").exists())
+            self.assertEqual(ImportBatch.objects.get().status, ImportBatch.Status.COMPLETED)
+
+    def test_import_worker_once_reports_when_queue_is_empty(self):
+        stdout = StringIO()
+
+        call_command("import_worker", once=True, stdout=stdout)
+
+        self.assertIn("No pending import batches were available.", stdout.getvalue())
+
     def test_import_run_does_not_depend_on_fully_materialized_parser(self):
         with TemporaryDirectory() as tempdir:
             publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-streamed")

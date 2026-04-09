@@ -11,8 +11,9 @@
       <h1 class="landing-title mb-3">Staff-only published run imports over the existing TSV contract.</h1>
       <p class="landing-lead mb-0">
         Choose a detected publish root from the configured published-runs directory
-        or enter one manually, then queue a background import batch that can be
-        processed by the management command worker path.
+        or enter one manually, then queue a background import batch. When the
+        Docker worker service is running, queued batches are processed
+        automatically.
       </p>
     </div>
     <aside class="landing-aside">
@@ -84,7 +85,7 @@
         </div>
 
         <div class="filter-actions">
-          <button class="btn btn-primary" type="submit">Import run</button>
+          <button class="btn btn-primary" type="submit">Queue import</button>
           <a class="btn btn-outline-secondary" href="{% url 'imports:home' %}">Reset</a>
         </div>
       </form>

@@ -1,10 +1,12 @@
 from urllib.parse import urlencode
 
 from django.http import Http404
-from django.db.models import Count, Exists, IntegerField, Max, Min, OuterRef, Q, Subquery, Value
+from django.db.models import Count, Exists, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.urls import reverse
 from django.views.generic import DetailView, ListView, TemplateView
+
+from apps.imports.models import ImportBatch
 
 from .merged import (
     accession_group_queryset,
@@ -17,7 +19,9 @@ from .models import (
     AccessionCallCount,
     AccessionStatus,
     AcquisitionBatch,
+    DownloadManifestEntry,
     Genome,
+    NormalizationWarning,
     PipelineRun,
     Protein,
     RepeatCall,
@@ -174,6 +178,16 @@ class RunDetailView(DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         pipeline_run = self.object
+        import_batches = _run_import_batches(pipeline_run)
+        active_import_batch = import_batches.filter(
+            status__in=[ImportBatch.Status.PENDING, ImportBatch.Status.RUNNING]
+        ).order_by("-started_at", "-pk").first()
+        latest_import_batch = import_batches.order_by("-started_at", "-pk").first()
+        latest_completed_import_batch = import_batches.filter(status=ImportBatch.Status.COMPLETED).order_by(
+            "-finished_at",
+            "-started_at",
+            "-pk",
+        ).first()
         context["distinct_taxa_count"] = _run_distinct_taxa_count(pipeline_run)
         context["linked_sections"] = [
             {
@@ -197,18 +211,60 @@ class RunDetailView(DetailView):
                 "url_name": "browser:repeatcall-list",
             },
         ]
-        context["methods"] = list(
-            pipeline_run.run_parameters.order_by("method", "param_name").values_list("method", flat=True).distinct()
+        method_values = set(pipeline_run.run_parameters.values_list("method", flat=True))
+        method_values.update(pipeline_run.accession_call_count_rows.values_list("method", flat=True))
+        method_values.update(pipeline_run.repeat_calls.values_list("method", flat=True))
+        residue_values = {
+            residue
+            for residue in pipeline_run.run_parameters.values_list("repeat_residue", flat=True)
+            if residue
+        }
+        residue_values.update(
+            residue
+            for residue in pipeline_run.accession_call_count_rows.values_list("repeat_residue", flat=True)
+            if residue
         )
-        context["repeat_residues"] = list(
-            pipeline_run.repeat_calls.order_by("repeat_residue").values_list("repeat_residue", flat=True).distinct()
+        residue_values.update(
+            residue
+            for residue in pipeline_run.repeat_calls.values_list("repeat_residue", flat=True)
+            if residue
+        )
+        context["methods"] = sorted(method_values)
+        context["repeat_residues"] = sorted(residue_values)
+        context["method_residue_summary"] = list(
+            pipeline_run.accession_call_count_rows.values("method", "repeat_residue")
+            .annotate(
+                accession_total=Count("pk"),
+                repeat_calls_total=Coalesce(Sum("n_repeat_calls"), Value(0)),
+            )
+            .order_by("method", "repeat_residue")
         )
         context["terminal_status_summary"] = list(
             pipeline_run.accession_status_rows.values("terminal_status")
             .annotate(total=Count("pk"))
             .order_by("terminal_status")
         )
-        context["latest_import_batch"] = pipeline_run.import_batches.order_by("-started_at").first()
+        context["warning_summary"] = list(
+            pipeline_run.normalization_warnings.values("warning_code", "warning_scope")
+            .annotate(total=Count("pk"))
+            .order_by("-total", "warning_code", "warning_scope")
+        )
+        context["batch_preview"] = _annotated_batches(
+            pipeline_run.acquisition_batches.order_by("batch_id")
+        )[:12]
+        context["batch_preview_is_truncated"] = pipeline_run.acquisition_batches_count > len(context["batch_preview"])
+        context["active_import_batch"] = active_import_batch
+        context["active_import_progress_items"] = _mapping_items(
+            active_import_batch.progress_payload if active_import_batch else {},
+            exclude_keys={"message"},
+        )
+        context["latest_import_batch"] = latest_import_batch
+        context["latest_completed_import_batch"] = latest_completed_import_batch
+        context["latest_import_row_count_items"] = _mapping_items(
+            latest_completed_import_batch.row_counts if latest_completed_import_batch else {}
+        )
+        context["recent_import_batches"] = list(import_batches.order_by("-started_at", "-pk")[:5])
+        context["imports_history_url"] = reverse("imports:history")
         return context
 
 
@@ -975,13 +1031,33 @@ def _annotated_runs(queryset=None):
         queryset = PipelineRun.objects.all()
     return queryset.annotate(
         acquisition_batches_count=Coalesce(_count_subquery(AcquisitionBatch, "pipeline_run"), Value(0)),
+        download_manifest_entries_count=Coalesce(_count_subquery(DownloadManifestEntry, "pipeline_run"), Value(0)),
         genomes_count=Coalesce(_count_subquery(Genome, "pipeline_run"), Value(0)),
+        normalization_warnings_count=Coalesce(_count_subquery(NormalizationWarning, "pipeline_run"), Value(0)),
         sequences_count=Coalesce(_count_subquery(Sequence, "pipeline_run"), Value(0)),
         proteins_count=Coalesce(_count_subquery(Protein, "pipeline_run"), Value(0)),
         repeat_calls_count=Coalesce(_count_subquery(RepeatCall, "pipeline_run"), Value(0)),
         accession_status_rows_count=Coalesce(_count_subquery(AccessionStatus, "pipeline_run"), Value(0)),
         accession_call_count_rows_count=Coalesce(_count_subquery(AccessionCallCount, "pipeline_run"), Value(0)),
         run_parameters_count=Coalesce(_count_subquery(RunParameter, "pipeline_run"), Value(0)),
+    )
+
+
+def _annotated_batches(queryset=None):
+    if queryset is None:
+        queryset = AcquisitionBatch.objects.all()
+    return queryset.annotate(
+        genomes_count=Coalesce(_count_subquery(Genome, "batch"), Value(0)),
+        sequences_count=Coalesce(_count_subquery(Sequence, "genome__batch", group_field_name="genome__batch"), Value(0)),
+        proteins_count=Coalesce(_count_subquery(Protein, "genome__batch", group_field_name="genome__batch"), Value(0)),
+        repeat_calls_count=Coalesce(
+            _count_subquery(RepeatCall, "genome__batch", group_field_name="genome__batch"),
+            Value(0),
+        ),
+        download_manifest_entries_count=Coalesce(_count_subquery(DownloadManifestEntry, "batch"), Value(0)),
+        normalization_warnings_count=Coalesce(_count_subquery(NormalizationWarning, "batch"), Value(0)),
+        accession_status_rows_count=Coalesce(_count_subquery(AccessionStatus, "batch"), Value(0)),
+        accession_call_count_rows_count=Coalesce(_count_subquery(AccessionCallCount, "batch"), Value(0)),
     )
 
 
@@ -1127,15 +1203,40 @@ def _referenced_taxon_ids(pipeline_run: PipelineRun):
     )
 
 
-def _count_subquery(model, field_name):
+def _run_import_batches(pipeline_run: PipelineRun):
+    filters = Q(pipeline_run=pipeline_run)
+    if pipeline_run.publish_root:
+        filters |= Q(source_path=pipeline_run.publish_root)
+    return ImportBatch.objects.filter(filters)
+
+
+def _count_subquery(model, field_name, *, group_field_name=None):
+    if group_field_name is None:
+        group_field_name = field_name
     return Subquery(
         model.objects.filter(**{field_name: OuterRef("pk")})
         .order_by()
-        .values(field_name)
+        .values(group_field_name)
         .annotate(total=Count("pk"))
         .values("total")[:1],
         output_field=IntegerField(),
     )
+
+
+def _mapping_items(mapping: dict[str, object], *, exclude_keys: set[str] | None = None):
+    items = []
+    excluded = exclude_keys or set()
+    for key, value in mapping.items():
+        if key in excluded or value in ("", None):
+            continue
+        items.append(
+            {
+                "key": key,
+                "label": key.replace("_", " ").capitalize(),
+                "value": value,
+            }
+        )
+    return items
 
 
 def _ordering_label(value: str) -> str:

@@ -15,8 +15,12 @@
       </p>
       <div class="d-flex flex-wrap gap-2 mb-4">
         <span class="badge rounded-pill text-bg-light border status-badge">Status: {{ pipeline_run.status }}</span>
+        <span class="badge rounded-pill text-bg-light border status-badge">Publish mode: {{ pipeline_run.acquisition_publish_mode|default:"-" }}</span>
         {% if pipeline_run.git_revision %}
           <span class="badge rounded-pill text-bg-light border status-badge">Git: {{ pipeline_run.git_revision|slice:":12" }}</span>
+        {% endif %}
+        {% if active_import_batch %}
+          <span class="badge rounded-pill text-bg-light border status-badge">Active import: {{ active_import_batch.status }}</span>
         {% endif %}
         {% for method in methods %}
           <span class="badge rounded-pill text-bg-light border status-badge">Method: {{ method }}</span>
@@ -25,7 +29,10 @@
           <span class="badge rounded-pill text-bg-light border status-badge">Residue: {{ residue }}</span>
         {% endfor %}
       </div>
-      <a class="btn btn-outline-primary" href="{% url 'browser:run-list' %}">Back to runs</a>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-primary" href="{% url 'browser:run-list' %}">Back to runs</a>
+        <a class="btn btn-outline-secondary" href="{{ imports_history_url }}">Import history</a>
+      </div>
     </div>
 
     <div class="col-lg-4">
@@ -33,10 +40,12 @@
         <div class="card-body p-4">
           <p class="text-uppercase text-secondary small mb-3">At a glance</p>
           <ul class="stack-list mb-0">
-            <li>{{ pipeline_run.acquisition_batches_count }} acquisition batch{{ pipeline_run.acquisition_batches_count|pluralize }}</li>
+            <li>{{ pipeline_run.acquisition_batches_count }} acquisition batch{{ pipeline_run.acquisition_batches_count|pluralize:"es" }}</li>
             <li>{{ pipeline_run.genomes_count }} genome{{ pipeline_run.genomes_count|pluralize }}</li>
             <li>{{ pipeline_run.proteins_count }} repeat-bearing protein{{ pipeline_run.proteins_count|pluralize }}</li>
             <li>{{ pipeline_run.repeat_calls_count }} repeat call{{ pipeline_run.repeat_calls_count|pluralize }}</li>
+            <li>{{ pipeline_run.accession_status_rows_count }} accession status row{{ pipeline_run.accession_status_rows_count|pluralize }}</li>
+            <li>{{ pipeline_run.normalization_warnings_count }} normalization warning{{ pipeline_run.normalization_warnings_count|pluralize }}</li>
             <li>{{ distinct_taxa_count }} distinct taxa referenced</li>
           </ul>
         </div>
@@ -112,6 +121,24 @@
   <div class="col-sm-6 col-xl-4">
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
+        <p class="text-uppercase text-secondary small mb-2">Download manifest</p>
+        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.download_manifest_entries_count }}</p>
+        <p class="text-secondary mb-0">Imported batch-scoped download provenance rows.</p>
+      </div>
+    </article>
+  </div>
+  <div class="col-sm-6 col-xl-4">
+    <article class="card h-100 border-0 shadow-sm stat-card">
+      <div class="card-body">
+        <p class="text-uppercase text-secondary small mb-2">Warnings</p>
+        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.normalization_warnings_count }}</p>
+        <p class="text-secondary mb-0">Imported normalization warnings retained as raw operational provenance.</p>
+      </div>
+    </article>
+  </div>
+  <div class="col-sm-6 col-xl-4">
+    <article class="card h-100 border-0 shadow-sm stat-card">
+      <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Accession status</p>
         <p class="display-5 fw-semibold mb-3">{{ pipeline_run.accession_status_rows_count }}</p>
         <p class="text-secondary mb-0">Accession-level operational ledger rows imported from the published status tables.</p>
@@ -129,34 +156,168 @@
   </div>
 </section>
 
-<section class="row g-4">
-  <div class="col-lg-6">
+<section class="row g-4 mb-4">
+  <div class="col-lg-5">
     <article class="card h-100 border-0 shadow-sm detail-card">
       <div class="card-body">
         <p class="eyebrow">Metadata</p>
         <h2>Run provenance</h2>
         <dl class="info-grid">
-      <dt>Status</dt>
-      <dd>{{ pipeline_run.status }}</dd>
-      <dt>Profile</dt>
-      <dd>{{ pipeline_run.profile|default:"-" }}</dd>
-      <dt>Started</dt>
-      <dd>{{ pipeline_run.started_at_utc|date:"Y-m-d H:i:s T"|default:"-" }}</dd>
-      <dt>Finished</dt>
-      <dd>{{ pipeline_run.finished_at_utc|date:"Y-m-d H:i:s T"|default:"-" }}</dd>
-      <dt>Manifest</dt>
-      <dd>{{ pipeline_run.manifest_path|default:"-" }}</dd>
-      <dt>Publish root</dt>
-      <dd>{{ pipeline_run.publish_root|default:"-" }}</dd>
-      <dt>Import batch</dt>
-      <dd>
-        {% if latest_import_batch %}
-          {{ latest_import_batch.status }} at {{ latest_import_batch.finished_at|date:"Y-m-d H:i:s"|default:"-" }}
-        {% else %}
-          -
-        {% endif %}
-      </dd>
+          <dt>Status</dt>
+          <dd>{{ pipeline_run.status }}</dd>
+          <dt>Profile</dt>
+          <dd>{{ pipeline_run.profile|default:"-" }}</dd>
+          <dt>Acquisition publish mode</dt>
+          <dd>{{ pipeline_run.acquisition_publish_mode|default:"-" }}</dd>
+          <dt>Started</dt>
+          <dd>{{ pipeline_run.started_at_utc|date:"Y-m-d H:i:s T"|default:"-" }}</dd>
+          <dt>Finished</dt>
+          <dd>{{ pipeline_run.finished_at_utc|date:"Y-m-d H:i:s T"|default:"-" }}</dd>
+          <dt>Manifest</dt>
+          <dd>{{ pipeline_run.manifest_path|default:"-" }}</dd>
+          <dt>Publish root</dt>
+          <dd><code>{{ pipeline_run.publish_root|default:"-" }}</code></dd>
+          <dt>Latest import attempt</dt>
+          <dd>
+            {% if latest_import_batch %}
+              {{ latest_import_batch.status }} at {{ latest_import_batch.started_at|date:"Y-m-d H:i:s"|default:"-" }}
+            {% else %}
+              -
+            {% endif %}
+          </dd>
         </dl>
+      </div>
+    </article>
+  </div>
+
+  <div class="col-lg-7">
+    <article class="card h-100 border-0 shadow-sm detail-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+          <div>
+            <p class="eyebrow mb-2">Import activity</p>
+            <h2 class="mb-0">Heartbeat and row visibility</h2>
+          </div>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ imports_history_url }}">Open history</a>
+        </div>
+
+        {% if active_import_batch %}
+          <div class="border rounded-4 p-3 mb-4">
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              <span class="badge rounded-pill text-bg-light border status-badge">Status: {{ active_import_batch.status }}</span>
+              <span class="badge rounded-pill text-bg-light border status-badge">Phase: {{ active_import_batch.phase|default:"-" }}</span>
+              {% if active_import_batch.replace_existing %}
+                <span class="badge rounded-pill text-bg-light border status-badge">Replace existing</span>
+              {% endif %}
+            </div>
+            {% if active_import_batch.progress_payload.message %}
+              <p class="mb-3">{{ active_import_batch.progress_payload.message }}</p>
+            {% endif %}
+            <dl class="info-grid mb-0">
+              <dt>Started</dt>
+              <dd>{{ active_import_batch.started_at|date:"Y-m-d H:i:s"|default:"-" }}</dd>
+              <dt>Heartbeat</dt>
+              <dd>{{ active_import_batch.heartbeat_at|date:"Y-m-d H:i:s"|default:"-" }}</dd>
+              <dt>Source</dt>
+              <dd><code>{{ active_import_batch.source_path }}</code></dd>
+              {% for item in active_import_progress_items %}
+                <dt>{{ item.label }}</dt>
+                <dd>{{ item.value }}</dd>
+              {% endfor %}
+            </dl>
+          </div>
+        {% else %}
+          <p class="text-secondary mb-4">No pending or running import was found for this run’s stored publish root.</p>
+        {% endif %}
+
+        <div class="row g-4">
+          <div class="col-md-6">
+            <h3 class="h5">Latest completed counts</h3>
+            {% if latest_completed_import_batch %}
+              <p class="text-secondary mb-3">
+                Completed at {{ latest_completed_import_batch.finished_at|date:"Y-m-d H:i:s"|default:"-" }}.
+              </p>
+              <dl class="info-grid mb-0">
+                {% for item in latest_import_row_count_items %}
+                  <dt>{{ item.label }}</dt>
+                  <dd>{{ item.value }}</dd>
+                {% empty %}
+                  <dt>Counts</dt>
+                  <dd>Not recorded</dd>
+                {% endfor %}
+              </dl>
+            {% else %}
+              <p class="text-secondary mb-0">No completed import counts are recorded for this run yet.</p>
+            {% endif %}
+          </div>
+
+          <div class="col-md-6">
+            <h3 class="h5">Recent attempts</h3>
+            <div class="table-responsive">
+              <table class="table align-middle mb-0 data-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Phase</th>
+                    <th>Started</th>
+                    <th>Heartbeat</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for batch in recent_import_batches %}
+                    <tr>
+                      <td>{{ batch.status }}</td>
+                      <td>{{ batch.phase|default:"-" }}</td>
+                      <td>{{ batch.started_at|date:"Y-m-d H:i:s"|default:"-" }}</td>
+                      <td>{{ batch.heartbeat_at|date:"Y-m-d H:i:s"|default:"-" }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr>
+                      <td colspan="4" class="empty-cell">No import attempts were matched to this run.</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="row g-4 mb-4">
+  <div class="col-lg-6">
+    <article class="card h-100 border-0 shadow-sm detail-card">
+      <div class="card-body">
+        <p class="eyebrow">Method coverage</p>
+        <h2>Methods and residues</h2>
+        <div class="table-responsive">
+          <table class="table align-middle mb-0 data-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Residue</th>
+                <th>Accessions</th>
+                <th>Repeat calls</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in method_residue_summary %}
+                <tr>
+                  <td>{{ item.method }}</td>
+                  <td>{{ item.repeat_residue|default:"-" }}</td>
+                  <td>{{ item.accession_total }}</td>
+                  <td>{{ item.repeat_calls_total }}</td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="4" class="empty-cell">No method and residue status rows were imported for this run.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </article>
   </div>
@@ -178,6 +339,26 @@
       </div>
     </article>
   </div>
+</section>
+
+<section class="row g-4 mb-4">
+  <div class="col-lg-6">
+    <article class="card h-100 border-0 shadow-sm detail-card">
+      <div class="card-body">
+        <p class="eyebrow">Warnings</p>
+        <h2>Normalization summary</h2>
+        <dl class="info-grid">
+          {% for item in warning_summary %}
+            <dt>{{ item.warning_code }}{% if item.warning_scope %} ({{ item.warning_scope }}){% endif %}</dt>
+            <dd>{{ item.total }}</dd>
+          {% empty %}
+            <dt>Warnings</dt>
+            <dd>No normalization warnings were imported for this run.</dd>
+          {% endfor %}
+        </dl>
+      </div>
+    </article>
+  </div>
 
   <div class="col-lg-6">
     <article class="card h-100 border-0 shadow-sm detail-card">
@@ -194,6 +375,57 @@
         </div>
       </div>
     </article>
+  </div>
+</section>
+
+<section class="card border-0 shadow-sm detail-card">
+  <div class="card-body p-0">
+    <div class="section-header px-4 pt-4">
+      <div>
+        <p class="eyebrow mb-2">Batch provenance</p>
+        <h2 class="mb-2">Acquisition batches</h2>
+        <p class="text-secondary mb-0">
+          Batch-scoped raw acquisition inventory imported into the database for this run.
+          {% if batch_preview_is_truncated %}
+            Showing the first 12 batches ordered by batch id.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0 data-table">
+        <thead>
+          <tr>
+            <th>Batch</th>
+            <th>Genomes</th>
+            <th>Sequences</th>
+            <th>Proteins</th>
+            <th>Repeat calls</th>
+            <th>Download rows</th>
+            <th>Status rows</th>
+            <th>Warnings</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for batch in batch_preview %}
+            <tr>
+              <td><strong>{{ batch.batch_id }}</strong></td>
+              <td>{{ batch.genomes_count }}</td>
+              <td>{{ batch.sequences_count }}</td>
+              <td>{{ batch.proteins_count }}</td>
+              <td>{{ batch.repeat_calls_count }}</td>
+              <td>{{ batch.download_manifest_entries_count }}</td>
+              <td>{{ batch.accession_status_rows_count }}</td>
+              <td>{{ batch.normalization_warnings_count }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="empty-cell">No acquisition batches were imported for this run.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </section>
 {% endblock %}

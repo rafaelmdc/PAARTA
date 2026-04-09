@@ -1,7 +1,19 @@
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
-from apps.browser.models import Protein, RepeatCall, Sequence
+from apps.browser.models import (
+    AccessionCallCount,
+    AccessionStatus,
+    AcquisitionBatch,
+    DownloadManifestEntry,
+    NormalizationWarning,
+    Protein,
+    RepeatCall,
+    RunParameter,
+    Sequence,
+)
+from apps.imports.models import ImportBatch
 
 from .support import create_imported_run_fixture
 
@@ -132,6 +144,92 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "Acquisition batches")
         self.assertContains(response, "Accession status")
         self.assertContains(response, "completed")
+
+    def test_run_detail_shows_batch_provenance_and_import_activity(self):
+        pipeline_run = self.alpha["pipeline_run"]
+        extra_batch = AcquisitionBatch.objects.create(
+            pipeline_run=pipeline_run,
+            batch_id="batch_0002",
+        )
+        DownloadManifestEntry.objects.create(
+            pipeline_run=pipeline_run,
+            batch=extra_batch,
+            assembly_accession="GCF_ALPHA_ALT",
+            download_status="downloaded",
+            package_mode="direct_zip",
+        )
+        NormalizationWarning.objects.create(
+            pipeline_run=pipeline_run,
+            batch=extra_batch,
+            warning_code="partial_cds",
+            warning_scope="sequence",
+            warning_message="CDS is partial",
+            assembly_accession="GCF_ALPHA_ALT",
+            source_record_id="cds-2",
+        )
+        AccessionStatus.objects.create(
+            pipeline_run=pipeline_run,
+            batch=extra_batch,
+            assembly_accession="GCF_ALPHA_ALT",
+            download_status="success",
+            normalize_status="warning",
+            translate_status="success",
+            detect_status="failed",
+            finalize_status="skipped",
+            terminal_status="failed",
+            failure_stage="detect",
+            failure_reason="missing translated sequence",
+            n_genomes=1,
+            n_proteins=0,
+            n_repeat_calls=0,
+        )
+        AccessionCallCount.objects.create(
+            pipeline_run=pipeline_run,
+            batch=extra_batch,
+            assembly_accession="GCF_ALPHA_ALT",
+            method=RunParameter.Method.THRESHOLD,
+            repeat_residue="A",
+            detect_status="failed",
+            finalize_status="skipped",
+            n_repeat_calls=0,
+        )
+        ImportBatch.objects.create(
+            pipeline_run=pipeline_run,
+            source_path=pipeline_run.publish_root,
+            status=ImportBatch.Status.COMPLETED,
+            phase="completed",
+            finished_at=timezone.now(),
+            heartbeat_at=timezone.now(),
+            success_count=2,
+            progress_payload={"message": "Import completed successfully."},
+            row_counts={"genomes": 1, "repeat_calls": 1},
+        )
+        ImportBatch.objects.create(
+            source_path=pipeline_run.publish_root,
+            status=ImportBatch.Status.RUNNING,
+            replace_existing=True,
+            phase="loading_fasta",
+            heartbeat_at=timezone.now(),
+            progress_payload={
+                "message": "Loading FASTA payloads.",
+                "batch_id": "batch_0002",
+                "inserted_sequences": 42,
+            },
+        )
+
+        response = self.client.get(reverse("browser:run-detail", args=[pipeline_run.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Publish mode: raw")
+        self.assertContains(response, "Acquisition publish mode")
+        self.assertContains(response, "Heartbeat and row visibility")
+        self.assertContains(response, "Loading FASTA payloads.")
+        self.assertContains(response, "Inserted sequences")
+        self.assertContains(response, "batch_0002")
+        self.assertContains(response, "partial_cds")
+        self.assertContains(response, "threshold")
+        self.assertContains(response, "Latest completed counts")
+        self.assertContains(response, "failed")
 
     def test_taxon_list_run_filter_keeps_ancestor_path(self):
         response = self.client.get(reverse("browser:taxon-list"), {"run": "run-alpha"})
