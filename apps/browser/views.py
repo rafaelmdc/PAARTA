@@ -210,6 +210,11 @@ class RunDetailView(DetailView):
                 "description": "Canonical repeat-call browser scoped to this run.",
                 "url_name": "browser:repeatcall-list",
             },
+            {
+                "title": "Normalization warnings",
+                "description": "Operational warning rows imported from raw acquisition and normalization outputs.",
+                "url_name": "browser:normalizationwarning-list",
+            },
         ]
         method_values = set(pipeline_run.run_parameters.values_list("method", flat=True))
         method_values.update(pipeline_run.accession_call_count_rows.values_list("method", flat=True))
@@ -249,6 +254,10 @@ class RunDetailView(DetailView):
             .annotate(total=Count("pk"))
             .order_by("-total", "warning_code", "warning_scope")
         )
+        context["warning_browser_url"] = _url_with_query(
+            reverse("browser:normalizationwarning-list"),
+            run=pipeline_run.run_id,
+        )
         context["batch_preview"] = _annotated_batches(
             pipeline_run.acquisition_batches.order_by("batch_id")
         )[:12]
@@ -265,6 +274,98 @@ class RunDetailView(DetailView):
         )
         context["recent_import_batches"] = list(import_batches.order_by("-started_at", "-pk")[:5])
         context["imports_history_url"] = reverse("imports:history")
+        return context
+
+
+class NormalizationWarningListView(BrowserListView):
+    model = NormalizationWarning
+    template_name = "browser/normalizationwarning_list.html"
+    context_object_name = "warnings"
+    search_fields = (
+        "warning_code",
+        "warning_message",
+        "assembly_accession",
+        "genome_id",
+        "sequence_id",
+        "protein_id",
+        "source_record_id",
+    )
+    ordering_map = {
+        "warning_code": ("warning_code", "pipeline_run__run_id", "batch__batch_id", "assembly_accession"),
+        "-warning_code": ("-warning_code", "pipeline_run__run_id", "batch__batch_id", "assembly_accession"),
+        "warning_scope": ("warning_scope", "warning_code", "pipeline_run__run_id", "batch__batch_id"),
+        "-warning_scope": ("-warning_scope", "warning_code", "pipeline_run__run_id", "batch__batch_id"),
+        "accession": ("assembly_accession", "warning_code", "pipeline_run__run_id", "batch__batch_id"),
+        "-accession": ("-assembly_accession", "warning_code", "pipeline_run__run_id", "batch__batch_id"),
+        "batch": ("batch__batch_id", "warning_code", "assembly_accession"),
+        "-batch": ("-batch__batch_id", "warning_code", "assembly_accession"),
+        "run": ("pipeline_run__run_id", "batch__batch_id", "warning_code", "assembly_accession"),
+        "-run": ("-pipeline_run__run_id", "batch__batch_id", "warning_code", "assembly_accession"),
+    }
+    default_ordering = ("pipeline_run__run_id", "batch__batch_id", "warning_code", "assembly_accession")
+
+    def get_base_queryset(self):
+        return NormalizationWarning.objects.select_related("pipeline_run", "batch")
+
+    def _load_filter_state(self):
+        self.current_run = _resolve_current_run(self.request)
+        self.current_batch = self.request.GET.get("batch", "").strip()
+        self.current_accession = self.request.GET.get("accession", "").strip()
+        self.current_warning_code = self.request.GET.get("warning_code", "").strip()
+        self.current_warning_scope = self.request.GET.get("warning_scope", "").strip()
+
+    def apply_filters(self, queryset):
+        self._load_filter_state()
+
+        if self.current_run:
+            queryset = queryset.filter(pipeline_run=self.current_run)
+
+        if self.current_batch:
+            queryset = queryset.filter(batch__batch_id=self.current_batch)
+
+        if self.current_accession:
+            queryset = queryset.filter(assembly_accession__icontains=self.current_accession)
+
+        if self.current_warning_code:
+            queryset = queryset.filter(warning_code=self.current_warning_code)
+
+        if self.current_warning_scope:
+            queryset = queryset.filter(warning_scope=self.current_warning_scope)
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        current_run = getattr(self, "current_run", None)
+        current_batch = getattr(self, "current_batch", "")
+
+        filter_choices = NormalizationWarning.objects.all()
+        batch_choices = AcquisitionBatch.objects.select_related("pipeline_run")
+        if current_run:
+            filter_choices = filter_choices.filter(pipeline_run=current_run)
+            batch_choices = batch_choices.filter(pipeline_run=current_run)
+        if current_batch:
+            filter_choices = filter_choices.filter(batch__batch_id=current_batch)
+
+        context["current_run"] = current_run
+        context["current_run_id"] = current_run.run_id if current_run else ""
+        context["selected_batch"] = _resolve_batch_filter(current_run, current_batch)
+        context["current_batch"] = current_batch
+        context["current_accession"] = getattr(self, "current_accession", "")
+        context["current_warning_code"] = getattr(self, "current_warning_code", "")
+        context["current_warning_scope"] = getattr(self, "current_warning_scope", "")
+        context["run_choices"] = PipelineRun.objects.order_by("-imported_at", "run_id")
+        context["batch_choices"] = batch_choices.order_by("pipeline_run__run_id", "batch_id")
+        context["warning_code_choices"] = filter_choices.order_by("warning_code").values_list(
+            "warning_code",
+            flat=True,
+        ).distinct()
+        context["warning_scope_choices"] = (
+            filter_choices.exclude(warning_scope="")
+            .order_by("warning_scope")
+            .values_list("warning_scope", flat=True)
+            .distinct()
+        )
         return context
 
 
@@ -1091,6 +1192,15 @@ def _resolve_branch_taxon(request):
     if not branch:
         return None
     return Taxon.objects.filter(pk=branch).first()
+
+
+def _resolve_batch_filter(current_run, batch_id):
+    if not batch_id:
+        return None
+    queryset = AcquisitionBatch.objects.select_related("pipeline_run").filter(batch_id=batch_id)
+    if current_run:
+        queryset = queryset.filter(pipeline_run=current_run)
+    return queryset.first()
 
 
 def _resolve_browser_mode(request):

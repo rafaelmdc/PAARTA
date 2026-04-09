@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block title %}Normalization Warnings{% endblock %}
+{% block body_class %}normalizationwarning-list-page{% endblock %}
+
+{% block content %}
+<section class="landing-band mb-4">
+  <div class="landing-band-shell">
+    <div class="landing-copy">
+      <span class="section-kicker mb-3">Normalization warnings</span>
+      <h1 class="landing-title mb-3">Raw operational warning rows imported from acquisition and normalization.</h1>
+      <p class="landing-lead mb-0">
+        Filter warning provenance by run, batch, accession, code, and scope without
+        reading pipeline TSV files at request time.
+      </p>
+    </div>
+    <aside class="landing-aside">
+      <p class="sheet-label">Current scope</p>
+      <p class="mb-2">
+        {% if current_run %}
+          Run <strong>{{ current_run.run_id }}</strong>{% if selected_batch %}, batch <strong>{{ selected_batch.batch_id }}</strong>{% endif %}.
+        {% elif selected_batch %}
+          Batch <strong>{{ selected_batch.batch_id }}</strong> across imported runs.
+        {% else %}
+          Browsing imported warning rows across all runs.
+        {% endif %}
+      </p>
+      {% if current_warning_code %}
+        <p class="mb-2">Warning code: <strong>{{ current_warning_code }}</strong>.</p>
+      {% endif %}
+      {% if current_warning_scope %}
+        <p class="mb-0">Warning scope: <strong>{{ current_warning_scope }}</strong>.</p>
+      {% endif %}
+    </aside>
+  </div>
+</section>
+
+<section class="filter-card mb-4">
+  <form class="row g-3 align-items-end" method="get">
+    <div class="col-lg-3">
+      <label class="form-label" for="id_q">Search</label>
+      <input class="form-control" id="id_q" type="text" name="q" value="{{ current_query }}" placeholder="Code, message, accession, or record ID">
+    </div>
+    <div class="col-md-4 col-lg-2">
+      <label class="form-label" for="id_run">Run</label>
+      <select class="form-select" id="id_run" name="run">
+        <option value="">All runs</option>
+        {% for pipeline_run in run_choices %}
+          <option value="{{ pipeline_run.run_id }}" {% if current_run_id == pipeline_run.run_id %}selected{% endif %}>{{ pipeline_run.run_id }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4 col-lg-2">
+      <label class="form-label" for="id_batch">Batch</label>
+      <select class="form-select" id="id_batch" name="batch">
+        <option value="">All batches</option>
+        {% for batch in batch_choices %}
+          <option value="{{ batch.batch_id }}" {% if current_batch == batch.batch_id %}selected{% endif %}>
+            {{ batch.batch_id }}{% if not current_run %} [{{ batch.pipeline_run.run_id }}]{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4 col-lg-2">
+      <label class="form-label" for="id_accession">Accession</label>
+      <input class="form-control" id="id_accession" type="text" name="accession" value="{{ current_accession }}" placeholder="GCF_...">
+    </div>
+    <div class="col-md-4 col-lg-1">
+      <label class="form-label" for="id_warning_code">Code</label>
+      <select class="form-select" id="id_warning_code" name="warning_code">
+        <option value="">All</option>
+        {% for warning_code in warning_code_choices %}
+          <option value="{{ warning_code }}" {% if current_warning_code == warning_code %}selected{% endif %}>{{ warning_code }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4 col-lg-2">
+      <label class="form-label" for="id_warning_scope">Scope</label>
+      <select class="form-select" id="id_warning_scope" name="warning_scope">
+        <option value="">All scopes</option>
+        {% for warning_scope in warning_scope_choices %}
+          <option value="{{ warning_scope }}" {% if current_warning_scope == warning_scope %}selected{% endif %}>{{ warning_scope }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4 col-lg-2">
+      <label class="form-label" for="id_order_by">Sort</label>
+      <select class="form-select" id="id_order_by" name="order_by">
+        <option value="">Default</option>
+        {% for option in ordering_options %}
+          <option value="{{ option.value }}" {% if current_order_by == option.value %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12">
+      <div class="filter-actions">
+        <button class="btn btn-primary" type="submit">Apply</button>
+        <a class="btn btn-outline-secondary" href="{% url 'browser:normalizationwarning-list' %}">Reset</a>
+      </div>
+    </div>
+  </form>
+</section>
+
+<section class="surface-card surface-card-wide">
+  <div class="section-header">
+    <div>
+      <p class="section-kicker mb-2">Warning inventory</p>
+      <h2>{{ page_obj.paginator.count }} warning row{{ page_obj.paginator.count|pluralize }}</h2>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table align-middle mb-0 data-table">
+      <thead>
+        <tr>
+          <th>Warning</th>
+          <th>Accession</th>
+          <th>Batch</th>
+          <th>Genome</th>
+          <th>Sequence</th>
+          <th>Protein</th>
+          <th>Run</th>
+          <th>Message</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for warning in warnings %}
+          <tr>
+            <td>
+              <strong>{{ warning.warning_code }}</strong>
+              <div class="small text-secondary">{{ warning.warning_scope|default:"-" }}</div>
+            </td>
+            <td>
+              {% if warning.assembly_accession %}
+                <a href="{% url 'browser:normalizationwarning-list' %}?{% if current_run_id %}run={{ current_run_id|urlencode }}&amp;{% endif %}accession={{ warning.assembly_accession|urlencode }}">{{ warning.assembly_accession }}</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'browser:normalizationwarning-list' %}?run={{ warning.pipeline_run.run_id|urlencode }}&amp;batch={{ warning.batch.batch_id|urlencode }}">{{ warning.batch.batch_id }}</a>
+            </td>
+            <td><code>{{ warning.genome_id|default:"-" }}</code></td>
+            <td><code>{{ warning.sequence_id|default:"-" }}</code></td>
+            <td><code>{{ warning.protein_id|default:"-" }}</code></td>
+            <td><a href="{% url 'browser:run-detail' warning.pipeline_run.pk %}">{{ warning.pipeline_run.run_id }}</a></td>
+            <td>{{ warning.warning_message|default:"-" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="8" class="empty-cell">No normalization warnings matched these filters.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% include "browser/includes/pagination.html" %}
+</section>
+{% endblock %}

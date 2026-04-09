@@ -140,6 +140,7 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "run-alpha")
         self.assertContains(response, "Distinct taxa referenced")
         self.assertContains(response, "?run=run-alpha")
+        self.assertContains(response, reverse("browser:normalizationwarning-list"))
         self.assertContains(response, "Method: pure")
         self.assertContains(response, "Acquisition batches")
         self.assertContains(response, "Accession status")
@@ -230,6 +231,60 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "threshold")
         self.assertContains(response, "Latest completed counts")
         self.assertContains(response, "failed")
+
+    def test_normalization_warning_list_filters_by_run_batch_and_accession(self):
+        pipeline_run = self.alpha["pipeline_run"]
+        extra_batch = AcquisitionBatch.objects.create(
+            pipeline_run=pipeline_run,
+            batch_id="batch_0002",
+        )
+        NormalizationWarning.objects.create(
+            pipeline_run=pipeline_run,
+            batch=self.alpha["batch"],
+            warning_code="partial_cds",
+            warning_scope="sequence",
+            warning_message="Alpha batch one warning",
+            assembly_accession="GCF_ALPHA",
+            genome_id=self.alpha["genome"].genome_id,
+            sequence_id=self.alpha["sequence"].sequence_id,
+            source_record_id="alpha-1",
+        )
+        NormalizationWarning.objects.create(
+            pipeline_run=pipeline_run,
+            batch=extra_batch,
+            warning_code="missing_translation",
+            warning_scope="protein",
+            warning_message="Alpha batch two warning",
+            assembly_accession="GCF_ALPHA_ALT",
+            protein_id="prot_alpha_alt",
+            source_record_id="alpha-2",
+        )
+        NormalizationWarning.objects.create(
+            pipeline_run=self.beta["pipeline_run"],
+            batch=self.beta["batch"],
+            warning_code="partial_cds",
+            warning_scope="sequence",
+            warning_message="Beta warning",
+            assembly_accession="GCF_BETA",
+            genome_id=self.beta["genome"].genome_id,
+            source_record_id="beta-1",
+        )
+
+        response = self.client.get(
+            reverse("browser:normalizationwarning-list"),
+            {
+                "run": "run-alpha",
+                "batch": "batch_0002",
+                "accession": "GCF_ALPHA_ALT",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Alpha batch two warning")
+        self.assertContains(response, "missing_translation")
+        self.assertContains(response, "batch_0002")
+        self.assertNotContains(response, "Alpha batch one warning")
+        self.assertNotContains(response, "Beta warning")
 
     def test_taxon_list_run_filter_keeps_ancestor_path(self):
         response = self.client.get(reverse("browser:taxon-list"), {"run": "run-alpha"})

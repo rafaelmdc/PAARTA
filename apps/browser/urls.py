@@ -6,6 +6,7 @@ from .views import (
     BrowserHomeView,
     GenomeDetailView,
     GenomeListView,
+    NormalizationWarningListView,
     ProteinDetailView,
     ProteinListView,
     RepeatCallDetailView,
@@ -33,4 +34,5 @@ urlpatterns = [
     path("proteins/<int:pk>/", ProteinDetailView.as_view(), name="protein-detail"),
     path("calls/", RepeatCallListView.as_view(), name="repeatcall-list"),
     path("calls/<int:pk>/", RepeatCallDetailView.as_view(), name="repeatcall-detail"),
+    path("warnings/", NormalizationWarningListView.as_view(), name="normalizationwarning-list"),
 ]

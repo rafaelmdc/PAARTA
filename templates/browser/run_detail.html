@@ -345,8 +345,13 @@
   <div class="col-lg-6">
     <article class="card h-100 border-0 shadow-sm detail-card">
       <div class="card-body">
-        <p class="eyebrow">Warnings</p>
-        <h2>Normalization summary</h2>
+        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+          <div>
+            <p class="eyebrow mb-2">Warnings</p>
+            <h2 class="mb-0">Normalization summary</h2>
+          </div>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ warning_browser_url }}">Browse warning rows</a>
+        </div>
         <dl class="info-grid">
           {% for item in warning_summary %}
             <dt>{{ item.warning_code }}{% if item.warning_scope %} ({{ item.warning_scope }}){% endif %}</dt>
