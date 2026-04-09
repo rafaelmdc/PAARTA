@@ -73,7 +73,6 @@ class PreparedStreamedImportData:
     retained_genome_ids: frozenset[str]
     retained_sequence_ids: frozenset[str]
     retained_protein_ids: frozenset[str]
-    analyzed_protein_counts: dict[str, int]
     repeat_call_counts_by_protein: dict[str, int]
     total_repeat_calls: int
 
@@ -500,10 +499,9 @@ def _import_inspected_run(
         genome_rows,
         batch_by_batch_id,
         taxon_by_taxon_id,
-        prepared.analyzed_protein_counts,
     )
 
-    sequence_count, sequence_by_sequence_id, protein_count, protein_by_protein_id = (
+    sequence_count, sequence_by_sequence_id, protein_count, protein_by_protein_id, analyzed_protein_counts = (
         _create_call_linked_entities_for_batches(
             batch,
             pipeline_run,
@@ -514,6 +512,7 @@ def _import_inspected_run(
             reporter=reporter,
         )
     )
+    _update_genome_analyzed_protein_counts(genome_by_genome_id, analyzed_protein_counts)
 
     run_parameter_count = _create_run_parameters_streamed(
         pipeline_run,
@@ -819,8 +818,9 @@ def _create_genomes(
     rows: list[dict[str, object]],
     batch_by_batch_id: dict[str, AcquisitionBatch],
     taxon_by_taxon_id: dict[int, Taxon],
-    analyzed_protein_counts: dict[str, int],
+    analyzed_protein_counts: dict[str, int] | None = None,
 ) -> dict[str, Genome]:
+    analyzed_protein_counts = analyzed_protein_counts or {}
     genome_objects: list[Genome] = []
     for row in rows:
         genome_id = str(row["genome_id"])
@@ -841,7 +841,7 @@ def _create_genomes(
                 taxon=taxon,
                 assembly_level=str(row.get("assembly_level", "")),
                 species_name=str(row.get("species_name", "")),
-                analyzed_protein_count=analyzed_protein_counts.get(genome_id, 0),
+                analyzed_protein_count=0,
                 notes=str(row.get("notes", "")),
             )
         )
@@ -853,8 +853,24 @@ def _create_genomes(
             "genome_id",
             "taxon_id",
             "accession",
+            "analyzed_protein_count",
         )
     }
+
+
+def _update_genome_analyzed_protein_counts(
+    genome_by_genome_id: dict[str, Genome],
+    analyzed_protein_counts: dict[str, int],
+) -> None:
+    genomes_to_update: list[Genome] = []
+    for genome_id, genome in genome_by_genome_id.items():
+        analyzed_count = analyzed_protein_counts.get(genome_id, 0)
+        if genome.analyzed_protein_count == analyzed_count:
+            continue
+        genome.analyzed_protein_count = analyzed_count
+        genomes_to_update.append(genome)
+    if genomes_to_update:
+        Genome.objects.bulk_update(genomes_to_update, ["analyzed_protein_count"], batch_size=BULK_CREATE_BATCH_SIZE)
 
 
 def _create_sequences(
@@ -1204,7 +1220,6 @@ def _prepare_streamed_import_data(
     retained_sequence_ids: set[str] = set()
     retained_protein_ids: set[str] = set()
     repeat_call_counts_by_protein: dict[str, int] = {}
-    analyzed_protein_counts: dict[str, int] = {}
     total_repeat_calls = 0
 
     for row in iter_repeat_call_rows(inspected.artifact_paths.repeat_calls_tsv):
@@ -1230,30 +1245,10 @@ def _prepare_streamed_import_data(
                 reporter=reporter,
             )
 
-    scanned_proteins = 0
-    for batch_paths in inspected.artifact_paths.acquisition_batches:
-        for row in iter_protein_rows(batch_paths.proteins_tsv, batch_id=batch_paths.batch_id):
-            genome_id = str(row["genome_id"])
-            analyzed_protein_counts[genome_id] = analyzed_protein_counts.get(genome_id, 0) + 1
-            scanned_proteins += 1
-            if scanned_proteins % BULK_CREATE_BATCH_SIZE == 0:
-                _set_batch_state(
-                    batch,
-                    phase=ImportPhase.PREPARING,
-                    progress_payload={
-                        "message": "Counting analyzed proteins per genome.",
-                        "batch_count": len(inspected.artifact_paths.acquisition_batches),
-                        "repeat_calls": total_repeat_calls,
-                        "scanned_proteins": scanned_proteins,
-                    },
-                    reporter=reporter,
-                )
-
     return PreparedStreamedImportData(
         retained_genome_ids=frozenset(retained_genome_ids),
         retained_sequence_ids=frozenset(retained_sequence_ids),
         retained_protein_ids=frozenset(retained_protein_ids),
-        analyzed_protein_counts=analyzed_protein_counts,
         repeat_call_counts_by_protein=repeat_call_counts_by_protein,
         total_repeat_calls=total_repeat_calls,
     )
@@ -1268,11 +1263,12 @@ def _create_call_linked_entities_for_batches(
     taxon_by_taxon_id: dict[int, Taxon],
     *,
     reporter: _ImportBatchStateReporter | None = None,
-) -> tuple[int, dict[str, Sequence], int, dict[str, Protein]]:
+) -> tuple[int, dict[str, Sequence], int, dict[str, Protein], dict[str, int]]:
     total_sequences = 0
     total_proteins = 0
     sequence_by_sequence_id: dict[str, Sequence] = {}
     protein_by_protein_id: dict[str, Protein] = {}
+    analyzed_protein_counts: dict[str, int] = {}
 
     for batch_paths in inspected.artifact_paths.acquisition_batches:
         batch_sequence_ids: set[str] = set()
@@ -1430,6 +1426,7 @@ def _create_call_linked_entities_for_batches(
                 raise ImportContractError(
                     f"Protein row references missing sequence_id {row['sequence_id']!r}"
                 )
+            analyzed_protein_counts[genome_id] = analyzed_protein_counts.get(genome_id, 0) + 1
             if str(row["protein_id"]) in prepared.retained_protein_ids:
                 retained_protein_rows.append(row)
 
@@ -1583,7 +1580,7 @@ def _create_call_linked_entities_for_batches(
         preview = ", ".join(missing_proteins[:5])
         raise ImportContractError(f"Missing retained protein rows for protein IDs: {preview}")
 
-    return total_sequences, sequence_by_sequence_id, total_proteins, protein_by_protein_id
+    return total_sequences, sequence_by_sequence_id, total_proteins, protein_by_protein_id, analyzed_protein_counts
 
 
 def _create_run_parameters_streamed(
