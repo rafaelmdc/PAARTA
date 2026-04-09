@@ -115,6 +115,9 @@ class BrowserViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Imported runs")
+        self.assertContains(response, "Operational provenance")
+        self.assertContains(response, reverse("browser:accessionstatus-list"))
+        self.assertContains(response, reverse("browser:downloadmanifest-list"))
         self.assertContains(response, "run-alpha")
         self.assertContains(response, "run-beta")
 
@@ -235,6 +238,16 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "Latest completed counts")
         self.assertContains(response, "failed")
 
+    def test_run_detail_links_summary_counts_to_filtered_related_views(self):
+        response = self.client.get(reverse("browser:run-detail", args=[self.alpha["pipeline_run"].pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"{reverse('browser:genome-list')}?run=run-alpha")
+        self.assertContains(response, f"{reverse('browser:protein-list')}?run=run-alpha")
+        self.assertContains(response, f"{reverse('browser:repeatcall-list')}?run=run-alpha")
+        self.assertContains(response, "terminal_status=completed")
+        self.assertContains(response, "method=pure")
+
     def test_accession_status_list_filters_by_run_batch_and_status(self):
         pipeline_run = self.alpha["pipeline_run"]
         extra_batch = AcquisitionBatch.objects.create(
@@ -283,6 +296,7 @@ class BrowserViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "GCF_ALPHA_ALT")
+        self.assertContains(response, reverse("browser:accession-detail", args=["GCF_ALPHA_ALT"]))
         self.assertContains(response, "missing translated sequence")
         self.assertContains(response, "failed")
         self.assertNotContains(response, "completed")
@@ -431,6 +445,15 @@ class BrowserViewTests(TestCase):
         self.assertNotContains(response, "Alpha batch one warning")
         self.assertNotContains(response, "Beta warning")
 
+    def test_accession_list_links_summary_counts_to_filtered_related_views(self):
+        response = self.client.get(reverse("browser:accession-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"{reverse('browser:repeatcall-list')}?mode=merged&amp;run=run-alpha")
+        self.assertContains(response, f"{reverse('browser:protein-list')}?mode=merged&amp;run=run-alpha")
+        self.assertContains(response, "method=pure")
+        self.assertContains(response, "q=GCF_ALPHA")
+
     def test_taxon_list_run_filter_keeps_ancestor_path(self):
         response = self.client.get(reverse("browser:taxon-list"), {"run": "run-alpha"})
 
@@ -484,6 +507,14 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "NP_run-alpha")
         self.assertContains(response, "call_alpha")
         self.assertContains(response, "Protein browser")
+
+    def test_accession_detail_links_to_source_proteins_and_repeat_calls(self):
+        response = self.client.get(reverse("browser:accession-detail", args=["GCF_ALPHA"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Open source proteins")
+        self.assertContains(response, f"{reverse('browser:protein-list')}?q=GCF_ALPHA")
+        self.assertContains(response, f"{reverse('browser:repeatcall-list')}?q=GCF_ALPHA")
 
     def test_protein_list_run_filter_scopes_results(self):
         response = self.client.get(reverse("browser:protein-list"), {"run": "run-alpha"})

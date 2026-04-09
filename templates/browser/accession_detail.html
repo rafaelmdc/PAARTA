@@ -16,13 +16,15 @@
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-dark" href="{{ accession_list_url }}">Back to accession analytics</a>
         <a class="btn btn-brand" href="{{ genome_list_url }}">Open source genomes</a>
+        <a class="btn btn-outline-dark" href="{{ protein_list_url }}">Open source proteins</a>
+        <a class="btn btn-outline-dark" href="{{ repeatcall_list_url }}">Open source repeat calls</a>
       </div>
     </div>
     <aside class="landing-aside">
       <p class="sheet-label">Merged summary</p>
-      <p class="mb-2">{{ collapsed_repeat_calls_count }} collapsed repeat call{{ collapsed_repeat_calls_count|pluralize }}</p>
+      <p class="mb-2"><a class="text-decoration-none" href="{{ merged_repeatcall_list_url }}">{{ collapsed_repeat_calls_count }} collapsed repeat call{{ collapsed_repeat_calls_count|pluralize }}</a></p>
       <p class="mb-2">{{ duplicate_source_repeat_calls_count }} duplicate source call{{ duplicate_source_repeat_calls_count|pluralize }} removed</p>
-      <p class="mb-2">{{ merged_repeat_bearing_proteins_count }} derived repeat-bearing protein{{ merged_repeat_bearing_proteins_count|pluralize }}</p>
+      <p class="mb-2"><a class="text-decoration-none" href="{{ merged_protein_list_url }}">{{ merged_repeat_bearing_proteins_count }} derived repeat-bearing protein{{ merged_repeat_bearing_proteins_count|pluralize }}</a></p>
       {% if has_analyzed_protein_conflict %}
         <p class="mb-0">Analyzed protein count conflict: {{ analyzed_protein_counts|join:", " }}</p>
       {% else %}
@@ -46,7 +48,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Raw repeat calls</p>
-        <p class="display-5 fw-semibold mb-3">{{ source_repeat_calls_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ repeatcall_list_url }}">{{ source_repeat_calls_count }}</a>
         <p class="text-secondary mb-0">Source repeat calls before any exact cross-run collapse.</p>
       </div>
     </article>
@@ -55,7 +57,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Collapsed repeat calls</p>
-        <p class="display-5 fw-semibold mb-3">{{ collapsed_repeat_calls_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ merged_repeatcall_list_url }}">{{ collapsed_repeat_calls_count }}</a>
         <p class="text-secondary mb-0">Exact-match calls after derived fingerprint collapse.</p>
       </div>
     </article>
@@ -64,7 +66,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Repeat-bearing proteins</p>
-        <p class="display-5 fw-semibold mb-3">{{ merged_repeat_bearing_proteins_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ merged_protein_list_url }}">{{ merged_repeat_bearing_proteins_count }}</a>
         <p class="text-secondary mb-0">
           {% if repeat_bearing_protein_percentage is not None %}
             {{ repeat_bearing_protein_percentage|floatformat:2 }}% of analyzed proteins after denominator-safe collapse.
@@ -128,8 +130,8 @@
             <td><a href="{% url 'browser:genome-detail' genome.pk %}">{{ genome.genome_name }}</a></td>
             <td><a href="{% url 'browser:taxon-detail' genome.taxon.pk %}?run={{ genome.pipeline_run.run_id|urlencode }}">{{ genome.taxon.taxon_name }}</a></td>
             <td>{{ genome.analyzed_protein_count }}</td>
-            <td>{{ genome.proteins_count }}</td>
-            <td>{{ genome.repeat_calls_count }}</td>
+            <td><a href="{% url 'browser:protein-list' %}?run={{ genome.pipeline_run.run_id|urlencode }}&amp;genome={{ genome.genome_id|urlencode }}">{{ genome.proteins_count }}</a></td>
+            <td><a href="{% url 'browser:repeatcall-list' %}?run={{ genome.pipeline_run.run_id|urlencode }}&amp;genome={{ genome.genome_id|urlencode }}">{{ genome.repeat_calls_count }}</a></td>
           </tr>
         {% endfor %}
       </tbody>
@@ -163,9 +165,9 @@
         {% for call_group in collapsed_call_groups %}
           <tr>
             <td>{{ call_group.protein_name }} <span class="small text-secondary">({{ call_group.protein_length }} aa)</span></td>
-            <td>{{ call_group.method }}</td>
+            <td><a href="{{ merged_repeatcall_list_url }}&amp;method={{ call_group.method|urlencode }}">{{ call_group.method }}</a></td>
             <td>{{ call_group.start }}-{{ call_group.end }}</td>
-            <td>{{ call_group.repeat_residue }}</td>
+            <td><a href="{{ merged_repeatcall_list_url }}&amp;residue={{ call_group.repeat_residue|urlencode }}">{{ call_group.repeat_residue }}</a></td>
             <td>{{ call_group.length }}</td>
             <td>{{ call_group.normalized_purity }}</td>
             <td>{{ call_group.source_count }}</td>

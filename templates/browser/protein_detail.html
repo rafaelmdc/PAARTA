@@ -15,14 +15,16 @@
       </p>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-dark" href="{{ protein_list_url }}">Back to proteins</a>
+        <a class="btn btn-outline-dark" href="{{ run_detail_url }}">Open run</a>
         <a class="btn btn-outline-dark" href="{% url 'browser:genome-detail' protein.genome.pk %}">Open genome</a>
+        <a class="btn btn-outline-dark" href="{{ taxon_detail_url }}">Open taxon</a>
         <a class="btn btn-brand" href="{{ repeatcall_browser_url }}">Open repeat calls</a>
       </div>
     </div>
     <aside class="landing-aside">
       <p class="sheet-label">At a glance</p>
       <p class="mb-2">{{ protein.protein_length }} aa</p>
-      <p class="mb-2">{{ repeat_calls_count }} linked call{{ repeat_calls_count|pluralize }}</p>
+      <p class="mb-2"><a class="text-decoration-none" href="{{ repeatcall_browser_url }}">{{ repeat_calls_count }} linked call{{ repeat_calls_count|pluralize }}</a></p>
       <p class="mb-0">{{ protein.sequence.sequence_name }}</p>
     </aside>
   </div>
@@ -127,7 +129,7 @@
               <tr>
                 <td>{{ summary.method }}</td>
                 <td>{{ summary.repeat_residue }}</td>
-                <td>{{ summary.total }}</td>
+                <td><a href="{{ repeatcall_browser_url }}&amp;method={{ summary.method|urlencode }}&amp;residue={{ summary.repeat_residue|urlencode }}">{{ summary.total }}</a></td>
                 <td>
                   {% if summary.min_length == summary.max_length %}
                     {{ summary.min_length }}

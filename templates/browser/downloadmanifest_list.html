@@ -126,7 +126,7 @@
       <tbody>
         {% for entry in download_entries %}
           <tr>
-            <td><strong>{{ entry.assembly_accession }}</strong></td>
+            <td><a href="{% url 'browser:accession-detail' entry.assembly_accession %}"><strong>{{ entry.assembly_accession }}</strong></a></td>
             <td>
               <a href="{% url 'browser:downloadmanifest-list' %}?run={{ entry.pipeline_run.run_id|urlencode }}&amp;batch={{ entry.batch.pk|urlencode }}">{{ entry.batch.batch_id }}</a>
             </td>

@@ -16,9 +16,13 @@
       </p>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-dark" href="{% url 'browser:taxon-list' %}{% if current_run_id or current_mode == 'merged' %}?{% if current_run_id %}run={{ current_run_id|urlencode }}{% if current_mode == 'merged' %}&amp;{% endif %}{% endif %}{% if current_mode == 'merged' %}mode=merged{% endif %}{% endif %}">Back to taxa</a>
+        {% if run_detail_url %}
+          <a class="btn btn-outline-dark" href="{{ run_detail_url }}">Open run</a>
+        {% endif %}
         <a class="btn btn-brand" href="{{ genome_branch_url }}">Open branch genomes</a>
         <a class="btn btn-outline-dark" href="{{ protein_branch_url }}">Open branch proteins</a>
         <a class="btn btn-outline-dark" href="{{ repeatcall_branch_url }}">Open branch calls</a>
+        <a class="btn btn-outline-dark" href="{{ accession_branch_url }}">Open accession analytics</a>
       </div>
     </div>
     <aside class="landing-aside">

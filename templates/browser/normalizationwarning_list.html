@@ -132,7 +132,7 @@
             </td>
             <td>
               {% if warning.assembly_accession %}
-                <a href="{% url 'browser:normalizationwarning-list' %}?{% if current_run_id %}run={{ current_run_id|urlencode }}&amp;{% endif %}accession={{ warning.assembly_accession|urlencode }}">{{ warning.assembly_accession }}</a>
+                <a href="{% url 'browser:accession-detail' warning.assembly_accession %}">{{ warning.assembly_accession }}</a>
               {% else %}
                 -
               {% endif %}

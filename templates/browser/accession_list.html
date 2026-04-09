@@ -90,7 +90,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Collapsed repeat calls</p>
-        <p class="display-5 fw-semibold mb-3">{{ summary.collapsed_repeat_calls_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{% url 'browser:repeatcall-list' %}?mode=merged{% if current_run_id %}&amp;run={{ current_run_id|urlencode }}{% endif %}{% if current_branch %}&amp;branch={{ current_branch|urlencode }}{% endif %}">{{ summary.collapsed_repeat_calls_count }}</a>
         <p class="text-secondary mb-0">{{ summary.duplicate_source_repeat_calls_count }} duplicate source call{{ summary.duplicate_source_repeat_calls_count|pluralize }} removed from {{ summary.source_repeat_calls_count }} raw call{{ summary.source_repeat_calls_count|pluralize }}.</p>
       </div>
     </article>
@@ -99,7 +99,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Repeat-bearing proteins</p>
-        <p class="display-5 fw-semibold mb-3">{{ summary.merged_repeat_bearing_proteins_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{% url 'browser:protein-list' %}?mode=merged{% if current_run_id %}&amp;run={{ current_run_id|urlencode }}{% endif %}{% if current_branch %}&amp;branch={{ current_branch|urlencode }}{% endif %}">{{ summary.merged_repeat_bearing_proteins_count }}</a>
         <p class="text-secondary mb-0">
           {% if summary.repeat_bearing_protein_percentage is not None %}
             {{ summary.safe_repeat_bearing_proteins_count }} / {{ summary.analyzed_proteins_total }} = {{ summary.repeat_bearing_protein_percentage|floatformat:2 }}% across conflict-safe accessions.
@@ -142,7 +142,7 @@
             {% for row in summary.method_summary %}
               <tr>
                 <td>{{ row.label }}</td>
-                <td>{{ row.count }}</td>
+                <td><a href="{% url 'browser:repeatcall-list' %}?mode=merged{% if current_run_id %}&amp;run={{ current_run_id|urlencode }}{% endif %}{% if current_branch %}&amp;branch={{ current_branch|urlencode }}{% endif %}&amp;method={{ row.label|urlencode }}">{{ row.count }}</a></td>
               </tr>
             {% empty %}
               <tr>
@@ -174,7 +174,7 @@
             {% for row in summary.residue_summary %}
               <tr>
                 <td>{{ row.label }}</td>
-                <td>{{ row.count }}</td>
+                <td><a href="{% url 'browser:repeatcall-list' %}?mode=merged{% if current_run_id %}&amp;run={{ current_run_id|urlencode }}{% endif %}{% if current_branch %}&amp;branch={{ current_branch|urlencode }}{% endif %}&amp;residue={{ row.label|urlencode }}">{{ row.count }}</a></td>
               </tr>
             {% empty %}
               <tr>
@@ -213,17 +213,17 @@
         {% for accession_group in accession_groups %}
           <tr>
             <td><a href="{% url 'browser:accession-detail' accession_group.accession %}">{{ accession_group.accession }}</a></td>
-            <td>{{ accession_group.source_genomes_count }}</td>
+            <td><a href="{% url 'browser:genome-list' %}?accession={{ accession_group.accession|urlencode }}{% if current_run_id %}&amp;run={{ current_run_id|urlencode }}{% endif %}{% if current_branch %}&amp;branch={{ current_branch|urlencode }}{% endif %}">{{ accession_group.source_genomes_count }}</a></td>
             <td>{{ accession_group.source_runs_count }}</td>
             <td>
-              {{ accession_group.raw_repeat_calls_count }}
+              <a href="{% url 'browser:repeatcall-list' %}?q={{ accession_group.accession|urlencode }}{% if current_run_id %}&amp;run={{ current_run_id|urlencode }}{% endif %}{% if current_branch %}&amp;branch={{ current_branch|urlencode }}{% endif %}">{{ accession_group.raw_repeat_calls_count }}</a>
               {% if accession_group.duplicate_source_repeat_calls_count %}
                 <span class="small text-secondary">(-{{ accession_group.duplicate_source_repeat_calls_count }} duplicate{{ accession_group.duplicate_source_repeat_calls_count|pluralize }})</span>
               {% endif %}
             </td>
-            <td>{{ accession_group.collapsed_repeat_calls_count }}</td>
+            <td><a href="{% url 'browser:repeatcall-list' %}?mode=merged&amp;q={{ accession_group.accession|urlencode }}{% if current_run_id %}&amp;run={{ current_run_id|urlencode }}{% endif %}{% if current_branch %}&amp;branch={{ current_branch|urlencode }}{% endif %}">{{ accession_group.collapsed_repeat_calls_count }}</a></td>
             <td>
-              {{ accession_group.merged_repeat_bearing_proteins_count }}
+              <a href="{% url 'browser:protein-list' %}?mode=merged&amp;q={{ accession_group.accession|urlencode }}{% if current_run_id %}&amp;run={{ current_run_id|urlencode }}{% endif %}{% if current_branch %}&amp;branch={{ current_branch|urlencode }}{% endif %}">{{ accession_group.merged_repeat_bearing_proteins_count }}</a>
               {% if accession_group.repeat_bearing_protein_percentage is not None %}
                 <span class="small text-secondary">({{ accession_group.repeat_bearing_protein_percentage|floatformat:2 }}%)</span>
               {% endif %}

@@ -15,8 +15,10 @@
       </p>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-dark" href="{{ repeatcall_list_url }}">Back to repeat calls</a>
+        <a class="btn btn-outline-dark" href="{{ run_detail_url }}">Open run</a>
         <a class="btn btn-outline-dark" href="{% url 'browser:protein-detail' repeat_call.protein.pk %}">Open protein</a>
         <a class="btn btn-brand" href="{% url 'browser:genome-detail' repeat_call.genome.pk %}">Open genome</a>
+        <a class="btn btn-outline-dark" href="{{ taxon_detail_url }}">Open taxon</a>
       </div>
     </div>
     <aside class="landing-aside">

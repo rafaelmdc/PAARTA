@@ -151,8 +151,8 @@
                 </a>
               </td>
               <td><a href="{% url 'browser:run-detail' genome.pipeline_run.pk %}">{{ genome.pipeline_run.run_id }}</a></td>
-              <td>{{ genome.proteins_count }}</td>
-              <td>{{ genome.repeat_calls_count }}</td>
+              <td><a href="{% url 'browser:protein-list' %}?run={{ genome.pipeline_run.run_id|urlencode }}&amp;genome={{ genome.genome_id|urlencode }}">{{ genome.proteins_count }}</a></td>
+              <td><a href="{% url 'browser:repeatcall-list' %}?run={{ genome.pipeline_run.run_id|urlencode }}&amp;genome={{ genome.genome_id|urlencode }}">{{ genome.repeat_calls_count }}</a></td>
             </tr>
           {% endif %}
         {% empty %}

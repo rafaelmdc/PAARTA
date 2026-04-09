@@ -41,12 +41,12 @@
           <p class="text-uppercase text-secondary small mb-3">At a glance</p>
           <ul class="stack-list mb-0">
             <li>{{ pipeline_run.acquisition_batches_count }} acquisition batch{{ pipeline_run.acquisition_batches_count|pluralize:"es" }}</li>
-            <li>{{ pipeline_run.genomes_count }} genome{{ pipeline_run.genomes_count|pluralize }}</li>
-            <li>{{ pipeline_run.proteins_count }} repeat-bearing protein{{ pipeline_run.proteins_count|pluralize }}</li>
-            <li>{{ pipeline_run.repeat_calls_count }} repeat call{{ pipeline_run.repeat_calls_count|pluralize }}</li>
-            <li>{{ pipeline_run.accession_status_rows_count }} accession status row{{ pipeline_run.accession_status_rows_count|pluralize }}</li>
-            <li>{{ pipeline_run.normalization_warnings_count }} normalization warning{{ pipeline_run.normalization_warnings_count|pluralize }}</li>
-            <li>{{ distinct_taxa_count }} distinct taxa referenced</li>
+            <li><a href="{{ genome_browser_url }}">{{ pipeline_run.genomes_count }} genome{{ pipeline_run.genomes_count|pluralize }}</a></li>
+            <li><a href="{{ protein_browser_url }}">{{ pipeline_run.proteins_count }} repeat-bearing protein{{ pipeline_run.proteins_count|pluralize }}</a></li>
+            <li><a href="{{ repeatcall_browser_url }}">{{ pipeline_run.repeat_calls_count }} repeat call{{ pipeline_run.repeat_calls_count|pluralize }}</a></li>
+            <li><a href="{{ accession_status_browser_url }}">{{ pipeline_run.accession_status_rows_count }} accession status row{{ pipeline_run.accession_status_rows_count|pluralize }}</a></li>
+            <li><a href="{{ warning_browser_url }}">{{ pipeline_run.normalization_warnings_count }} normalization warning{{ pipeline_run.normalization_warnings_count|pluralize }}</a></li>
+            <li><a href="{{ taxon_browser_url }}">{{ distinct_taxa_count }} distinct taxa referenced</a></li>
           </ul>
         </div>
       </div>
@@ -68,7 +68,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Taxa</p>
-        <p class="display-5 fw-semibold mb-3">{{ distinct_taxa_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ taxon_browser_url }}">{{ distinct_taxa_count }}</a>
         <p class="text-secondary mb-0">Distinct taxa referenced by this run’s imported biological records.</p>
       </div>
     </article>
@@ -77,7 +77,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Genomes</p>
-        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.genomes_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ genome_browser_url }}">{{ pipeline_run.genomes_count }}</a>
         <p class="text-secondary mb-0">Assembly-level records imported for this run.</p>
       </div>
     </article>
@@ -95,7 +95,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Proteins</p>
-        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.proteins_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ protein_browser_url }}">{{ pipeline_run.proteins_count }}</a>
         <p class="text-secondary mb-0">Imported repeat-bearing protein records available for run-scoped browsing.</p>
       </div>
     </article>
@@ -104,7 +104,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Repeat calls</p>
-        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.repeat_calls_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ repeatcall_browser_url }}">{{ pipeline_run.repeat_calls_count }}</a>
         <p class="text-secondary mb-0">Canonical merged repeat-call rows available for browser and graphs.</p>
       </div>
     </article>
@@ -125,7 +125,7 @@
           <p class="text-uppercase text-secondary small mb-0">Download manifest</p>
           <a class="btn btn-sm btn-outline-secondary" href="{{ download_manifest_browser_url }}">Browse</a>
         </div>
-        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.download_manifest_entries_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ download_manifest_browser_url }}">{{ pipeline_run.download_manifest_entries_count }}</a>
         <p class="text-secondary mb-0">Imported batch-scoped download provenance rows.</p>
       </div>
     </article>
@@ -134,7 +134,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Warnings</p>
-        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.normalization_warnings_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ warning_browser_url }}">{{ pipeline_run.normalization_warnings_count }}</a>
         <p class="text-secondary mb-0">Imported normalization warnings retained as raw operational provenance.</p>
       </div>
     </article>
@@ -143,7 +143,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Accession status</p>
-        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.accession_status_rows_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ accession_status_browser_url }}">{{ pipeline_run.accession_status_rows_count }}</a>
         <p class="text-secondary mb-0">Accession-level operational ledger rows imported from the published status tables.</p>
       </div>
     </article>
@@ -152,7 +152,7 @@
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Method/residue status</p>
-        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.accession_call_count_rows_count }}</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ accession_call_count_browser_url }}">{{ pipeline_run.accession_call_count_rows_count }}</a>
         <p class="text-secondary mb-0">Per-accession method and repeat-residue status rows imported for this run.</p>
       </div>
     </article>
@@ -315,8 +315,8 @@
                 <tr>
                   <td>{{ item.method }}</td>
                   <td>{{ item.repeat_residue|default:"-" }}</td>
-                  <td>{{ item.accession_total }}</td>
-                  <td>{{ item.repeat_calls_total }}</td>
+                  <td><a href="{{ accession_call_count_browser_url }}&amp;method={{ item.method|urlencode }}{% if item.repeat_residue %}&amp;residue={{ item.repeat_residue|urlencode }}{% endif %}">{{ item.accession_total }}</a></td>
+                  <td><a href="{{ repeatcall_browser_url }}&amp;method={{ item.method|urlencode }}{% if item.repeat_residue %}&amp;residue={{ item.repeat_residue|urlencode }}{% endif %}">{{ item.repeat_calls_total }}</a></td>
                 </tr>
               {% empty %}
                 <tr>
@@ -343,7 +343,7 @@
         <dl class="info-grid">
           {% for item in terminal_status_summary %}
             <dt>{{ item.terminal_status|default:"(blank)" }}</dt>
-            <dd>{{ item.total }}</dd>
+            <dd><a href="{{ accession_status_browser_url }}&amp;terminal_status={{ item.terminal_status|urlencode }}">{{ item.total }}</a></dd>
           {% empty %}
             <dt>Status rows</dt>
             <dd>Not imported</dd>
@@ -355,7 +355,7 @@
 </section>
 
 <section class="row g-4 mb-4">
-  <div class="col-lg-6">
+  <div class="col-lg-12">
     <article class="card h-100 border-0 shadow-sm detail-card">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
@@ -368,29 +368,12 @@
         <dl class="info-grid">
           {% for item in warning_summary %}
             <dt>{{ item.warning_code }}{% if item.warning_scope %} ({{ item.warning_scope }}){% endif %}</dt>
-            <dd>{{ item.total }}</dd>
+            <dd><a href="{{ warning_browser_url }}&amp;warning_code={{ item.warning_code|urlencode }}{% if item.warning_scope %}&amp;warning_scope={{ item.warning_scope|urlencode }}{% endif %}">{{ item.total }}</a></dd>
           {% empty %}
             <dt>Warnings</dt>
             <dd>No normalization warnings were imported for this run.</dd>
           {% endfor %}
         </dl>
-      </div>
-    </article>
-  </div>
-
-  <div class="col-lg-6">
-    <article class="card h-100 border-0 shadow-sm detail-card">
-      <div class="card-body">
-        <p class="eyebrow">Next browser sections</p>
-        <h2>Run-scoped links</h2>
-        <div class="link-grid">
-          {% for section in linked_sections %}
-            <a class="section-link" href="{% url section.url_name %}?run={{ pipeline_run.run_id|urlencode }}">
-              <strong>{{ section.title }}</strong>
-              <span>{{ section.description }}</span>
-            </a>
-          {% endfor %}
-        </div>
       </div>
     </article>
   </div>
@@ -427,14 +410,14 @@
         <tbody>
           {% for batch in batch_preview %}
             <tr>
-              <td><strong>{{ batch.batch_id }}</strong></td>
+              <td><a href="{{ accession_status_browser_url }}&amp;batch={{ batch.pk|urlencode }}"><strong>{{ batch.batch_id }}</strong></a></td>
               <td>{{ batch.genomes_count }}</td>
               <td>{{ batch.sequences_count }}</td>
               <td>{{ batch.proteins_count }}</td>
               <td>{{ batch.repeat_calls_count }}</td>
-              <td>{{ batch.download_manifest_entries_count }}</td>
-              <td>{{ batch.accession_status_rows_count }}</td>
-              <td>{{ batch.normalization_warnings_count }}</td>
+              <td><a href="{{ download_manifest_browser_url }}&amp;batch={{ batch.pk|urlencode }}">{{ batch.download_manifest_entries_count }}</a></td>
+              <td><a href="{{ accession_status_browser_url }}&amp;batch={{ batch.pk|urlencode }}">{{ batch.accession_status_rows_count }}</a></td>
+              <td><a href="{{ warning_browser_url }}&amp;batch={{ batch.pk|urlencode }}">{{ batch.normalization_warnings_count }}</a></td>
             </tr>
           {% empty %}
             <tr>

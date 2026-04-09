@@ -23,20 +23,34 @@
   </div>
 </section>
 
-<section class="row g-4 mb-4">
-  {% for card in cards %}
-    <div class="col-md-6 col-xl-4">
-      <article class="metric-panel h-100">
-        <p class="sheet-label">{{ card.title }}</p>
-        <p class="metric-panel-value">{{ card.count }}</p>
-        <p class="mb-4">{{ card.description }}</p>
-        <div class="mt-auto">
-          <a class="btn btn-outline-dark" href="{% url card.url_name %}">Open {{ card.title }}</a>
-        </div>
-      </article>
+{% for section in directory_sections %}
+  <section class="mb-4">
+    <div class="section-header">
+      <div>
+        <p class="section-kicker mb-2">{{ section.title }}</p>
+        <h2>{{ section.title }}</h2>
+        <p class="text-secondary mb-0">{{ section.description }}</p>
+      </div>
     </div>
+
+    <div class="row g-4">
+      {% for item in section.items %}
+        <div class="col-md-6 col-xl-4">
+          <article class="metric-panel h-100">
+            <p class="sheet-label">{{ item.title }}</p>
+            {% if item.count or item.count == 0 %}
+              <p class="metric-panel-value">{{ item.count }}</p>
+            {% endif %}
+            <p class="mb-4">{{ item.description }}</p>
+            <div class="mt-auto">
+              <a class="btn btn-outline-dark" href="{{ item.url }}">Open {{ item.title }}</a>
+            </div>
+          </article>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
   {% endfor %}
-</section>
 
 <section class="surface-card surface-card-wide">
   <div class="section-header">
