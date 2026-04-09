@@ -5,6 +5,33 @@
 This document turns `docs/django/implementation.md` into a reviewable
 implementation sequence.
 
+## Current Status
+
+Completed today:
+
+- `1.1` contract reset in code and tests
+- `1.2` real-run inspection fixtures and regression coverage
+- `2.1` canonical raw provenance models and import-batch progress fields
+- `2.2` obsolete schema cleanup, `seed_extend` support, and hot-list projection
+  cleanup
+- `3.1` full raw parser for run-level and batch-level artifacts
+- `3.2` queued/background import execution with `ImportBatch` status reporting
+- `3.3` transactional raw importer against the corrected contract
+- `3.4` Postgres-first heartbeat/progress reporting during streamed imports
+- `3.5` PostgreSQL bulk-load path, `ANALYZE`, and importer throughput cleanup
+
+Validated today:
+
+- real Docker + Postgres import of the small run
+  `live_raw_effective_params_2026_04_09`
+- real Docker + Postgres import of the large run `chr_all3_raw_2026_04_09`
+- imported method coverage on the large run includes `pure`, `threshold`, and
+  `seed_extend`
+
+Current next slice:
+
+- `4.1` Run and batch provenance pages
+
 The sequencing rules are:
 
 - implement only the current `raw` publish-mode contract

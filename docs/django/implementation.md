@@ -16,6 +16,55 @@ The canonical raw layer must preserve what the pipeline actually emitted,
 including batch structure and operational provenance. The merged layer exists
 only as a reproducible browsing convenience built on top of that raw truth.
 
+## Current Implementation Status
+
+As of `2026-04-09`, the import/backend refactor is implemented through the raw
+import slices and validated against the real pipeline outputs.
+
+Implemented:
+
+- raw publish discovery from `publish/metadata/run_manifest.json`
+- batch-scoped acquisition import from `publish/acquisition/batches/<batch_id>/`
+- run-level import of `repeat_calls.tsv`, `run_params.tsv`,
+  `accession_status.tsv`, and `accession_call_counts.tsv`
+- relational storage for:
+  - `AcquisitionBatch`
+  - `DownloadManifestEntry`
+  - `NormalizationWarning`
+  - `AccessionStatus`
+  - `AccessionCallCount`
+- residue-scoped `RunParameter` import
+- `seed_extend` support across parser, schema, and import logic
+- database-backed storage of matched CDS and protein sequence content
+- queued/background import execution via `ImportBatch`
+- Postgres-first heartbeat and progress reporting during long imports
+- PostgreSQL bulk-load path for the largest imported tables
+
+Current storage/runtime behavior:
+
+- the app stores all raw repeat calls and supporting provenance rows in
+  PostgreSQL
+- the app stores only call-linked `Sequence` and `Protein` rows, not the full
+  raw sequence/protein inventories
+- the running website serves from PostgreSQL after import and does not depend
+  on direct runtime reads of pipeline TSV files
+
+Validated behavior:
+
+- small real run `live_raw_effective_params_2026_04_09` imports successfully in
+  Docker + Postgres
+- large real run `chr_all3_raw_2026_04_09` imports successfully in Docker +
+  Postgres
+- the large run imports `pure`, `threshold`, and `seed_extend` into both
+  `RunParameter` and `RepeatCall`
+- the small real Docker/Postgres import currently completes in about `4.22s`
+
+Remaining work starts at the browser layer:
+
+- `4.1` run and batch provenance pages
+- `4.2` raw operational artifact browsing
+- `4.3` biological browsing polish on the corrected schema
+
 ## Source Of Truth
 
 The authoritative contract lives in the sibling pipeline repository:
