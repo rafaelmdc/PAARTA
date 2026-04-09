@@ -1,460 +1,716 @@
+# HomoRepeat Raw-Mode Refactor Architecture
 
-  # HomoRepeat Django Website Plan, Revised for TSV-Only Ingestion and Future Merging
+## Summary
 
-  ## Summary
+This document replaces the earlier flat-TSV import plan.
+
+`homorepeat` must now align with the current pipeline contract in
+`../homorepeat_pipeline/`, specifically the current `raw` publish mode.
+
+The app should be structured around two clearly separated layers:
+
+- canonical raw imported truth
+- derived merged or deduplicated browsing views
+
+The canonical raw layer must preserve what the pipeline actually emitted,
+including batch structure and operational provenance. The merged layer exists
+only as a reproducible browsing convenience built on top of that raw truth.
+
+## Source Of Truth
 
-  Build the website as a Compose-managed Django + PostgreSQL app at the repo root, following the broad structure of ../innovhealth_microbiome:
+The authoritative contract lives in the sibling pipeline repository:
 
-  - core for home, shared layout, and graph pages
-  - browser for the lineage-aware database browser
-  - imports for staff-only run ingestion and import history
+- `../homorepeat_pipeline/docs/contracts.md`
+- `../homorepeat_pipeline/docs/operations.md`
+- `../homorepeat_pipeline/docs/methods.md`
+- `../homorepeat_pipeline/runs/live_raw_effective_params_2026_04_09/`
+- `../homorepeat_pipeline/runs/chr_all3_raw_2026_04_09/`
 
-  The import contract is now fixed:
+`homorepeat` should not preserve earlier assumptions unless they are confirmed
+by those sources.
 
-  - authoritative source for the web app: publish/manifest/run_manifest.json plus canonical TSVs
-  - SQLite is not imported by Django
-  - SQLite remains only a workflow-side reproducibility artifact
-
-  The first browser is run-first, but the schema must be designed so later cross-run merging is possible without data loss. That means Genome is a first-
-  class entity from day one, with both:
-
-  - run-scoped identity for provenance
-  - accession-based merge identity for future merged views
-
-  ## Core Architecture
+## Actual Raw Publish Contract
 
-  ### 1. Project structure
+### Run-level authoritative files
 
-  Implement the Django project at the repo root with this internal split:
+The current run-level raw interface is:
 
-  - config/: settings, root URLs, WSGI/ASGI
-  - apps/core/: home page, shared navigation, graph entrypoints, future staff utilities
-  - apps/browser/: browser models, list/detail views, filters, and admin registration
-  - apps/imports/: import services, management commands, staff-only upload/import views
-  - templates/: base.html, plus core/, browser/, and imports/
-  - static/: site CSS and minimal JS for charts/pages
+- `publish/metadata/run_manifest.json`
+- `publish/calls/repeat_calls.tsv`
+- `publish/calls/run_params.tsv`
+- `publish/status/accession_status.tsv`
+- `publish/status/accession_call_counts.tsv`
 
-  Use the repo-root `compose.yaml` as the local runtime entrypoint for Django + PostgreSQL.
+Important points:
 
-  ### 2. Source-of-truth and ingestion policy
+- `publish/metadata/run_manifest.json` is the authoritative manifest path.
+- `publish/calls/repeat_calls.tsv` is still the canonical downstream call table,
+  even in raw mode.
+- `publish/calls/run_params.tsv` is now keyed by
+  `(method, repeat_residue, param_name)`.
+- supported methods are `pure`, `threshold`, and `seed_extend`.
 
-  Lock these rules in early:
+### Batch-scoped acquisition files
 
-  - Django imports only published TSV artifacts and the run manifest
-  - Django does not read the workflow SQLite file
-  - Postgres is a derived application database for browsing and graphs
-  - Nextflow remains file-first and contract-first
-
-  Required imported artifacts:
-
-  - publish/manifest/run_manifest.json
-  - publish/acquisition/genomes.tsv
-  - publish/acquisition/taxonomy.tsv
-  - publish/acquisition/sequences.tsv
-  - publish/acquisition/proteins.tsv
-  - publish/calls/repeat_calls.tsv
-  - publish/calls/run_params.tsv
-
-  Import retention rule:
-
-  - Django may read the full sequence and protein inventories from the published TSVs for validation and summary counts
-  - Django may read the full taxonomy inventory from the published TSV for validation and lineage normalization
-  - Django should compact taxonomy to principal display ranks plus any directly referenced taxa before storing it in Postgres
-  - Django should persist only the sequence and protein rows referenced by imported repeat calls
-  - total analyzed protein inventory should be retained only as genome-level metadata, not as a full relational browser inventory
-
-  Optional published reports can be linked later, but not used as the primary import contract.
-
-  ## Data Model
+In raw mode, acquisition outputs are not flat under `publish/acquisition/`.
+They are published under:
 
-  ### 3. Provenance-first schema
-
-  The first schema must preserve complete run provenance.
-
-  Core models:
-
-  - PipelineRun
-  - ImportBatch
-  - Taxon
-  - TaxonClosure
-  - Genome
-  - Sequence
-  - Protein
-  - RepeatCall
-  - RunParameter
-
-  Model intent:
-
-  - PipelineRun
-      - one imported run
-      - keyed by run_id
-      - stores status, profile, timestamps, git revision, manifest metadata, import timestamps
-  - ImportBatch
-      - one import attempt
-      - tracks source path, status, counts, errors, started/finished timestamps
-  - Taxon
-      - imported taxonomy node keyed by canonical taxon_id
-      - stores taxon_name, rank, parent_taxon
-  - TaxonClosure
-      - ancestor/descendant table for lineage-aware queries
-  - Genome
-      - first-class biological entity
-      - belongs to one PipelineRun
-      - stores canonical genome_id plus accession metadata
-      - stores total analyzed protein count for that genome
-      - references one Taxon
-  - Sequence
-      - belongs to one PipelineRun
-      - imported only when linked to an imported repeat call
-      - references one Genome and one Taxon
-  - Protein
-      - belongs to one PipelineRun
-      - imported only when linked to an imported repeat call
-      - references one Sequence, one Genome, and one Taxon
-  - RepeatCall
-      - belongs to one PipelineRun
-      - references one Protein, one Sequence, one Genome, and one Taxon
-  - RunParameter
-      - belongs to one PipelineRun
-      - mirrors canonical run_params.tsv
-
-  ### 4. Identity and future merge strategy
-
-  This is the critical design point.
-
-  Use two identity layers:
-
-  - provenance identity: “record as imported in one run”
-  - merge identity: “records that likely refer to the same biological assembly across runs”
-
-  For v1:
-
-  - keep all imported rows run-scoped
-  - do not deduplicate across runs
-  - do not overwrite cross-run biological records
-
-  For Genome, store:
-
-  - pipeline_run
-  - genome_id
-  - accession
-  - genome_name
-  - assembly_type
-  - assembly_level
-  - species_name
-  - taxon
-  - analyzed_protein_count
-  - source
-  - notes
-
-  Uniqueness rules:
-
-  - PipelineRun.run_id unique
-  - Taxon.taxon_id unique globally
-  - Genome unique on (pipeline_run, genome_id)
-  - Sequence unique on (pipeline_run, sequence_id)
-  - Protein unique on (pipeline_run, protein_id)
-  - RepeatCall unique on (pipeline_run, call_id)
-  - RunParameter unique on (pipeline_run, method, param_name)
-
-  Cross-run merge key:
-
-  - primary merge key for genomes: accession
-  - this is not used to collapse imported rows
-  - it is used later to build merged query views and rollups
-
-  Exact merged repeat-call fingerprint:
-
-  - accession
-  - protein_name
-  - protein_length
-  - method
-  - start
-  - end
-  - repeat_residue
-  - length
-  - normalized purity
-
-  Merge behavior:
-
-  - collapse across runs only in a derived merged layer
-  - only exact-match call fingerprints collapse
-  - import order must not affect merged results
-  - `aa_sequence` remains source provenance and is not part of the first merged collapse key
-  - if grouped rows disagree on denominator fields such as analyzed protein count, surface the conflict instead of overwriting one row with another
-
-  Design decision:
-
-  - future merging is implemented as derived merged views or materialized summaries over accession plus exact call fingerprints
-  - imported run rows remain intact
-  - browser can later offer both:
-      - run view
-      - merged accession view
-      - merged collapsed summaries
-  - `/browser/accessions/` is the summary entrypoint for the merged layer and links down into per-accession detail pages
-
-  This avoids destructive deduplication and preserves reproducibility.
-
-  ## Browser Behavior
-
-  ### 5. First browser scope
-
-  The first browser must include these first-class sections:
-
-  - runs
-  - taxa
-  - genomes
-  - proteins
-  - repeat calls
-
-  This is the default navigation order because it preserves the merge path and keeps the biology legible.
-
-  Recommended routes:
-
-  - / for home
-  - /browser/
-  - /browser/runs/
-  - /browser/runs/<pk>/
-  - /browser/taxa/
-  - /browser/taxa/<pk>/
-  - /browser/genomes/
-  - /browser/genomes/<pk>/
-  - /browser/proteins/
-  - /browser/proteins/<pk>/
-  - /browser/calls/
-  - /browser/calls/<pk>/
-  - /imports/
-  - /admin/
-
-  ### 6. Required v1 browser features
-
-  Run pages:
-
-  - list imported runs
-  - show run metadata from manifest
-  - show counts for genomes, proteins, calls, taxa, and parameters
-  - expose links into run-filtered browser pages
-
-  Taxon pages:
-
-  - lineage breadcrumb over the compacted principal-rank lineage
-  - descendants
-  - linked genomes/proteins/calls within the selected run
-  - branch-aware summary counts using closure rows
-
-  Genome pages:
-
-  - accession-centered details
-  - linked taxon
-  - analyzed protein count metadata
-  - linked repeat-bearing sequences
-  - linked repeat-bearing proteins
-  - linked repeat calls
-  - run provenance
-  - later-ready field for merged accession navigation
-
-  Protein pages:
-
-  - imported subset only: proteins with at least one repeat call
-  - linked genome and taxon
-  - gene symbol and protein metadata when present
-  - call summaries by method and residue
-
-  Repeat call pages:
-
-  - method
-  - residue
-  - tract coordinates
-  - tract sequence
-  - purity and repeat counts
-  - parent protein/genome/taxon links
+- `publish/acquisition/batches/<batch_id>/`
 
-  Required filters:
+Each batch currently contains:
 
-  - run
-  - accession
-  - genome name
-  - taxon branch
-  - taxon rank
-  - method
-  - repeat residue
-  - gene symbol
-  - protein name/id
-  - tract length range
-  - purity range
+- `genomes.tsv`
+- `taxonomy.tsv`
+- `sequences.tsv`
+- `proteins.tsv`
+- `cds.fna`
+- `proteins.faa`
+- `download_manifest.tsv`
+- `normalization_warnings.tsv`
+- `acquisition_validation.json`
 
-  ### 7. Lineage-aware query behavior
+### Scientific meaning of the main tables
 
-  Use TaxonClosure from the first implementation.
-  Do not defer lineage modeling.
+- `genomes.tsv`
+  One row per assembly-level genome or accession unit.
+- `taxonomy.tsv`
+  One row per taxon in the imported lineage materialization.
+- `sequences.tsv`
+  One row per retained CDS or translation-source nucleotide sequence.
+- `proteins.tsv`
+  One row per retained translated or provided protein.
+- `repeat_calls.tsv`
+  One row per detected homorepeat tract with method-specific semantics
+  normalized into one shared schema.
+- `run_params.tsv`
+  One row per method, repeat residue, and parameter value used for the run.
+- `download_manifest.tsv`
+  One row per accession download attempt within a batch.
+- `normalization_warnings.tsv`
+  One row per acquisition or normalization warning with explicit scope and
+  provenance.
+- `accession_status.tsv`
+  One row per requested accession summarizing acquisition and detection outcome.
+- `accession_call_counts.tsv`
+  One row per accession, method, and residue summarizing emitted calls.
 
-  Required behavior:
+## Incorrect Legacy Assumptions To Remove
 
-  - filtering by a branch taxon includes all descendant taxa
-  - taxon detail shows ancestor chain and descendant overview
-  - summary counts can be rolled up by selected taxonomic rank
-  - graph pages can reuse the same closure structure for aggregation
+The current app still encodes several assumptions that are now false:
 
-  Closure generation:
+- manifest path is `publish/manifest/run_manifest.json`
+- acquisition tables are flat under `publish/acquisition/*.tsv`
+- sequence rows contain `sequence_path`
+- protein rows contain `protein_path`
+- genome rows contain canonical `download_path`
+- repeat calls contain canonical `source_file`
+- taxonomy should be compacted before storage and treated as the stored truth
+- only `pure` and `threshold` methods exist
+- `repeat_residue` is encoded as an ordinary parameter row rather than a
+  first-class dimension on run parameters
+- only repeat-linked sequence and protein rows matter to raw provenance
 
-  - built during taxonomy import
-  - full reflexive closure rows included
-  - built over the compacted web-side taxonomy, not necessarily every raw upstream lineage node
-  - imported taxonomy must remain a tree or tree-like parent chain for v1
+These need to be removed rather than preserved behind compatibility shims.
 
-  ## Imports and Pipeline Integration
+## Canonical Storage Model
 
-  ### 8. Import flow
+### Design rule
 
-  Implement import support in two surfaces:
+Raw imported truth is canonical.
 
-  - management command for reliable operator use
-  - staff-only Django UI for import tracking and later convenience
+Merged or deduplicated views must always be derived from canonical raw storage
+and remain traceable back to contributing raw records.
 
-  First command:
+### Database choice
 
-  - python manage.py import_run --publish-root <path>
-  - optional --replace-existing for same run_id
+Use a relational database, specifically PostgreSQL.
 
-  Default import behavior:
+Reasoning:
 
-  - import is transactional
-  - if run_id already exists and --replace-existing is not passed, fail
-  - if --replace-existing is passed, delete that run’s imported run-scoped rows and reimport inside one transaction
-  - global taxonomy rows can be upserted by taxon_id
-  - closure rows are rebuilt or refreshed from imported taxonomy data
+- the data model is structured and relational
+- the product needs exact filters, joins, provenance, and traceability
+- the main access patterns are by run, accession, taxon, method, residue,
+  protein, and coordinates
+- there is no current requirement for nearest-neighbor similarity search over
+  learned embeddings
 
-  Import order:
+A vector database is not the right primary store for this product.
 
-  1. read manifest and create ImportBatch
-  2. create or validate PipelineRun
-  3. import Taxon
-  4. compact raw taxonomy to principal ranks plus referenced taxa, then rebuild TaxonClosure
-  5. import Genome and derive genome-level analyzed protein counts from the full protein inventory
-  6. import only repeat-linked Sequence rows
-  7. import only repeat-bearing Protein rows
-  8. import RunParameter
-  9. import RepeatCall
-  10. finalize counts and mark import success
+If vector search becomes useful later, the simplest path is to add vector
+columns to PostgreSQL with `pgvector` rather than introducing a separate vector
+database now. `pgvector` is explicitly for vector similarity search and
+embeddings, which is not the current workload:
 
-  Validation rules:
+- <https://github.com/pgvector/pgvector>
 
-  - required files must exist
-  - required columns must match contracts
-  - manifest run_id and import target must agree
-  - compacted taxonomy must still preserve referenced taxon IDs and a valid parent chain
-  - foreign-key integrity must be enforced in Django/Postgres
-  - same-run duplicates must fail
-  - failed imports must roll back cleanly
+### Runtime dependency model
 
-  ### 9. Later pipeline integration
+The app must not depend on the pipeline pod's local TSV files after import.
 
-  Only after the browser and imports are stable:
+The intended runtime model is:
 
-  Phase 1:
+- TSV and JSON files are the ingestion contract
+- PostgreSQL is the canonical runtime store for all app queries
+- every raw table needed for browsing, filtering, provenance, and merged views
+  is imported into the app-owned database
+- optional preservation of original published artifacts, if desired, must use
+  app-owned storage such as object storage or uploaded blobs, not direct reads
+  from the pipeline pod filesystem
 
-  - keep pipeline and web loosely coupled
-  - operator runs pipeline, then runs Django import command
+That means:
 
-  Phase 2:
+- regular list and detail pages read from Postgres after import
+- no normal page request should require opening a pipeline-produced TSV
+- the importer may use TSVs once, but the running app must be self-contained
 
-  - add a supported helper that imports a successful run into Django/Postgres
+### Deployment boundary
 
-  Phase 3:
+For the current implementation, optimize for Docker-first deployment.
 
-  - optionally add a wrapper flag or automation path that triggers import after a successful run
+Practical rule:
 
-  Do not add direct Postgres writes inside Nextflow processes.
+- the importer may read a run from a mounted path or copied artifact location
+- after import, the app serves from Postgres only
+- no serving path should depend on direct runtime access to the pipeline files
 
-  ## Graph Phase
+If the deployment later moves to a more distributed environment, the same rule
+still applies: import once, then serve from the database.
 
-  ### 10. First graph layer
+### Canonical storage approach
 
-  After the browser works, add graph pages under core focused on taxonomy-aware summaries rather than bespoke biology-specific views.
+Use a self-contained raw storage model:
 
-  First graph pages:
+- import relationally all raw tables needed for the product's truth layer
+- preserve raw versus merged separation inside the database, not by keeping part
+  of the truth only in files
+- treat original artifacts as optional reproducibility attachments rather than a
+  required serving dependency
 
-  - run overview dashboard
-  - calls by method
-  - calls by residue
-  - calls by taxonomic rank
-  - calls within a selected lineage branch
-  - tract length and purity distributions
-  - genomes-with-calls summaries by branch/accession
+Important scope limit:
 
-  Rendering approach:
+- store the repeat call records
+- store the proteins and CDS rows linked to those calls
+- store the genome, taxon, parameter, and provenance rows needed to explain and
+  browse those calls
+- do not store the entire raw sequence and protein inventories if the product
+  does not need them
 
-  - server-rendered templates
-  - embedded JSON payloads
-  - ECharts for charts
-  - Postgres/ORM-derived aggregates as the source
+This is the best tradeoff for the current product and machine targets.
 
-  Graph grouping controls should support:
+This is the correct boundary for a split deployment where pipeline, database,
+and web app run as separate services.
 
-  - selected run
-  - branch taxon
-  - grouping rank
-  - method
-  - residue
+## Data Model
 
-  ## Tests and Acceptance
+### Core provenance models
 
-  ### 11. Model and import tests
+- `PipelineRun`
+  one imported pipeline run keyed by pipeline `run_id`
+- `ImportBatch`
+  stores one import attempt into the Django app
+- `AcquisitionBatch`
+  stores one raw acquisition batch under one imported run
 
-  Add tests for:
+`AcquisitionBatch` should include:
 
-  - uniqueness and FK constraints
-  - taxonomy closure generation
-  - run-scoped import correctness
-  - repeated import behavior with and without --replace-existing
-  - rollback on partial import failure
-  - accession-preserving multi-run imports
+- `pipeline_run`
+- `batch_id`
+- batch-scoped artifact paths
+- counts for genomes, taxonomy rows, sequences, proteins, warnings, downloads
+- optional validation payload or path metadata from `acquisition_validation.json`
 
-  ### 12. Browser tests
+### Raw biological models
 
-  Add tests for:
+- `Taxon`
+- `TaxonClosure`
+- `Genome`
+- `Sequence`
+- `Protein`
+- `RepeatCall`
+- `RunParameter`
 
-  - run list/detail
-  - taxon lineage page
-  - genome list/detail
-  - protein list/detail
-  - repeat call list/detail
-  - branch taxon filters including descendants
-  - combined filters for run + method + residue + branch
-  - accession lookup behavior
+Required model changes:
 
-  ### 13. Merge-readiness tests
+- `Genome` should gain `acquisition_batch`
+- `RunParameter` must include `repeat_residue`
+- `RunParameter` uniqueness must become
+  `(pipeline_run, method, repeat_residue, param_name)`
+- `RepeatCall` and `RunParameter` must accept `seed_extend`
+- deleted contract fields should be removed from the relational schema:
+  - `Genome.download_path`
+  - `Sequence.sequence_path`
+  - `Protein.protein_path`
+  - `RepeatCall.source_file`
 
-  Even before merged views exist, add tests that prove the schema supports them:
+`Sequence` and `Protein` should represent the call-linked subset only.
 
-  - same accession imported in two runs creates two Genome rows, not one
-  - both rows remain queryable by run
-  - accession filter can find both rows
-  - provenance is preserved on all downstream entities
-  - exact repeat-call fingerprint collapse is deterministic for identical cross-run calls
-  - merged denominator conflicts are surfaced explicitly instead of overwritten silently
+This subset should be defined explicitly:
 
-  ### 14. Acceptance smoke
+- a `Sequence` row is stored only if at least one imported repeat call points to
+  its `sequence_id`
+- a `Protein` row is stored only if at least one imported repeat call points to
+  its `protein_id`
 
-  The first complete acceptance flow should be:
+The full inventory size should still remain visible via counts on
+`AcquisitionBatch` and genome-level summary fields where needed.
 
-  1. docker compose up web postgres
-  2. run Django migrations
-  3. import one explicit publish-root path
-  4. verify browser pages for runs, taxa, genomes, proteins, and calls
-  5. verify one branch lineage filter
-  6. verify one accession appearing in browser search
-  7. verify one basic summary chart page
+### Provenance and operational models
 
-  ## Assumptions and Defaults
+Add relational models for raw side artifacts:
 
-  - The site follows the overall app split and operator ergonomics of ../innovhealth_microbiome.
-  - The first implementation is server-rendered Django, not a SPA.
-  - Imports are staff-only.
-  - The browser is run-first.
-  - TSV + manifest are the only web import source.
-  - SQLite is not imported by Django.
-  - Genome is first-class from day one.
-  - Cross-run merging will be accession-centered and non-destructive.
-  - Closure tables are required from the initial schema, not deferred.
-  - Compose at the repo root remains the standard development runtime.
+- `DownloadManifestEntry`
+- `NormalizationWarning`
+- `AccessionStatus`
+- `AccessionCallCount`
+
+These should remain queryable in the app, not just stored as loose files.
+
+Suggested ownership:
+
+- `DownloadManifestEntry` belongs to `AcquisitionBatch`
+- `NormalizationWarning` belongs to `AcquisitionBatch`
+- `AccessionStatus` belongs to `PipelineRun` and references `AcquisitionBatch`
+  by batch ID or FK when resolvable
+- `AccessionCallCount` belongs to `PipelineRun` and references
+  `AccessionStatus` or accession plus batch scope
+
+Optional reproducibility storage:
+
+- if the product needs downloadable originals later, store copied artifact
+  payloads or uploaded files in app-owned storage
+- do not model pipeline pod paths as a required runtime dependency
+
+## Import Architecture
+
+### Execution model
+
+Real raw imports will likely be long-running and must not depend on a blocking
+web request.
+
+Use this execution model:
+
+- the web UI creates an `ImportBatch` row and queues an import job
+- the default implementation can run the import in a simple background worker
+  process or operator-launched management command inside the Docker deployment
+- a broker-backed queue or orchestration-specific job runner is optional and
+  should be added only if the deployment later needs it
+- the import runner and the management command both call the same import
+  service layer
+- the UI polls or streams status from the database rather than waiting for the
+  import request to finish
+
+This keeps the architecture simple while still allowing responsive imports.
+
+### Responsiveness requirements
+
+The import path should remain observable while it is running.
+
+Required behavior:
+
+- import state persists in the database
+- the current phase is visible
+- progress counters are updated at batch and chunk boundaries
+- a heartbeat timestamp proves the worker is still alive during long phases
+- failures record both the failing phase and the last known progress
+
+Suggested progress phases:
+
+- validating contract
+- discovering batches
+- importing taxonomy
+- importing genomes
+- importing sequences
+- importing proteins
+- importing warnings and statuses
+- importing repeat calls
+- finalizing import
+
+Suggested `ImportBatch` additions:
+
+- `job_status`
+- `phase`
+- `progress_payload`
+- `heartbeat_at`
+
+`progress_payload` can hold counters such as:
+
+- batches discovered
+- batches imported
+- genomes imported
+- sequences imported
+- proteins imported
+- warnings imported
+- status rows imported
+- repeat calls imported
+
+### Supported mode
+
+The importer should support only `raw` publish mode in this refactor.
+
+Behavior:
+
+- import `raw` runs
+- reject `merged` runs with a clear contract error
+- keep the code structured so `merged` can be added later without redesigning
+  the raw model
+
+### Import inputs
+
+Required run-level inputs:
+
+- `publish/metadata/run_manifest.json`
+- `publish/calls/repeat_calls.tsv`
+- `publish/calls/run_params.tsv`
+- `publish/status/accession_status.tsv`
+- `publish/status/accession_call_counts.tsv`
+
+Required batch-level inputs per discovered batch:
+
+- `genomes.tsv`
+- `taxonomy.tsv`
+- `sequences.tsv`
+- `proteins.tsv`
+- `download_manifest.tsv`
+- `normalization_warnings.tsv`
+- `acquisition_validation.json`
+
+### Import order
+
+Recommended transactional order:
+
+1. validate manifest and raw publish mode
+2. create `ImportBatch`
+3. create or replace `PipelineRun`
+4. discover and register `AcquisitionBatch` rows
+5. import full taxonomy and rebuild closure
+6. import `Genome` rows with batch provenance
+7. import `RunParameter`
+8. import `AccessionStatus`
+9. import `AccessionCallCount`
+10. import `DownloadManifestEntry`
+11. import `NormalizationWarning`
+12. import call-linked `Sequence`
+13. import call-linked `Protein`
+14. import `RepeatCall`
+
+### Transaction and progress model
+
+The import must balance progress visibility with replacement safety.
+
+Rules:
+
+- small setup work may commit early so the operator immediately sees a running
+  import record
+- long row imports should update progress incrementally instead of hiding
+  inside one opaque request
+- replacement of an already imported run should be safe and explicit
+
+Acceptable implementation patterns include:
+
+- a straightforward run-scoped transactional replace for the first
+  implementation
+- staging tables only if simple replacement proves too risky or too slow
+- phase-bounded transactions with careful replacement semantics
+
+The product requirement is:
+
+- progress remains visible during long imports
+- failures do not leave an existing imported run half-replaced
+- the operator can tell whether the import is alive
+
+### Call-linked sequence and protein import
+
+The relational `Sequence` and `Protein` tables should represent only the
+sequence and protein rows linked to imported repeat calls.
+
+Rules:
+
+- determine the referenced `sequence_id` and `protein_id` set from
+  `repeat_calls.tsv`
+- import only the batch-scoped `sequences.tsv` and `proteins.tsv` rows needed
+  for those referenced IDs
+- keep batch-level counts for reconciliation and monitoring
+- optimize import for scale with PostgreSQL-native bulk loading rather than
+  ORM-heavy row-by-row insertion
+
+Implementation guidance:
+
+- parse large tables in chunks
+- prefer PostgreSQL `COPY` or equivalent copy-style loading paths for the
+  largest tables such as `repeat_calls`
+- use ORM `bulk_create()` only for smaller tables or as a fallback path
+- update `ImportBatch` progress after each chunk or batch
+- avoid ORM row-by-row inserts for the largest tables
+
+### Derived view strategy
+
+Merged and deduplicated browsing should start as ordinary SQL queries or views
+over the canonical raw tables.
+
+Do not start with materialized views unless query profiling shows the derived
+views are too slow.
+
+### Browse performance model
+
+The website's hot path is browse and filter performance, especially on repeat
+calls.
+
+Design the schema around that fact:
+
+- `RepeatCall` is the primary browse table
+- `Protein` is the secondary browse table
+- `Sequence` is mostly detail or provenance support
+
+For fast list filtering, denormalize a small set of stable filter fields onto
+the hot tables rather than forcing joins on every request.
+
+Recommended `RepeatCall` browse columns in addition to the canonical IDs and
+FKs:
+
+- `accession`
+- `gene_symbol`
+- `protein_name`
+- `protein_length`
+- `taxon_id`
+- `pipeline_run_id`
+- `method`
+- `repeat_residue`
+- `start`
+- `end`
+- `length`
+- `purity`
+
+Recommended `Protein` browse columns:
+
+- `accession`
+- `gene_symbol`
+- `protein_name`
+- `protein_length`
+- `taxon_id`
+- `pipeline_run_id`
+- `repeat_call_count`
+
+This is intentional duplication for read performance, not a replacement for raw
+provenance.
+
+### Large-text storage strategy
+
+Keep the hot rows narrow.
+
+Rules:
+
+- do not load large text columns on list pages
+- keep protein and CDS sequence strings out of the default list projections
+- keep `aa_sequence` and `codon_sequence` out of default repeat-call list
+  projections
+
+If row width becomes a measurable bottleneck, split large text payloads into
+detail-oriented companion tables rather than widening the hot browse rows.
+
+PostgreSQL can store large text efficiently via TOAST, but the app should still
+avoid selecting large text on hot list queries:
+
+- <https://www.postgresql.org/docs/current/storage-toast.html>
+
+### Index strategy
+
+Prefer the minimum useful index set for the first implementation.
+
+Keep:
+
+- primary and unique keys
+- composite indexes that support the core run, accession, method, residue, and
+  taxon filters
+- indexes needed for FK joins on the largest tables
+
+Recommended first-pass indexes:
+
+- on `RepeatCall`:
+  - `(pipeline_run_id, method, repeat_residue, length, id)`
+  - `(pipeline_run_id, accession, id)`
+  - `(pipeline_run_id, taxon_id, id)`
+  - `(pipeline_run_id, protein_id, id)`
+- on `Protein`:
+  - `(pipeline_run_id, accession, id)`
+  - `(pipeline_run_id, gene_symbol, id)`
+  - `(pipeline_run_id, taxon_id, id)`
+- on `Genome`:
+  - `(pipeline_run_id, accession)`
+  - `(pipeline_run_id, taxon_id)`
+
+The exact ordering should match the final query shapes, but the key rule is:
+
+- align composite indexes with real filter plus sort combinations
+- do not rely on many single-column indexes for multi-column browse queries
+
+Defer unless profiling proves they are needed:
+
+- broad text-search indexes
+- many low-selectivity secondary indexes on `Sequence` and `Protein`
+- partitioning of large tables
+
+Partitioning is viable later, but it is not the best first optimization.
+
+### Deliberate deferrals
+
+Do not build these in the first implementation unless profiling or concrete
+operational requirements force them:
+
+- a broker-backed worker system
+- table partitioning
+- materialized views for merged browsing
+- external search infrastructure
+- broad text search over the stored sequence and protein tables
+
+These are viable techniques, but they should be introduced only after the
+basic raw import path and core browse queries are proven.
+
+### Search and pagination policy
+
+Default search behavior should be index-friendly.
+
+Prefer:
+
+- exact match
+- prefix match
+- explicit structured filters
+
+Defer broad substring search on the large tables until there is a clear product
+need. If substring search is required later, add selective trigram indexes only
+for the fields the UI really exposes.
+
+Use keyset pagination on the largest list pages, especially repeat calls, rather
+than deep offset pagination.
+
+Recommended stable sort for repeat calls:
+
+- `(pipeline_run_id, accession, protein_name, start, call_id)`
+
+Recommended stable sort for proteins:
+
+- `(pipeline_run_id, accession, protein_name, protein_id)`
+
+### Taxonomy policy
+
+Do not compact taxonomy before storage.
+
+Store the taxonomy the pipeline emitted, then derive closure rows for lineage
+queries. If the UI later wants a compact display lineage, that should be a
+presentation concern, not a destructive import policy.
+
+## Browser Model
+
+### Raw-first browsing
+
+The default browser should emphasize raw imported truth:
+
+- runs
+- batches
+- genomes
+- repeat calls
+- proteins
+- sequences
+- warnings
+- accession statuses
+- accession call counts
+
+The UI should make it clear when a page shows:
+
+- canonical raw records
+- a focused browse filter over canonical raw tables
+- a derived merged view
+
+### Required raw browsing behavior
+
+Run detail should show:
+
+- run metadata from the manifest
+- available batches
+- counts for genomes, repeat calls, warnings, status rows, and linked browse
+  projections
+- enabled methods and residues
+- current or latest import status when relevant
+
+Batch detail should show:
+
+- batch artifact inventory
+- counts for full raw genomes, taxonomy rows, sequences, proteins, downloads,
+  and warnings
+- links to raw artifact files
+
+Genome and repeat-call detail should show:
+
+- raw provenance
+- batch provenance
+- links back to run and batch
+- traceability to underlying accession and taxon
+
+Sequence and protein pages should clearly indicate that they cover the
+call-linked subset stored for browsing and provenance, not the full raw
+sequence or protein inventories emitted by the pipeline.
+
+### Derived merged browsing
+
+Merged browsing remains allowed and useful, but it must remain derived-only.
+
+Keep the accession-centered merged layer and make its grouping rules explicit.
+
+Current grouping rule to preserve:
+
+- genome merge key: `accession`
+- repeat-call merge fingerprint:
+  `(accession, protein_name, protein_length, method, start, end,
+  repeat_residue, length, normalized_purity)`
+
+Required derived-view behavior:
+
+- never collapse raw rows at import time
+- always show how many raw records contributed
+- show contributing runs
+- link back to raw source calls
+- expose analyzed-protein denominator conflicts instead of hiding them
+
+## Validation Strategy
+
+### Small example run
+
+Use `live_raw_effective_params_2026_04_09` to validate:
+
+- manifest resolution
+- one-batch raw acquisition import
+- removed-column handling
+- corrected method and parameter handling
+- raw side-artifact import
+
+### Large final-style run
+
+Use `chr_all3_raw_2026_04_09` to validate:
+
+- multi-batch discovery
+- `seed_extend` support
+- large raw run counts
+- call-linked sequence and protein import under realistic scale
+- run-level call import against a much larger `repeat_calls.tsv`
+- progress and heartbeat updates during a long-running import
+- safe replacement behavior
+
+### Import UX acceptance
+
+The import flow is acceptable only if:
+
+- a staff user can trigger an import without holding open a long request
+- the UI can show the current phase and recent progress
+- a failed import leaves an actionable error state
+- a long import still appears alive via heartbeat or changing counters
+
+## Future `merged` Support
+
+This design intentionally leaves room for future `merged` publish-mode support.
+
+When that work happens later:
+
+- the importer can add a second acquisition resolver for flat merged outputs
+- the canonical raw-side models can remain intact
+- the run-level call and parameter handling should already be compatible
+
+The immediate refactor should not spend time trying to fully support `merged`.
