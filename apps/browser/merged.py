@@ -367,6 +367,168 @@ def normalize_purity(value) -> str:
     return format(Decimal(str(value)).quantize(PURITY_QUANTUM, rounding=ROUND_HALF_UP), "f")
 
 
+def _trusted_accession(repeat_call):
+    accession = (repeat_call.genome.accession or repeat_call.accession or "").strip()
+    return accession or None
+
+
+def _trusted_protein_id(repeat_call):
+    protein_id = (repeat_call.protein.protein_id or "").strip()
+    return protein_id or None
+
+
+def _trusted_residue(repeat_call):
+    residue = (repeat_call.repeat_residue or "").strip().upper()
+    return residue or None
+
+
+def _protein_identity_key(repeat_call):
+    accession = _trusted_accession(repeat_call)
+    protein_id = _trusted_protein_id(repeat_call)
+    if accession is None or protein_id is None:
+        return None
+    return accession, protein_id
+
+
+def _protein_residue_identity_key(repeat_call):
+    protein_key = _protein_identity_key(repeat_call)
+    residue = _trusted_residue(repeat_call)
+    if protein_key is None or residue is None:
+        return None
+    return protein_key + (residue,)
+
+
+def _identity_merged_protein_groups_from_repeat_calls(source_repeat_calls):
+    grouped_proteins = OrderedDict()
+
+    for repeat_call in source_repeat_calls:
+        key = _protein_identity_key(repeat_call)
+        if key is None:
+            continue
+
+        if key not in grouped_proteins:
+            grouped_proteins[key] = {
+                "accession": key[0],
+                "protein_id": key[1],
+                "source_repeat_calls": [],
+                "source_runs": set(),
+                "source_proteins": set(),
+                "gene_symbols": set(),
+                "residue_keys": set(),
+            }
+
+        grouped_proteins[key]["source_repeat_calls"].append(repeat_call)
+        grouped_proteins[key]["source_runs"].add(repeat_call.pipeline_run.run_id)
+        grouped_proteins[key]["source_proteins"].add((repeat_call.pipeline_run.run_id, repeat_call.protein.protein_id))
+        if repeat_call.protein.gene_symbol:
+            grouped_proteins[key]["gene_symbols"].add(repeat_call.protein.gene_symbol)
+        residue_key = _protein_residue_identity_key(repeat_call)
+        if residue_key is not None:
+            grouped_proteins[key]["residue_keys"].add(residue_key)
+
+    protein_groups = []
+    for protein_group in grouped_proteins.values():
+        representative_repeat_call = _representative_repeat_call(protein_group["source_repeat_calls"])
+        protein_group["representative_repeat_call"] = representative_repeat_call
+        protein_group["protein_name"] = representative_repeat_call.protein.protein_name
+        protein_group["protein_length"] = representative_repeat_call.protein.protein_length
+        protein_group["gene_symbols"] = sorted(protein_group["gene_symbols"])
+        protein_group["gene_symbol_label"] = ", ".join(protein_group["gene_symbols"]) if protein_group["gene_symbols"] else "-"
+        protein_group["source_repeat_calls"] = _sorted_source_repeat_calls(protein_group["source_repeat_calls"])
+        protein_group["source_runs"] = sorted(protein_group["source_runs"])
+        protein_group["source_runs_count"] = len(protein_group["source_runs"])
+        protein_group["source_proteins_count"] = len(protein_group["source_proteins"])
+        protein_group["source_repeat_calls_count"] = len(protein_group["source_repeat_calls"])
+        protein_group["residue_groups_count"] = len(protein_group["residue_keys"])
+        protein_group.pop("source_proteins")
+        protein_group.pop("residue_keys")
+        protein_groups.append(protein_group)
+
+    return sorted(protein_groups, key=lambda group: (group["accession"], group["protein_id"]))
+
+
+def _identity_merged_residue_groups_from_repeat_calls(source_repeat_calls):
+    grouped_residues = OrderedDict()
+
+    for repeat_call in source_repeat_calls:
+        key = _protein_residue_identity_key(repeat_call)
+        if key is None:
+            continue
+
+        if key not in grouped_residues:
+            grouped_residues[key] = {
+                "accession": key[0],
+                "protein_id": key[1],
+                "repeat_residue": key[2],
+                "source_repeat_calls": [],
+                "source_runs": set(),
+                "source_taxa": set(),
+                "gene_symbols": set(),
+            }
+
+        grouped_residues[key]["source_repeat_calls"].append(repeat_call)
+        grouped_residues[key]["source_runs"].add(repeat_call.pipeline_run.run_id)
+        grouped_residues[key]["source_taxa"].add(repeat_call.taxon.taxon_name)
+        if repeat_call.protein.gene_symbol:
+            grouped_residues[key]["gene_symbols"].add(repeat_call.protein.gene_symbol)
+
+    residue_groups = []
+    for residue_group in grouped_residues.values():
+        representative_repeat_call = _representative_repeat_call(residue_group["source_repeat_calls"])
+        residue_group["representative_repeat_call"] = representative_repeat_call
+        residue_group["protein_name"] = representative_repeat_call.protein.protein_name
+        residue_group["protein_length"] = representative_repeat_call.protein.protein_length
+        residue_group["source_repeat_calls"] = _sorted_source_repeat_calls(residue_group["source_repeat_calls"])
+        residue_group["source_runs"] = sorted(residue_group["source_runs"])
+        residue_group["source_runs_count"] = len(residue_group["source_runs"])
+        residue_group["source_taxa"] = sorted(residue_group["source_taxa"])
+        residue_group["source_taxa_label"] = ", ".join(residue_group["source_taxa"]) if residue_group["source_taxa"] else "-"
+        residue_group["gene_symbols"] = sorted(residue_group["gene_symbols"])
+        residue_group["gene_symbol_label"] = ", ".join(residue_group["gene_symbols"]) if residue_group["gene_symbols"] else "-"
+        residue_group["source_count"] = len(residue_group["source_repeat_calls"])
+        residue_groups.append(residue_group)
+
+    return sorted(
+        residue_groups,
+        key=lambda group: (group["accession"], group["protein_id"], group["repeat_residue"]),
+    )
+
+
+def _sorted_source_repeat_calls(source_repeat_calls):
+    return sorted(
+        source_repeat_calls,
+        key=lambda repeat_call: (
+            repeat_call.pipeline_run.run_id,
+            repeat_call.call_id,
+        ),
+    )
+
+
+def _representative_repeat_call(source_repeat_calls):
+    return max(source_repeat_calls, key=_representative_repeat_call_key)
+
+
+def _representative_repeat_call_key(repeat_call):
+    protein_name = repeat_call.protein.protein_name or repeat_call.protein_name
+    gene_symbol = repeat_call.protein.gene_symbol or repeat_call.gene_symbol
+    protein_length = repeat_call.protein.protein_length or repeat_call.protein_length or 0
+
+    return (
+        int(bool(protein_name)),
+        int(bool(gene_symbol)),
+        int(protein_length > 0),
+        int(bool(repeat_call.aa_sequence)),
+        int(bool(repeat_call.method)),
+        int(bool(_trusted_residue(repeat_call))),
+        protein_length,
+        repeat_call.length,
+        float(repeat_call.purity),
+        repeat_call.pipeline_run.imported_at,
+        repeat_call.pipeline_run.run_id,
+        repeat_call.call_id,
+    )
+
+
 def _merged_protein_groups_from_repeat_calls(source_repeat_calls):
     grouped_proteins = OrderedDict()
 
