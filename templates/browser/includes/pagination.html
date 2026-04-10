@@ -1,11 +1,21 @@
 {% if page_obj.has_other_pages %}
-  <nav class="pagination-bar" aria-label="Pagination">
-    {% if page_obj.has_previous %}
-      <a class="btn btn-outline-secondary" href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>
-    {% endif %}
-    <span class="pagination-status">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-    {% if page_obj.has_next %}
-      <a class="btn btn-outline-secondary" href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next</a>
+  <nav class="pagination-bar" aria-label="Pagination" {% if virtual_scroll_enabled and page_obj.cursor_pagination %}data-virtual-scroll-pagination{% endif %}>
+    {% if page_obj.cursor_pagination %}
+      {% if page_obj.has_previous %}
+        <a class="btn btn-outline-secondary" href="?{{ page_obj.previous_query }}">Previous</a>
+      {% endif %}
+      <span class="pagination-status">Cursor pagination</span>
+      {% if page_obj.has_next %}
+        <a class="btn btn-outline-secondary" href="?{{ page_obj.next_query }}">Next</a>
+      {% endif %}
+    {% else %}
+      {% if page_obj.has_previous %}
+        <a class="btn btn-outline-secondary" href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Previous</a>
+      {% endif %}
+      <span class="pagination-status">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+        <a class="btn btn-outline-secondary" href="?{% if page_query %}{{ page_query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next</a>
+      {% endif %}
     {% endif %}
   </nav>
 {% endif %}

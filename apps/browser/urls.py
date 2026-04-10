@@ -16,6 +16,8 @@ from .views import (
     RepeatCallListView,
     RunDetailView,
     RunListView,
+    SequenceDetailView,
+    SequenceListView,
     TaxonDetailView,
     TaxonListView,
 )
@@ -36,6 +38,8 @@ urlpatterns = [
     path("taxa/<int:pk>/", TaxonDetailView.as_view(), name="taxon-detail"),
     path("genomes/", GenomeListView.as_view(), name="genome-list"),
     path("genomes/<int:pk>/", GenomeDetailView.as_view(), name="genome-detail"),
+    path("sequences/", SequenceListView.as_view(), name="sequence-list"),
+    path("sequences/<int:pk>/", SequenceDetailView.as_view(), name="sequence-detail"),
     path("proteins/", ProteinListView.as_view(), name="protein-list"),
     path("proteins/<int:pk>/", ProteinDetailView.as_view(), name="protein-detail"),
     path("calls/", RepeatCallListView.as_view(), name="repeatcall-list"),

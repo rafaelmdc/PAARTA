@@ -12,11 +12,13 @@
       <p class="landing-lead mb-3">
         {% if protein.gene_symbol %}<strong>{{ protein.gene_symbol }}</strong>{% else %}Imported protein{% endif %}
         from genome <strong>{{ protein.genome.accession }}</strong>, scoped to run <strong>{{ protein.pipeline_run.run_id }}</strong>.
+        This record comes from the call-linked protein subset retained for runtime browsing.
       </p>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-dark" href="{{ protein_list_url }}">Back to proteins</a>
         <a class="btn btn-outline-dark" href="{{ run_detail_url }}">Open run</a>
         <a class="btn btn-outline-dark" href="{% url 'browser:genome-detail' protein.genome.pk %}">Open genome</a>
+        <a class="btn btn-outline-dark" href="{{ sequence_detail_url }}">Open sequence</a>
         <a class="btn btn-outline-dark" href="{{ taxon_detail_url }}">Open taxon</a>
         <a class="btn btn-brand" href="{{ repeatcall_browser_url }}">Open repeat calls</a>
       </div>
@@ -46,7 +48,7 @@
         <dt>Translation status</dt>
         <dd>{{ protein.translation_status|default:"-" }}</dd>
         <dt>Sequence</dt>
-        <dd>{{ protein.sequence.sequence_name }}</dd>
+        <dd><a href="{{ sequence_detail_url }}">{{ protein.sequence.sequence_name }}</a></dd>
         <dt>Stored protein sequence</dt>
         <dd>{% if protein.amino_acid_sequence %}{{ protein.amino_acid_sequence|length }} aa{% else %}-{% endif %}</dd>
         <dt>Stored CDS sequence</dt>

@@ -1,0 +1,334 @@
+(() => {
+  function buildSpacer(colspan, position) {
+    const row = document.createElement("tr");
+    row.className = "virtual-scroll-spacer";
+    row.dataset.virtualSpacer = position;
+    row.hidden = true;
+
+    const cell = document.createElement("td");
+    cell.colSpan = colspan;
+
+    const fill = document.createElement("div");
+    fill.className = "virtual-scroll-spacer-fill";
+    cell.appendChild(fill);
+    row.appendChild(cell);
+
+    return { row, fill };
+  }
+
+  function updateSpacerHeight(spacer, height) {
+    const normalizedHeight = Math.max(0, Math.round(height));
+    spacer.fill.style.height = `${normalizedHeight}px`;
+    spacer.row.hidden = normalizedHeight === 0;
+  }
+
+  function sumRowHeight(rows) {
+    return rows.reduce((total, row) => total + row.getBoundingClientRect().height, 0);
+  }
+
+  function updateAverageRowHeight(state, rows) {
+    const totalHeight = sumRowHeight(rows);
+    if (!totalHeight || !rows.length) {
+      return;
+    }
+
+    const measuredAverage = totalHeight / rows.length;
+    state.averageRowHeight = state.averageRowHeight
+      ? ((state.averageRowHeight * 2) + measuredAverage) / 3
+      : measuredAverage;
+  }
+
+  function pageRows(state, pageKey) {
+    return Array.from(state.body.querySelectorAll(`tr[data-virtual-page-key="${pageKey}"]`));
+  }
+
+  function updateSpacers(state) {
+    updateSpacerHeight(state.topSpacer, state.topSpacerHeight);
+    updateSpacerHeight(state.bottomSpacer, state.bottomSpacerHeight);
+  }
+
+  function parseRows(rowsHtml) {
+    const container = document.createElement("tbody");
+    container.innerHTML = rowsHtml.trim();
+    return Array.from(container.children).filter((node) => node.tagName === "TR");
+  }
+
+  function currentTopPage(state) {
+    return state.pages[0] || null;
+  }
+
+  function currentBottomPage(state) {
+    return state.pages[state.pages.length - 1] || null;
+  }
+
+  function seedPageLimit(state) {
+    return Math.min(3, state.maxPages);
+  }
+
+  function distanceToBottom(state) {
+    return state.root.scrollHeight - state.root.clientHeight - state.root.scrollTop;
+  }
+
+  function edgeThreshold(state) {
+    return Math.max(220, state.averageRowHeight * 4);
+  }
+
+  function canEvictTop(state) {
+    return state.root.scrollTop > edgeThreshold(state);
+  }
+
+  function canEvictBottom(state) {
+    return distanceToBottom(state) > edgeThreshold(state);
+  }
+
+  function evictTopPage(state) {
+    if (state.pages.length <= 1) {
+      return;
+    }
+
+    const page = state.pages.shift();
+    const rows = pageRows(state, page.key);
+    const removedHeight = sumRowHeight(rows) || (page.rowCount * state.averageRowHeight);
+    rows.forEach((row) => row.remove());
+    state.topSpacerHeight += removedHeight;
+    updateSpacers(state);
+  }
+
+  function evictBottomPage(state) {
+    if (state.pages.length <= 1) {
+      return;
+    }
+
+    const page = state.pages.pop();
+    const rows = pageRows(state, page.key);
+    const removedHeight = sumRowHeight(rows) || (page.rowCount * state.averageRowHeight);
+    rows.forEach((row) => row.remove());
+    state.bottomSpacerHeight += removedHeight;
+    updateSpacers(state);
+  }
+
+  function trimWindow(state, direction) {
+    while (state.pages.length > state.maxPages) {
+      if (direction === "previous") {
+        if (!canEvictBottom(state)) {
+          break;
+        }
+        evictBottomPage(state);
+        continue;
+      }
+
+      if (!canEvictTop(state)) {
+        break;
+      }
+      evictTopPage(state);
+    }
+  }
+
+  async function fetchPage(state, queryString) {
+    const url = new URL(state.fragmentUrl, window.location.origin);
+    const params = new URLSearchParams(queryString);
+    params.set("fragment", "virtual-scroll");
+    url.search = params.toString();
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json",
+      },
+      credentials: "same-origin",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Virtual scroll request failed with ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  function insertRows(state, rows, direction) {
+    const fragment = document.createDocumentFragment();
+    rows.forEach((row) => fragment.appendChild(row));
+
+    if (direction === "previous") {
+      state.body.insertBefore(fragment, state.topSpacer.row.nextSibling);
+      return;
+    }
+
+    state.body.insertBefore(fragment, state.bottomSpacer.row);
+  }
+
+  function registerPage(state, payload, direction) {
+    const rows = parseRows(payload.rows_html || "");
+    if (!rows.length) {
+      const boundaryPage = direction === "previous" ? currentTopPage(state) : currentBottomPage(state);
+      if (boundaryPage) {
+        if (direction === "previous") {
+          boundaryPage.previousQuery = "";
+        } else {
+          boundaryPage.nextQuery = "";
+        }
+      }
+      return;
+    }
+
+    const pageKey = `page-${state.pageSequence}`;
+    state.pageSequence += 1;
+
+    rows.forEach((row) => {
+      row.dataset.virtualRow = "1";
+      row.dataset.virtualPageKey = pageKey;
+    });
+    insertRows(state, rows, direction);
+    updateAverageRowHeight(state, rows);
+    const insertedHeight = sumRowHeight(rows) || (rows.length * state.averageRowHeight);
+
+    if (direction === "previous") {
+      state.topSpacerHeight = Math.max(0, state.topSpacerHeight - insertedHeight);
+      state.pages.unshift({
+        key: pageKey,
+        rowCount: payload.row_count || rows.length,
+        previousQuery: payload.previous_query || "",
+        nextQuery: payload.next_query || "",
+      });
+      trimWindow(state, "previous");
+    } else {
+      state.bottomSpacerHeight = Math.max(0, state.bottomSpacerHeight - insertedHeight);
+      state.pages.push({
+        key: pageKey,
+        rowCount: payload.row_count || rows.length,
+        previousQuery: payload.previous_query || "",
+        nextQuery: payload.next_query || "",
+      });
+      trimWindow(state, "next");
+    }
+
+    updateSpacers(state);
+  }
+
+  async function loadPrevious(state) {
+    const page = currentTopPage(state);
+    if (!page || !page.previousQuery || state.loadingPrevious) {
+      return;
+    }
+
+    state.loadingPrevious = true;
+    try {
+      const payload = await fetchPage(state, page.previousQuery);
+      registerPage(state, payload, "previous");
+    } catch (error) {
+      window.console.error(error);
+    } finally {
+      state.loadingPrevious = false;
+      scheduleRefresh(state);
+    }
+  }
+
+  async function loadNext(state) {
+    const page = currentBottomPage(state);
+    if (!page || !page.nextQuery || state.loadingNext) {
+      return;
+    }
+
+    state.loadingNext = true;
+    try {
+      const payload = await fetchPage(state, page.nextQuery);
+      registerPage(state, payload, "next");
+    } catch (error) {
+      window.console.error(error);
+    } finally {
+      state.loadingNext = false;
+      scheduleRefresh(state);
+    }
+  }
+
+  function refresh(state) {
+    state.refreshFrame = null;
+    const threshold = edgeThreshold(state);
+    const remainingBottomDistance = distanceToBottom(state);
+    const shouldSeedWindow = (
+      state.pages.length < seedPageLimit(state)
+      && state.root.scrollHeight <= state.root.clientHeight
+    );
+
+    if (state.topSpacerHeight > 0 && state.root.scrollTop <= threshold) {
+      loadPrevious(state);
+    }
+    if (remainingBottomDistance <= threshold || shouldSeedWindow) {
+      loadNext(state);
+    }
+  }
+
+  function scheduleRefresh(state) {
+    if (state.refreshFrame !== null) {
+      return;
+    }
+
+    state.refreshFrame = window.requestAnimationFrame(() => refresh(state));
+  }
+
+  function initVirtualScroll(root) {
+    const body = root.querySelector("[data-virtual-scroll-body]");
+    if (!body) {
+      return;
+    }
+
+    const initialRows = Array.from(body.querySelectorAll("tr[data-virtual-row]"));
+    if (!initialRows.length) {
+      return;
+    }
+
+    const surface = root.closest("[data-virtual-scroll-surface]");
+    const pagination = surface ? surface.querySelector("[data-virtual-scroll-pagination]") : null;
+    const colspan = Number.parseInt(root.dataset.virtualScrollColspan || "1", 10);
+    const state = {
+      root,
+      body,
+      fragmentUrl: root.dataset.virtualScrollUrl,
+      maxPages: Math.max(2, Number.parseInt(root.dataset.virtualScrollWindowPages || "8", 10)),
+      averageRowHeight: 0,
+      topSpacerHeight: 0,
+      bottomSpacerHeight: 0,
+      topSpacer: buildSpacer(colspan, "top"),
+      bottomSpacer: buildSpacer(colspan, "bottom"),
+      pages: [],
+      pageSequence: 1,
+      loadingPrevious: false,
+      loadingNext: false,
+      refreshFrame: null,
+    };
+
+    body.prepend(state.topSpacer.row);
+    body.append(state.bottomSpacer.row);
+    initialRows.forEach((row) => {
+      row.dataset.virtualPageKey = "page-0";
+    });
+    state.pages.push({
+      key: "page-0",
+      rowCount: initialRows.length,
+      previousQuery: root.dataset.virtualScrollPreviousQuery || "",
+      nextQuery: root.dataset.virtualScrollNextQuery || "",
+    });
+    updateAverageRowHeight(state, initialRows);
+    updateSpacers(state);
+
+    root.dataset.virtualScrollReady = "true";
+    if (pagination) {
+      pagination.hidden = true;
+    }
+
+    root.addEventListener(
+      "scroll",
+      () => {
+        scheduleRefresh(state);
+      },
+      { passive: true },
+    );
+    scheduleRefresh(state);
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-virtual-scroll-root]").forEach((root) => {
+      initVirtualScroll(root);
+    });
+  });
+})();

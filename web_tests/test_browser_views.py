@@ -80,7 +80,9 @@ class BrowserViewTests(TestCase):
                 protein_id=f"prot_{suffix}",
                 protein_name=f"NP_{suffix}",
                 protein_length=300,
+                accession=genome.accession,
                 gene_symbol=gene_symbol,
+                assembly_accession=genome.accession,
             )
         else:
             sequence = sequence or protein.sequence
@@ -99,6 +101,10 @@ class BrowserViewTests(TestCase):
             taxon=taxon,
             call_id=f"call_{suffix}",
             method=method,
+            accession=genome.accession,
+            gene_symbol=protein.gene_symbol or sequence.gene_symbol,
+            protein_name=protein.protein_name,
+            protein_length=protein.protein_length,
             start=start,
             end=start + length - 1,
             length=length,
@@ -449,10 +455,10 @@ class BrowserViewTests(TestCase):
         response = self.client.get(reverse("browser:accession-list"), {"run": "run-alpha"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, f"{reverse('browser:repeatcall-list')}?mode=merged&amp;run=run-alpha")
-        self.assertContains(response, f"{reverse('browser:protein-list')}?mode=merged&amp;run=run-alpha")
+        self.assertContains(response, f"{reverse('browser:repeatcall-list')}?mode=merged&amp;accession=GCF_ALPHA&amp;run=run-alpha")
+        self.assertContains(response, f"{reverse('browser:protein-list')}?mode=merged&amp;accession=GCF_ALPHA&amp;run=run-alpha")
         self.assertContains(response, "method=pure")
-        self.assertContains(response, "q=GCF_ALPHA")
+        self.assertContains(response, "accession=GCF_ALPHA")
 
     def test_taxon_list_run_filter_keeps_ancestor_path(self):
         response = self.client.get(reverse("browser:taxon-list"), {"run": "run-alpha"})
@@ -507,14 +513,34 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "NP_run-alpha")
         self.assertContains(response, "call_alpha")
         self.assertContains(response, "Protein browser")
+        self.assertContains(response, "Open sequences")
 
     def test_accession_detail_links_to_source_proteins_and_repeat_calls(self):
         response = self.client.get(reverse("browser:accession-detail", args=["GCF_ALPHA"]))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Open source proteins")
-        self.assertContains(response, f"{reverse('browser:protein-list')}?q=GCF_ALPHA")
-        self.assertContains(response, f"{reverse('browser:repeatcall-list')}?q=GCF_ALPHA")
+        self.assertContains(response, f"{reverse('browser:protein-list')}?accession=GCF_ALPHA")
+        self.assertContains(response, f"{reverse('browser:repeatcall-list')}?accession=GCF_ALPHA")
+
+    def test_sequence_list_run_filter_scopes_results(self):
+        response = self.client.get(reverse("browser:sequence-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NM_run-alpha")
+        self.assertNotContains(response, "NM_run-beta")
+        self.assertContains(response, reverse("browser:sequence-detail", args=[self.alpha["sequence"].pk]))
+
+    def test_sequence_detail_shows_linked_records_and_navigation(self):
+        response = self.client.get(reverse("browser:sequence-detail", args=[self.alpha["sequence"].pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "NM_run-alpha")
+        self.assertContains(response, "run-alpha")
+        self.assertContains(response, "NP_run-alpha")
+        self.assertContains(response, "call_alpha")
+        self.assertContains(response, reverse("browser:protein-list"))
+        self.assertContains(response, reverse("browser:repeatcall-list"))
 
     def test_protein_list_run_filter_scopes_results(self):
         response = self.client.get(reverse("browser:protein-list"), {"run": "run-alpha"})
@@ -529,6 +555,59 @@ class BrowserViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         protein = response.context["page_obj"].object_list[0]
         self.assertIn("amino_acid_sequence", protein.get_deferred_fields())
+
+    def test_protein_list_uses_cursor_pagination_for_raw_results(self):
+        for index in range(25):
+            self._create_repeat_call(
+                self.alpha,
+                suffix=f"cursor_protein_{index:02d}",
+                gene_symbol=f"CURSOR{index:02d}",
+                method=RepeatCall.Method.THRESHOLD,
+                residue="A",
+                length=8,
+                purity=0.75,
+            )
+
+        response = self.client.get(reverse("browser:protein-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        first_page = response.context["page_obj"]
+        first_names = [protein.protein_name for protein in first_page.object_list]
+        self.assertTrue(first_page.cursor_pagination)
+        self.assertTrue(first_page.has_next())
+        self.assertIn("after=", first_page.next_query)
+        self.assertNotIn("page=", first_page.next_query)
+
+        next_response = self.client.get(f"{reverse('browser:protein-list')}?{first_page.next_query}")
+
+        self.assertEqual(next_response.status_code, 200)
+        second_page = next_response.context["page_obj"]
+        second_names = [protein.protein_name for protein in second_page.object_list]
+        self.assertTrue(second_page.has_previous())
+        self.assertIn("before=", second_page.previous_query)
+        self.assertTrue(set(first_names).isdisjoint(second_names))
+
+    def test_protein_list_renders_virtual_scroll_hooks_for_raw_results(self):
+        response = self.client.get(reverse("browser:protein-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-virtual-scroll-root")
+        self.assertContains(response, "data-virtual-scroll-body")
+
+    def test_protein_list_virtual_scroll_fragment_returns_rows(self):
+        response = self.client.get(
+            reverse("browser:protein-list"),
+            {"run": "run-alpha", "fragment": "virtual-scroll"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("rows_html", payload)
+        self.assertIn("NP_run-alpha", payload["rows_html"])
+        self.assertEqual(payload["row_count"], 1)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["next_query"], "")
 
     def test_protein_list_combined_call_filters_match_same_linked_call(self):
         matched = self._create_repeat_call(
@@ -664,6 +743,58 @@ class BrowserViewTests(TestCase):
         self.assertIn("codon_sequence", repeat_call.get_deferred_fields())
         self.assertIn("amino_acid_sequence", repeat_call.protein.get_deferred_fields())
 
+    def test_repeatcall_list_uses_cursor_pagination_for_raw_results(self):
+        for index in range(25):
+            self._create_repeat_call(
+                self.alpha,
+                suffix=f"cursor_call_{index:02d}",
+                gene_symbol=f"CALLCURSOR{index:02d}",
+                method=RepeatCall.Method.THRESHOLD,
+                residue="A",
+                length=9 + index,
+                purity=0.80,
+                start=100 + index,
+            )
+
+        response = self.client.get(reverse("browser:repeatcall-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        first_page = response.context["page_obj"]
+        first_ids = [repeat_call.call_id for repeat_call in first_page.object_list]
+        self.assertTrue(first_page.cursor_pagination)
+        self.assertTrue(first_page.has_next())
+        self.assertIn("after=", first_page.next_query)
+
+        next_response = self.client.get(f"{reverse('browser:repeatcall-list')}?{first_page.next_query}")
+
+        self.assertEqual(next_response.status_code, 200)
+        second_page = next_response.context["page_obj"]
+        second_ids = [repeat_call.call_id for repeat_call in second_page.object_list]
+        self.assertTrue(second_page.has_previous())
+        self.assertTrue(set(first_ids).isdisjoint(second_ids))
+
+    def test_repeatcall_list_renders_virtual_scroll_hooks_for_raw_results(self):
+        response = self.client.get(reverse("browser:repeatcall-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-virtual-scroll-root")
+        self.assertContains(response, "data-virtual-scroll-body")
+
+    def test_repeatcall_list_virtual_scroll_fragment_returns_rows(self):
+        response = self.client.get(
+            reverse("browser:repeatcall-list"),
+            {"run": "run-alpha", "fragment": "virtual-scroll"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("rows_html", payload)
+        self.assertIn("call_alpha", payload["rows_html"])
+        self.assertEqual(payload["row_count"], 1)
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["next_query"], "")
+
     def test_repeatcall_detail_shows_linked_parents_and_coordinates(self):
         matched = self._create_repeat_call(
             self.alpha,
@@ -684,3 +815,4 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "DETAILGENE")
         self.assertContains(response, matched["protein"].protein_name)
         self.assertContains(response, "GCF_ALPHA")
+        self.assertContains(response, reverse("browser:sequence-detail", args=[matched["sequence"].pk]))

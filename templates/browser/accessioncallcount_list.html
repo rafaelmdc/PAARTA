@@ -162,7 +162,7 @@
             <td>{{ row.repeat_residue|default:"-" }}</td>
             <td>{{ row.detect_status|default:"-" }}</td>
             <td>{{ row.finalize_status|default:"-" }}</td>
-            <td><a href="{% url 'browser:repeatcall-list' %}?run={{ row.pipeline_run.run_id|urlencode }}&amp;q={{ row.assembly_accession|urlencode }}&amp;method={{ row.method|urlencode }}{% if row.repeat_residue %}&amp;residue={{ row.repeat_residue|urlencode }}{% endif %}">{{ row.n_repeat_calls }}</a></td>
+            <td><a href="{% url 'browser:repeatcall-list' %}?run={{ row.pipeline_run.run_id|urlencode }}&amp;accession={{ row.assembly_accession|urlencode }}&amp;method={{ row.method|urlencode }}{% if row.repeat_residue %}&amp;residue={{ row.repeat_residue|urlencode }}{% endif %}">{{ row.n_repeat_calls }}</a></td>
             <td><a href="{% url 'browser:run-detail' row.pipeline_run.pk %}">{{ row.pipeline_run.run_id }}</a></td>
           </tr>
         {% empty %}

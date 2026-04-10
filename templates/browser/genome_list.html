@@ -11,7 +11,9 @@
       <h1 class="landing-title mb-3">Accession-aware genome browsing across imported runs.</h1>
       <p class="landing-lead mb-0">
         Filter genomes by run, branch, accession, or genome name and keep the
-        taxonomic lineage and run provenance explicit.
+        taxonomic lineage and run provenance explicit. Sequence and protein counts
+        reflect the call-linked subset stored for browsing, while full raw inventories
+        remain on run and batch provenance.
       </p>
     </div>
     <aside class="landing-aside">
@@ -119,6 +121,7 @@
             <th>Genome</th>
             <th>Taxon</th>
             <th>Run</th>
+            <th>Sequences</th>
             <th>Proteins</th>
             <th>Repeat calls</th>
           </tr>
@@ -151,13 +154,14 @@
                 </a>
               </td>
               <td><a href="{% url 'browser:run-detail' genome.pipeline_run.pk %}">{{ genome.pipeline_run.run_id }}</a></td>
+              <td><a href="{% url 'browser:sequence-list' %}?run={{ genome.pipeline_run.run_id|urlencode }}&amp;genome={{ genome.genome_id|urlencode }}">{{ genome.sequences_count }}</a></td>
               <td><a href="{% url 'browser:protein-list' %}?run={{ genome.pipeline_run.run_id|urlencode }}&amp;genome={{ genome.genome_id|urlencode }}">{{ genome.proteins_count }}</a></td>
               <td><a href="{% url 'browser:repeatcall-list' %}?run={{ genome.pipeline_run.run_id|urlencode }}&amp;genome={{ genome.genome_id|urlencode }}">{{ genome.repeat_calls_count }}</a></td>
             </tr>
           {% endif %}
         {% empty %}
           <tr>
-            <td colspan="{% if current_mode == 'merged' %}5{% else %}6{% endif %}" class="empty-cell">
+            <td colspan="{% if current_mode == 'merged' %}5{% else %}7{% endif %}" class="empty-cell">
               {% if current_mode == "merged" %}
                 No merged accession groups matched these filters.
               {% else %}

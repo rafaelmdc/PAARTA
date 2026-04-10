@@ -19,6 +19,11 @@ Completed today:
 - `3.3` transactional raw importer against the corrected contract
 - `3.4` Postgres-first heartbeat/progress reporting during streamed imports
 - `3.5` PostgreSQL bulk-load path, `ANALYZE`, and importer throughput cleanup
+- `4.1` run provenance page refresh using imported DB state only
+- `4.2` raw operational artifact browsers for warnings, accession status,
+  accession call counts, and download manifest
+- browser home and inter-view navigation cleanup focused on contextual links
+  between related raw and merged views
 
 Validated today:
 
@@ -27,10 +32,11 @@ Validated today:
 - real Docker + Postgres import of the large run `chr_all3_raw_2026_04_09`
 - imported method coverage on the large run includes `pure`, `threshold`, and
   `seed_extend`
+- browser view tests pass after the navigation and provenance refactor
 
 Current next slice:
 
-- `4.1` Run and batch provenance pages
+- `4.3` Biological browsing on the corrected schema
 
 The sequencing rules are:
 
@@ -317,6 +323,13 @@ Required behavior:
 Exit criteria:
 - run and batch pages work against imported real data
 
+Status note:
+- run provenance was expanded and validated against imported data
+- dedicated batch list/detail pages were prototyped and then intentionally
+  removed because the run-first navigation model was clearer for this app
+- batch-scoped provenance remains visible from run detail and the operational
+  artifact browsers
+
 ### Slice 4.2: Raw operational artifact browsing
 
 Goal:
@@ -334,6 +347,12 @@ Required behavior:
 
 Exit criteria:
 - raw side artifacts are browsable from the main UI
+
+Status note:
+- implemented with filtered list views for normalization warnings, accession
+  status, accession call counts, and download manifest
+- run detail, accession detail, protein detail, and operational tables now link
+  directly into filtered related views instead of relying on generic menu dumps
 
 ### Slice 4.3: Biological browsing on the corrected schema
 

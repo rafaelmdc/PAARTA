@@ -300,6 +300,7 @@ def create_imported_run_fixture(
         sequence_length=900,
         nucleotide_sequence="CAG" * 30,
         gene_symbol="GENE1",
+        assembly_accession=accession,
     )
     protein = Protein.objects.create(
         pipeline_run=pipeline_run,
@@ -309,8 +310,10 @@ def create_imported_run_fixture(
         protein_id=protein_id,
         protein_name=f"NP_{run_id}",
         protein_length=300,
+        accession=accession,
         amino_acid_sequence="Q" * 30,
         gene_symbol="GENE1",
+        assembly_accession=accession,
     )
     run_parameter = RunParameter.objects.create(
         pipeline_run=pipeline_run,
@@ -351,6 +354,10 @@ def create_imported_run_fixture(
         taxon=selected_taxon,
         call_id=call_id,
         method=RepeatCall.Method.PURE,
+        accession=accession,
+        gene_symbol=protein.gene_symbol or sequence.gene_symbol,
+        protein_name=protein.protein_name,
+        protein_length=protein.protein_length,
         start=10,
         end=20,
         length=11,

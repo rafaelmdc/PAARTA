@@ -17,6 +17,7 @@
         <a class="btn btn-outline-dark" href="{% url 'browser:genome-list' %}?run={{ genome.pipeline_run.run_id|urlencode }}">Back to genomes</a>
         <a class="btn btn-outline-dark" href="{{ run_detail_url }}">Open run</a>
         <a class="btn btn-brand" href="{{ taxon_detail_url }}">Open taxon branch</a>
+        <a class="btn btn-outline-dark" href="{{ sequence_browser_url }}">Open sequences</a>
         <a class="btn btn-outline-secondary" href="{{ merged_accession_url }}">Open accession analytics</a>
       </div>
     </div>

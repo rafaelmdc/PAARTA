@@ -1,0 +1,18 @@
+{% for protein in proteins %}
+  <tr data-virtual-row="1">
+    <td><a href="{% url 'browser:protein-detail' protein.pk %}">{{ protein.protein_name }}</a></td>
+    <td>{{ protein.gene_symbol|default:"-" }}</td>
+    <td><a href="{% url 'browser:genome-detail' protein.genome.pk %}">{{ protein.genome.accession }}</a></td>
+    <td>
+      <a href="{% url 'browser:taxon-detail' protein.taxon.pk %}?run={{ protein.pipeline_run.run_id|urlencode }}">
+        {{ protein.taxon.taxon_name }}
+      </a>
+    </td>
+    <td><a href="{% url 'browser:run-detail' protein.pipeline_run.pk %}">{{ protein.pipeline_run.run_id }}</a></td>
+    <td>
+      <a href="{% url 'browser:repeatcall-list' %}?run={{ protein.pipeline_run.run_id|urlencode }}&amp;protein={{ protein.protein_id|urlencode }}">
+        {{ protein.repeat_calls_count }}
+      </a>
+    </td>
+  </tr>
+{% endfor %}

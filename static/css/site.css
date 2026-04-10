@@ -613,6 +613,46 @@ h4,
   border-top-color: rgba(23, 36, 44, 0.08);
 }
 
+.virtual-scroll-frame {
+  height: min(68vh, 56rem);
+  max-height: min(68vh, 56rem);
+  overflow-y: auto;
+}
+
+.virtual-scroll-frame[data-virtual-scroll-ready="true"] {
+  scrollbar-gutter: stable both-edges;
+}
+
+.virtual-scroll-frame .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--site-paper);
+}
+
+.virtual-scroll-frame .table-responsive {
+  overflow-x: auto;
+}
+
+.virtual-scroll-spacer {
+  border: 0;
+}
+
+.virtual-scroll-spacer td {
+  padding: 0;
+  border: 0;
+}
+
+.virtual-scroll-spacer-fill {
+  display: block;
+  width: 100%;
+  pointer-events: none;
+}
+
+[data-virtual-scroll-pagination][hidden] {
+  display: none !important;
+}
+
 .data-table a {
   color: var(--site-brand-dark);
   font-weight: 700;
@@ -789,5 +829,10 @@ h4,
 
   .hero-stage-wide {
     padding: 1.5rem;
+  }
+
+  .virtual-scroll-frame {
+    height: min(62vh, 42rem);
+    max-height: min(62vh, 42rem);
   }
 }
