@@ -20,6 +20,7 @@ class BrowserMergeViewTests(TestCase):
         protein_name,
         protein_length,
         call_id,
+        protein_id=None,
         method=RepeatCall.Method.PURE,
         residue="Q",
         start=10,
@@ -65,7 +66,7 @@ class BrowserMergeViewTests(TestCase):
             genome=genome,
             sequence=sequence,
             taxon=taxon,
-            protein_id=f"prot_{genome_suffix}",
+            protein_id=protein_id or f"prot_{genome_suffix}",
             protein_name=protein_name,
             protein_length=protein_length,
             gene_symbol="GENE1",
@@ -107,6 +108,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_shared_alpha",
+            protein_id="prot_shared",
         )
         self._create_accession_source(
             run_id="run-beta",
@@ -115,6 +117,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_shared_beta",
+            protein_id="prot_shared",
         )
         self._create_accession_source(
             run_id="run-gamma",
@@ -159,6 +162,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_summary_alpha",
+            protein_id="prot_shared",
             analyzed_protein_count=20,
             method=RepeatCall.Method.PURE,
             residue="Q",
@@ -170,6 +174,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_summary_beta",
+            protein_id="prot_shared",
             analyzed_protein_count=20,
             method=RepeatCall.Method.PURE,
             residue="Q",
@@ -192,6 +197,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="ConflictProtein",
             protein_length=260,
             call_id="call_summary_delta",
+            protein_id="prot_conflict",
             analyzed_protein_count=12,
             method=RepeatCall.Method.PURE,
             residue="Q",
@@ -203,6 +209,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="ConflictProtein",
             protein_length=260,
             call_id="call_summary_epsilon",
+            protein_id="prot_conflict",
             analyzed_protein_count=15,
             method=RepeatCall.Method.PURE,
             residue="Q",
@@ -260,6 +267,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_protein_list_alpha",
+            protein_id="prot_shared",
         )
         self._create_accession_source(
             run_id="run-beta",
@@ -268,6 +276,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_protein_list_beta",
+            protein_id="prot_shared",
         )
 
         response = self.client.get(reverse("browser:protein-list"), {"mode": "merged"})
@@ -276,9 +285,40 @@ class BrowserMergeViewTests(TestCase):
         self.assertEqual(response.context["current_mode"], "merged")
         protein_groups = list(response.context["proteins"])
         self.assertEqual(len(protein_groups), 1)
+        self.assertEqual(protein_groups[0]["protein_id"], "prot_shared")
         self.assertEqual(protein_groups[0]["source_runs_count"], 2)
         self.assertEqual(protein_groups[0]["source_proteins_count"], 2)
         self.assertEqual(protein_groups[0]["collapsed_repeat_calls_count"], 1)
+
+    def test_protein_list_merged_mode_keeps_distinct_protein_ids_separate(self):
+        self._create_accession_source(
+            run_id="run-alpha",
+            accession="GCF_SHARED",
+            genome_suffix="protein_list_distinct_alpha",
+            protein_name="SharedProtein",
+            protein_length=300,
+            call_id="call_protein_list_distinct_alpha",
+            protein_id="prot_alpha",
+        )
+        self._create_accession_source(
+            run_id="run-beta",
+            accession="GCF_SHARED",
+            genome_suffix="protein_list_distinct_beta",
+            protein_name="SharedProtein",
+            protein_length=300,
+            call_id="call_protein_list_distinct_beta",
+            protein_id="prot_beta",
+        )
+
+        response = self.client.get(reverse("browser:protein-list"), {"mode": "merged"})
+
+        self.assertEqual(response.status_code, 200)
+        protein_groups = list(response.context["proteins"])
+        self.assertEqual(len(protein_groups), 2)
+        self.assertEqual(
+            sorted(group["protein_id"] for group in protein_groups),
+            ["prot_alpha", "prot_beta"],
+        )
 
     def test_repeatcall_list_merged_mode_collapses_exact_calls(self):
         self._create_accession_source(
@@ -324,6 +364,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_shared_alpha",
+            protein_id="prot_shared",
             analyzed_protein_count=20,
         )
         beta = self._create_accession_source(
@@ -333,6 +374,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_shared_beta",
+            protein_id="prot_shared",
             analyzed_protein_count=20,
         )
         self._create_accession_source(
@@ -342,6 +384,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_shared_gamma",
+            protein_id="prot_shared",
             analyzed_protein_count=20,
             purity=0.875,
         )
@@ -369,6 +412,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_conflict_alpha",
+            protein_id="prot_conflict",
             analyzed_protein_count=20,
         )
         self._create_accession_source(
@@ -378,6 +422,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_conflict_beta",
+            protein_id="prot_conflict",
             analyzed_protein_count=24,
         )
 
@@ -398,6 +443,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_taxon_alpha",
+            protein_id="prot_shared",
         )
         self._create_accession_source(
             run_id="run-beta",
@@ -406,6 +452,7 @@ class BrowserMergeViewTests(TestCase):
             protein_name="SharedProtein",
             protein_length=300,
             call_id="call_taxon_beta",
+            protein_id="prot_shared",
         )
 
         response = self.client.get(

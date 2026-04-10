@@ -51,11 +51,10 @@ def build_accession_summary(accession: str) -> dict:
         .order_by("method", "protein__protein_name", "start", "call_id")
     )
     collapsed_call_groups = _collapsed_repeat_call_groups(source_repeat_calls)
+    protein_groups = _merged_protein_groups_from_repeat_calls(source_repeat_calls)
     analyzed_protein_counts = sorted({genome.analyzed_protein_count for genome in source_genomes})
     merged_analyzed_protein_count = analyzed_protein_counts[0] if len(analyzed_protein_counts) == 1 else None
-    merged_repeat_bearing_proteins_count = len(
-        {(group["protein_name"], group["protein_length"]) for group in collapsed_call_groups}
-    )
+    merged_repeat_bearing_proteins_count = len(protein_groups)
     repeat_bearing_protein_percentage = None
     if merged_analyzed_protein_count:
         repeat_bearing_protein_percentage = (merged_repeat_bearing_proteins_count / merged_analyzed_protein_count) * 100
@@ -415,6 +414,7 @@ def _identity_merged_protein_groups_from_repeat_calls(source_repeat_calls):
                 "source_proteins": set(),
                 "gene_symbols": set(),
                 "residue_keys": set(),
+                "collapsed_call_keys": set(),
             }
 
         grouped_proteins[key]["source_repeat_calls"].append(repeat_call)
@@ -425,6 +425,7 @@ def _identity_merged_protein_groups_from_repeat_calls(source_repeat_calls):
         residue_key = _protein_residue_identity_key(repeat_call)
         if residue_key is not None:
             grouped_proteins[key]["residue_keys"].add(residue_key)
+        grouped_proteins[key]["collapsed_call_keys"].add(_collapsed_repeat_call_key(repeat_call))
 
     protein_groups = []
     for protein_group in grouped_proteins.values():
@@ -440,8 +441,10 @@ def _identity_merged_protein_groups_from_repeat_calls(source_repeat_calls):
         protein_group["source_proteins_count"] = len(protein_group["source_proteins"])
         protein_group["source_repeat_calls_count"] = len(protein_group["source_repeat_calls"])
         protein_group["residue_groups_count"] = len(protein_group["residue_keys"])
+        protein_group["collapsed_repeat_calls_count"] = len(protein_group["collapsed_call_keys"])
         protein_group.pop("source_proteins")
         protein_group.pop("residue_keys")
+        protein_group.pop("collapsed_call_keys")
         protein_groups.append(protein_group)
 
     return sorted(protein_groups, key=lambda group: (group["accession"], group["protein_id"]))
@@ -530,45 +533,7 @@ def _representative_repeat_call_key(repeat_call):
 
 
 def _merged_protein_groups_from_repeat_calls(source_repeat_calls):
-    grouped_proteins = OrderedDict()
-
-    for repeat_call in source_repeat_calls:
-        key = (
-            repeat_call.genome.accession,
-            repeat_call.protein.protein_name,
-            repeat_call.protein.protein_length,
-        )
-        if key not in grouped_proteins:
-            grouped_proteins[key] = {
-                "accession": repeat_call.genome.accession,
-                "protein_name": repeat_call.protein.protein_name,
-                "protein_length": repeat_call.protein.protein_length,
-                "gene_symbols": set(),
-                "source_runs": set(),
-                "source_proteins": set(),
-                "collapsed_call_keys": set(),
-                "source_repeat_calls_count": 0,
-            }
-
-        grouped_proteins[key]["source_repeat_calls_count"] += 1
-        if repeat_call.protein.gene_symbol:
-            grouped_proteins[key]["gene_symbols"].add(repeat_call.protein.gene_symbol)
-        grouped_proteins[key]["source_runs"].add(repeat_call.pipeline_run.run_id)
-        grouped_proteins[key]["source_proteins"].add((repeat_call.pipeline_run.run_id, repeat_call.protein.protein_id))
-        grouped_proteins[key]["collapsed_call_keys"].add(_collapsed_repeat_call_key(repeat_call))
-
-    protein_groups = list(grouped_proteins.values())
-    for protein_group in protein_groups:
-        protein_group["gene_symbols"] = sorted(protein_group["gene_symbols"])
-        protein_group["gene_symbol_label"] = ", ".join(protein_group["gene_symbols"]) if protein_group["gene_symbols"] else "-"
-        protein_group["source_runs"] = sorted(protein_group["source_runs"])
-        protein_group["source_runs_count"] = len(protein_group["source_runs"])
-        protein_group["source_proteins_count"] = len(protein_group["source_proteins"])
-        protein_group["collapsed_repeat_calls_count"] = len(protein_group["collapsed_call_keys"])
-        protein_group.pop("source_proteins")
-        protein_group.pop("collapsed_call_keys")
-
-    return protein_groups
+    return _identity_merged_protein_groups_from_repeat_calls(source_repeat_calls)
 
 
 def _collapsed_repeat_call_groups(source_repeat_calls):
