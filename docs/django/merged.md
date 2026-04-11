@@ -8,9 +8,11 @@
   - raw truth: what each pipeline run imported and called
   - merged summaries: deduplicated biological views built over raw evidence
 - Use different merged identity keys depending on the level of summary:
-  - protein-level identity: `(accession, protein_id)`
-  - residue-specific identity: `(accession, protein_id, residue)`
+  - protein-level identity: `(accession, protein_id, method)`
+  - residue-specific identity: `(accession, protein_id, method, residue)`
 - Do not use collapsed coordinate-level repeat-call fingerprints as the primary merged identity for biological statistics.
+- Keep different methods separate in merged mode; `pure`, `threshold`, and
+  `seed_extend` do not collapse into one merged unit.
 - Exclude rows from merged biological statistics when they lack a trustworthy identity key, while keeping them fully visible in raw mode and provenance views.
 
 ### Core Merge Rules
@@ -28,17 +30,18 @@
 ### Merged Identity Rules
 
 - Protein-level merged identity:
-  - `merged_protein_key = (accession, protein_id)`
+  - `merged_protein_key = (accession, protein_id, method)`
   - used for deduplicated protein prevalence and taxon/accession-level biological summaries
 
 - Residue-specific merged identity:
-  - `merged_protein_residue_key = (accession, protein_id, residue)`
+  - `merged_protein_residue_key = (accession, protein_id, method, residue)`
   - used for residue-filtered or residue-bucketed summaries
   - distinct residues observed in the same protein, such as Q and N, are not duplicates and must remain distinct at this level
 
 - Identity rule:
   - for merged biological statistics, all raw rows sharing the same merged identity key are treated as evidence for one merged biological unit
   - differences in coordinates, purity, start/end, sequence length, amino-acid string, or minor resequencing/annotation drift do not split merged identity when the relevant identity key is unchanged
+  - method differences do split merged identity
   - coordinate-level distinctness is evidence, not merged identity
 
 ### Biological Semantics
@@ -51,13 +54,13 @@
   - how filtered subsets are derived from contributing evidence
 
 - Protein-level summaries:
-  - count each unique `(accession, protein_id)` at most once within the active summary scope
+  - count each unique `(accession, protein_id, method)` at most once within the active summary scope
   - if the same protein appears across multiple runs, it remains one merged protein unit
 
 - Residue-specific summaries:
-  - count each unique `(accession, protein_id, residue)` at most once within the active summary scope
+  - count each unique `(accession, protein_id, method, residue)` at most once within the active summary scope
   - the same protein may therefore contribute to multiple residue-specific merged groups when multiple residues are observed
-  - for example, `(accession=A, protein_id=P, residue=Q)` and `(accession=A, protein_id=P, residue=N)` are distinct merged biological units for residue-specific statistics
+  - for example, `(accession=A, protein_id=P, method=pure, residue=Q)` and `(accession=A, protein_id=P, method=pure, residue=N)` are distinct merged biological units for residue-specific statistics
 
 ### Filter Semantics
 
@@ -65,8 +68,9 @@
 - Filters define inclusion within a derived merged view.
 
 - In merged mode:
-  - filters on residue, method, length, purity, or similar criteria determine whether a merged unit is included in the current filtered result set
-  - filters do not alter the merged identity key itself
+  - method is part of merged identity, so rows from different methods remain distinct merged units even in unfiltered views
+  - filters on residue, length, purity, or similar criteria determine whether a merged unit is included in the current filtered result set
+  - method filters narrow already method-sensitive merged units; they do not recombine them
 
 - Unfiltered merged views:
   - protein-level summaries count all deduplicated repeat-positive proteins
@@ -74,7 +78,7 @@
 
 - Filtered merged views:
   - a protein-level merged unit is included when at least one contributing raw row for that protein matches the active filters
-  - a residue-specific merged unit is included when at least one contributing raw row for that exact `(accession, protein_id, residue)` identity matches the active filters
+  - a residue-specific merged unit is included when at least one contributing raw row for that exact `(accession, protein_id, method, residue)` identity matches the active filters
 
 ### Unkeyed or Untrusted Rows
 
@@ -93,8 +97,8 @@
 - Replace the current merged repeat-call identity logic in `apps/browser/merged.py`:
   - stop using call fingerprints as the primary merged identity for biological statistics
   - introduce grouping helpers centered on:
-    - `(accession, protein_id)` for protein-level summaries
-    - `(accession, protein_id, residue)` for residue-specific summaries
+    - `(accession, protein_id, method)` for protein-level summaries
+    - `(accession, protein_id, method, residue)` for residue-specific summaries
   - treat repeat calls as contributing evidence collected under merged biological units
 
 - Keep merged as a derived-query implementation first:
@@ -152,8 +156,8 @@
 - Merged mode labels should emphasize deduplicated biological summaries.
 
 - Merged counts should be labeled in terms of:
-  - unique accession-protein units
-  - unique accession-protein-residue units
+  - unique accession-protein-method units
+  - unique accession-protein-method-residue units
   - contributing raw runs
   - contributing raw calls
   - excluded unkeyed rows
@@ -162,17 +166,18 @@
 
 ### Test Plan
 
-- The same `(accession, protein_id)` across multiple runs counts once in protein-level merged statistics.
-- The same `(accession, protein_id)` with different call coordinates still counts once as one merged protein.
-- The same `(accession, protein_id)` with slightly different protein length or sequence still counts once at the protein level.
+- The same `(accession, protein_id, method)` across multiple runs counts once in protein-level merged statistics.
+- The same `(accession, protein_id, method)` with different call coordinates still counts once as one merged protein.
+- The same `(accession, protein_id, method)` with slightly different protein length or sequence still counts once at the protein level.
 - Different `protein_id` values under the same accession count as separate merged proteins.
+- Different methods under the same accession and protein ID remain separate merged proteins.
 - The same protein with different residues, such as Q and N, counts:
   - once at the protein level
   - once per residue at the residue-specific level
-- Multiple raw rows with the same `(accession, protein_id, residue)` across runs count once in residue-specific merged statistics.
+- Multiple raw rows with the same `(accession, protein_id, method, residue)` across runs count once in residue-specific merged statistics.
 - Missing or untrustworthy `protein_id` or accession excludes the row from merged biological statistics but leaves it visible in raw pages.
 - Missing or untrustworthy residue excludes the row from residue-specific merged summaries but leaves it visible in raw pages.
-- Method, residue, length, and purity filters affect inclusion in filtered merged views, not merged identity itself.
+- Residue, length, and purity filters affect inclusion in filtered merged views, while method remains part of merged identity.
 - Merged records expose backlinks to all contributing raw rows and runs.
 - Existing raw browser behavior and run replacement behavior remain unchanged.
 
@@ -180,6 +185,7 @@
 
 - `protein_id` on the imported raw protein row is the primary trustworthy protein identifier for deduplication.
 - `accession` remains the genome/assembly identity boundary and is part of the merged identity key.
+- `method` remains part of merged identity because different calling methods are intentionally kept separate in merged mode.
 - Residue is part of identity only for residue-specific merged summaries.
 - The merged layer is intended for biological prevalence and residue-summary views, not for preserving coordinate-level distinctness as standalone truth.
 - Coordinate-level distinctness remains available only in the raw evidence layer.

@@ -7,7 +7,7 @@ This document turns `docs/django/implementation.md` and
 
 ## Current Status
 
-Completed today:
+Completed:
 
 - `1.1` contract reset in code and tests
 - `1.2` real-run inspection fixtures and regression coverage
@@ -22,21 +22,44 @@ Completed today:
 - `4.1` run provenance page refresh using imported DB state only
 - `4.2` raw operational artifact browsers for warnings, accession status,
   accession call counts, and download manifest
+- `4.3` biological browsing polish on the corrected schema, including cursor
+  pagination and virtual-scroll support on the hottest list pages
+- `5.1` merged identity and exclusion rules on the corrected raw layer
+- `5.2` protein-level merged summaries rebuilt around trusted identities
+- `5.3` residue-specific merged summaries
+- `5.4` evidence-first merged presentation and provenance backlinks
+- `5.5` merged query shaping, performance passes, and regression coverage
+- `6.1` final contract notes and operator guidance
+- `6.2` acceptance sweep
 - browser home and inter-view navigation cleanup focused on contextual links
   between related raw and merged views
 
-Validated today:
+Validated:
 
+- focused acceptance suite passes:
+  - `python3 manage.py test web_tests.test_import_command web_tests.test_import_views web_tests.test_browser_views web_tests.test_browser_merge_views web_tests.test_merged_helpers`
 - real Docker + Postgres import of the small run
-  `live_raw_effective_params_2026_04_09`
+  `live_raw_effective_params_2026_04_09`:
+  - `1` genome
+  - `303` proteins
+  - `608` repeat calls
 - real Docker + Postgres import of the large run `chr_all3_raw_2026_04_09`
+  - `905` genomes
+  - `382649` proteins
+  - `1395494` repeat calls
 - imported method coverage on the large run includes `pure`, `threshold`, and
   `seed_extend`
-- browser view tests pass after the navigation and provenance refactor
+- import batch progress and row counts persist in the database for both real
+  imports
+- browser route checks succeed on imported data for:
+  - `/browser/`
+  - `/browser/runs/`
+  - `/browser/runs/<pk>/`
+  - merged accession and repeat-call browse paths
 
 Current next slice:
 
-- `5.1` Merged identity and exclusion rules on the corrected raw layer
+- acceptance complete; no required implementation slice remains
 
 The sequencing rules are:
 
@@ -365,7 +388,8 @@ Scope:
   that only the call-linked sequence and protein subset is stored for browsing
 - preserve links between raw repeat calls and their genome, sequence, protein,
   taxon, run, and batch provenance
-- use keyset pagination on the largest list pages
+- use cursor pagination on the largest list pages and expose virtual-scroll
+  fragments for the browser tables that need it
 - keep list queries narrow and avoid loading large text fields by default
 
 Required behavior:
@@ -377,6 +401,14 @@ Required behavior:
 Exit criteria:
 - browser tests pass on corrected models and imports
 
+Status note:
+- implemented with cursor pagination and virtual-scroll support on the larger
+  protein and repeat-call browse paths
+- list views use narrow projections and defer large sequence payloads by
+  default
+- sortable headers replaced the older dropdown-only browsing flow across the
+  browser tables
+
 ## Phase 5: Merged Redesign
 
 ### Slice 5.1: Define merged identity and exclusion rules
@@ -387,8 +419,8 @@ Goal:
 
 Scope:
 - replace the primary merged keys with:
-  - protein-level identity `(accession, protein_id)`
-  - residue-specific identity `(accession, protein_id, residue)`
+  - protein-level identity `(accession, protein_id, method)`
+  - residue-specific identity `(accession, protein_id, method, residue)`
 - centralize trusted-key validation for accession, protein ID, and residue
 - exclude unkeyed or untrusted rows from merged statistics while keeping them
   visible in raw mode and provenance views
@@ -400,9 +432,9 @@ Out of scope:
 - no broad merged-page refresh yet
 
 Required behavior:
-- coordinate drift, method differences, purity changes, and minor sequence or
-  annotation drift do not split merged identity when the relevant key is
-  unchanged
+- coordinate drift, purity changes, and minor sequence or annotation drift do
+  not split merged identity when the relevant key is unchanged
+- method differences do split merged identity
 - residue only splits identity in residue-specific merged summaries
 - merged logic remains derived from raw imported rows
 
@@ -417,8 +449,8 @@ Goal:
   collapsed repeat-call fingerprints
 
 Scope:
-- rework merged accession analytics around unique `(accession, protein_id)`
-  units
+- rework merged accession analytics around unique
+  `(accession, protein_id, method)` units
 - update merged protein lists and counters to use presence-per-protein
   semantics
 - preserve denominator conflict reporting and contributing source-run and
@@ -426,8 +458,8 @@ Scope:
 - keep merged queries derived from raw tables only
 
 Required behavior:
-- the same `(accession, protein_id)` across runs counts once in protein-level
-  merged statistics
+- the same `(accession, protein_id, method)` across runs counts once in
+  protein-level merged statistics
 - filtered merged views include a protein-level unit when at least one
   contributing raw row matches the active filters
 - raw and merged pages remain cross-linked
@@ -444,7 +476,7 @@ Goal:
 
 Scope:
 - add or refactor residue-specific grouping around
-  `(accession, protein_id, residue)`
+  `(accession, protein_id, method, residue)`
 - update residue-filtered analytics and list pages to use residue-specific
   merged units
 - ensure one protein can contribute to multiple residue groups when distinct

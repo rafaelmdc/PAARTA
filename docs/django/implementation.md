@@ -18,8 +18,9 @@ only as a reproducible browsing convenience built on top of that raw truth.
 
 ## Current Implementation Status
 
-As of `2026-04-09`, the import/backend refactor is implemented through the raw
-import slices and validated against the real pipeline outputs.
+As of `2026-04-11`, the raw import refactor, browser work, merged redesign,
+and acceptance sweep are implemented and validated against the real pipeline
+outputs.
 
 Implemented:
 
@@ -39,6 +40,21 @@ Implemented:
 - queued/background import execution via `ImportBatch`
 - Postgres-first heartbeat and progress reporting during long imports
 - PostgreSQL bulk-load path for the largest imported tables
+- run-first raw browser pages backed by imported database state only
+- operational artifact browsers for normalization warnings, accession status,
+  accession call counts, and download manifest entries
+- contextual cross-links between runs, accessions, proteins, repeat calls, and
+  operational provenance
+- cursor pagination and virtual-scroll fragments on the largest raw list pages
+- derived merged browsing built over imported raw evidence with
+  method-sensitive identities:
+  - protein-level `(accession, protein_id, method)`
+  - residue-level `(accession, protein_id, method, residue)`
+- evidence-first merged summaries with contributing-run counts, source-row
+  counts, representative evidence rows, and backlinks to raw proteins and
+  repeat calls
+- operator-facing documentation for the Docker-first import boundary and
+  Postgres-backed runtime model
 
 Current storage/runtime behavior:
 
@@ -46,24 +62,35 @@ Current storage/runtime behavior:
   PostgreSQL
 - the app stores only call-linked `Sequence` and `Protein` rows, not the full
   raw sequence/protein inventories
+- raw mode remains canonical imported truth
+- merged mode remains a derived browsing layer over imported raw evidence
 - the running website serves from PostgreSQL after import and does not depend
   on direct runtime reads of pipeline TSV files
 
 Validated behavior:
 
+- focused acceptance suite passes:
+  - `python3 manage.py test web_tests.test_import_command web_tests.test_import_views web_tests.test_browser_views web_tests.test_browser_merge_views web_tests.test_merged_helpers`
 - small real run `live_raw_effective_params_2026_04_09` imports successfully in
-  Docker + Postgres
+  Docker + Postgres:
+  - `1` genome
+  - `303` proteins
+  - `608` repeat calls
 - large real run `chr_all3_raw_2026_04_09` imports successfully in Docker +
-  Postgres
+  Postgres:
+  - `905` genomes
+  - `382649` proteins
+  - `1395494` repeat calls
 - the large run imports `pure`, `threshold`, and `seed_extend` into both
   `RunParameter` and `RepeatCall`
-- the small real Docker/Postgres import currently completes in about `4.22s`
+- imported browser routes return successfully on loaded data for:
+  - `/browser/`
+  - `/browser/runs/`
+  - `/browser/runs/<pk>/`
+  - merged accession and repeat-call browse paths
 
-Remaining work starts at the browser layer:
-
-- `4.1` run and batch provenance pages
-- `4.2` raw operational artifact browsing
-- `4.3` biological browsing polish on the corrected schema
+No required refactor slices remain. Any further work is follow-up UX polish or
+evidence-driven profiling rather than contract or semantics cleanup.
 
 ## Source Of Truth
 
@@ -674,18 +701,19 @@ The UI should make it clear when a page shows:
 Run detail should show:
 
 - run metadata from the manifest
-- available batches
+- available batches and batch-scoped imported counts
 - counts for genomes, repeat calls, warnings, status rows, and linked browse
   projections
 - enabled methods and residues
 - current or latest import status when relevant
 
-Batch detail should show:
+Batch-scoped provenance should remain visible from run detail and the
+operational artifact browsers:
 
-- batch artifact inventory
-- counts for full raw genomes, taxonomy rows, sequences, proteins, downloads,
-  and warnings
-- links to raw artifact files
+- batch artifact inventory and imported counts
+- links into warning, status, call-count, and download-manifest views filtered
+  by run and batch
+- active import phase, heartbeat, and progress summaries when relevant
 
 Genome and repeat-call detail should show:
 
@@ -698,6 +726,10 @@ Sequence and protein pages should clearly indicate that they cover the
 call-linked subset stored for browsing and provenance, not the full raw
 sequence or protein inventories emitted by the pipeline.
 
+Largest raw list pages should use narrow projections and cursor-based browsing
+mechanics so realistic imports remain usable without loading large sequence
+payloads by default.
+
 ### Derived merged browsing
 
 Merged browsing remains allowed and useful, but it must remain derived-only.
@@ -707,16 +739,18 @@ Keep the accession-centered merged layer and make its grouping rules explicit.
 Current grouping rule to preserve:
 
 - genome merge key: `accession`
-- repeat-call merge fingerprint:
-  `(accession, protein_name, protein_length, method, start, end,
-  repeat_residue, length, normalized_purity)`
+- protein-level merged key: `(accession, protein_id, method)`
+- residue-level merged key: `(accession, protein_id, method, residue)`
 
 Required derived-view behavior:
 
 - never collapse raw rows at import time
-- always show how many raw records contributed
-- show contributing runs
-- link back to raw source calls
+- exclude rows lacking a trustworthy merged identity from merged statistics
+  while keeping them visible in raw mode
+- always show how many raw records and runs contributed
+- show methods observed, coordinate drift, and representative evidence rows
+  explicitly as evidence rather than canonical truth
+- link back to raw source proteins and raw source calls
 - expose analyzed-protein denominator conflicts instead of hiding them
 
 ## Validation Strategy

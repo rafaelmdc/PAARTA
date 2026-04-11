@@ -7,9 +7,19 @@ Current app split:
 - `apps/browser/`: run-first data browser
 - `apps/imports/`: staff-facing published-run ingestion
 
+Current runtime model:
+- published `raw` runs are imported into PostgreSQL as the canonical runtime
+  truth
+- merged browser mode is derived from imported raw evidence and is never
+  treated as canonical imported truth
+- normal browsing reads from PostgreSQL after import; pipeline TSV and JSON
+  artifacts are required only at import time
+- the default local deployment is Docker-first: `web` serves requests and
+  `worker` processes queued imports
+
 Current containerized dev setup:
 - image: `containers/web.Dockerfile`
-- service: `web` in the local `compose.yaml`
+- services: `web`, `worker`, and `postgres` in the local `compose.yaml`
 - database: `postgres` in the same Compose stack
 
 From the repo root, the minimal host-side commands are:
@@ -43,6 +53,11 @@ read-only at `/workspace/homorepeat_pipeline` and defaults
 That means the import UI can auto-detect runs from the sibling pipeline repo in
 the common local checkout layout.
 
+The Compose boundary is intentional:
+- the importer reads mounted pipeline artifacts
+- after import, the running app serves from PostgreSQL only
+- no normal browser request depends on direct runtime reads of pipeline files
+
 With the Compose stack running, you can:
 
 - use `/imports/` to queue a run from the detected sibling pipeline outputs and let the `worker` service process it automatically
@@ -52,7 +67,9 @@ With the Compose stack running, you can:
 Current endpoints:
 - `/`: site home
 - `/healthz/`: JSON healthcheck
-- `/browser/`: browser placeholder
-- `/imports/`: imports placeholder
-
-The data model, import backend, and graph views are implemented in later slices.
+- `/browser/`: browser directory page for raw and merged browse paths
+- `/browser/runs/`: imported runs and run-level provenance
+- `/browser/accessions/`, `/browser/genomes/`, `/browser/sequences/`, `/browser/proteins/`, `/browser/calls/`: main biological browse surfaces
+- `/browser/warnings/`, `/browser/accession-status/`, `/browser/accession-call-counts/`, `/browser/download-manifest/`: operational provenance browsers
+- `/imports/`: staff-only import queue
+- `/imports/history/`: import batch history, phase, and progress
