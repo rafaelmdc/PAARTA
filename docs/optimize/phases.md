@@ -35,7 +35,7 @@ Current baseline artifact:
 
 Current next slice:
 
-- `3.5` trim the protein and sequence raw query shapes
+- `4.1` re-profile the large imported dataset
 
 ## Phase 1: Baseline And Metadata Contract
 
@@ -355,7 +355,7 @@ Exit criteria:
 
 Status:
 
-- pending
+- implemented
 
 ## Phase 4: Large-Run Acceptance
 

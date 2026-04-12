@@ -872,6 +872,28 @@ class BrowserViewTests(TestCase):
             ("pipeline_run_id", "assembly_accession", "sequence_name", "id"),
         )
 
+    def test_sequence_list_keeps_raw_rows_narrow(self):
+        response = self.client.get(reverse("browser:sequence-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        sequence = response.context["page_obj"].object_list[0]
+        self.assertIn("nucleotide_sequence", sequence.get_deferred_fields())
+        self.assertIn("pipeline_run", sequence._state.fields_cache)
+        self.assertIn("taxon", sequence._state.fields_cache)
+        self.assertNotIn("genome", sequence._state.fields_cache)
+
+    def test_sequence_list_uses_local_ids_and_denormalized_fields_for_links(self):
+        response = self.client.get(reverse("browser:sequence-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("browser:genome-detail", args=[self.alpha["genome"].pk]))
+        self.assertContains(response, reverse("browser:run-detail", args=[self.alpha["pipeline_run"].pk]))
+        self.assertContains(
+            response,
+            f'{reverse("browser:taxon-detail", args=[self.alpha["taxon"].pk])}?run={self.alpha["pipeline_run"].run_id}',
+        )
+        self.assertContains(response, self.alpha["sequence"].assembly_accession)
+
     def test_sequence_list_uses_cursor_pagination_for_default_raw_order(self):
         for index in range(25):
             self._create_repeat_call(
@@ -979,12 +1001,27 @@ class BrowserViewTests(TestCase):
         self.assertEqual(response.context["method_choices"], [RunParameter.Method.THRESHOLD])
         self.assertEqual(response.context["residue_choices"], ["A"])
 
-    def test_protein_list_defers_large_sequence_payloads(self):
+    def test_protein_list_keeps_raw_rows_narrow(self):
         response = self.client.get(reverse("browser:protein-list"), {"run": "run-alpha"})
 
         self.assertEqual(response.status_code, 200)
         protein = response.context["page_obj"].object_list[0]
         self.assertIn("amino_acid_sequence", protein.get_deferred_fields())
+        self.assertIn("pipeline_run", protein._state.fields_cache)
+        self.assertIn("taxon", protein._state.fields_cache)
+        self.assertNotIn("genome", protein._state.fields_cache)
+
+    def test_protein_list_uses_local_ids_and_denormalized_fields_for_links(self):
+        response = self.client.get(reverse("browser:protein-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("browser:genome-detail", args=[self.alpha["genome"].pk]))
+        self.assertContains(response, reverse("browser:run-detail", args=[self.alpha["pipeline_run"].pk]))
+        self.assertContains(
+            response,
+            f'{reverse("browser:taxon-detail", args=[self.alpha["taxon"].pk])}?run={self.alpha["pipeline_run"].run_id}',
+        )
+        self.assertContains(response, self.alpha["protein"].accession)
 
     def test_protein_list_uses_cursor_pagination_for_raw_results(self):
         for index in range(25):

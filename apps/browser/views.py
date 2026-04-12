@@ -1312,7 +1312,7 @@ class SequenceListView(VirtualScrollListView):
 
     def get_base_queryset(self):
         return _annotated_sequences(
-            Sequence.objects.select_related("pipeline_run", "genome", "taxon")
+            Sequence.objects.select_related("pipeline_run", "taxon")
             .defer("nucleotide_sequence")
             .only(
                 "id",
@@ -1320,9 +1320,6 @@ class SequenceListView(VirtualScrollListView):
                 "pipeline_run__id",
                 "pipeline_run__run_id",
                 "genome_id",
-                "genome__id",
-                "genome__accession",
-                "genome__genome_id",
                 "taxon_id",
                 "taxon__id",
                 "taxon__taxon_name",
@@ -1605,7 +1602,7 @@ class ProteinListView(VirtualScrollListView):
 
     def get_base_queryset(self):
         return _annotated_proteins(
-            Protein.objects.select_related("pipeline_run", "genome", "taxon")
+            Protein.objects.select_related("pipeline_run", "taxon")
             .defer("amino_acid_sequence")
             .only(
                 "id",
@@ -1613,9 +1610,6 @@ class ProteinListView(VirtualScrollListView):
                 "pipeline_run__id",
                 "pipeline_run__run_id",
                 "genome_id",
-                "genome__id",
-                "genome__accession",
-                "genome__genome_id",
                 "taxon_id",
                 "taxon__id",
                 "taxon__taxon_name",
