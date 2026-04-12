@@ -13,7 +13,9 @@ a feature plan.
 
 Verified cleanup pressure points:
 
-- `apps/browser/views.py` is the main browser monolith at 2687 lines
+- `apps/browser/views.py` has been replaced by `apps/browser/views/`, with the
+  shared browser view foundations extracted into support modules and the
+  URL-facing view classes temporarily kept together in `pages.py`
 - `apps/imports/services/import_run.py` is the main import-service monolith at
   2206 lines
 - `apps/imports/services/published_run.py` still mixes contract resolution,
@@ -37,7 +39,7 @@ Stable public surfaces that must keep working during cleanup:
 
 Current next phase:
 
-- Phase 1
+- Phase 2
 
 ## Phase 1: Split Browser View Foundations
 
@@ -69,7 +71,7 @@ Exit criteria:
 
 Status:
 
-- pending
+- implemented
 
 ## Phase 2: Split Browser Domain Views
 
