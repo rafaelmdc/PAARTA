@@ -1876,11 +1876,10 @@ class RepeatCallListView(VirtualScrollListView):
 
     def get_base_queryset(self):
         return (
-            RepeatCall.objects.select_related("pipeline_run", "genome", "protein", "taxon")
+            RepeatCall.objects.select_related("pipeline_run", "taxon")
             .defer(
                 "aa_sequence",
                 "codon_sequence",
-                "protein__amino_acid_sequence",
             )
             .only(
                 "id",
@@ -1888,12 +1887,7 @@ class RepeatCallListView(VirtualScrollListView):
                 "pipeline_run__id",
                 "pipeline_run__run_id",
                 "genome_id",
-                "genome__id",
-                "genome__accession",
-                "genome__genome_id",
                 "protein_id",
-                "protein__id",
-                "protein__protein_id",
                 "taxon_id",
                 "taxon__id",
                 "taxon__taxon_name",

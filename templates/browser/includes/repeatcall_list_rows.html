@@ -58,11 +58,11 @@
           {{ repeat_call.call_id|truncatechars:30 }}
         </a>
       </td>
-      <td><a href="{% url 'browser:protein-detail' repeat_call.protein.pk %}">{{ repeat_call.protein_name }}</a></td>
+      <td><a href="{% url 'browser:protein-detail' repeat_call.protein_id %}">{{ repeat_call.protein_name }}</a></td>
       <td>{{ repeat_call.gene_symbol|default:"-" }}</td>
-      <td><a href="{% url 'browser:genome-detail' repeat_call.genome.pk %}">{{ repeat_call.genome.accession }}</a></td>
+      <td><a href="{% url 'browser:genome-detail' repeat_call.genome_id %}">{{ repeat_call.accession }}</a></td>
       <td>
-        <a href="{% url 'browser:taxon-detail' repeat_call.taxon.pk %}?run={{ repeat_call.pipeline_run.run_id|urlencode }}">
+        <a href="{% url 'browser:taxon-detail' repeat_call.taxon_id %}?run={{ repeat_call.pipeline_run.run_id|urlencode }}">
           {{ repeat_call.taxon.taxon_name }}
         </a>
       </td>
@@ -70,7 +70,7 @@
       <td>{{ repeat_call.repeat_residue }}</td>
       <td>{{ repeat_call.length }}</td>
       <td title="{{ repeat_call.purity }}">{{ repeat_call.purity|stringformat:"s"|slice:":4" }}</td>
-      <td><a href="{% url 'browser:run-detail' repeat_call.pipeline_run.pk %}">{{ repeat_call.pipeline_run.run_id }}</a></td>
+      <td><a href="{% url 'browser:run-detail' repeat_call.pipeline_run_id %}">{{ repeat_call.pipeline_run.run_id }}</a></td>
     </tr>
   {% endif %}
 {% endfor %}

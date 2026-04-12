@@ -1278,14 +1278,31 @@ class BrowserViewTests(TestCase):
             f'{reverse("browser:protein-list")}?mode=merged&amp;accession=GCF_ALPHA&amp;branch_q=Prim',
         )
 
-    def test_repeatcall_list_defers_large_sequence_payloads(self):
+    def test_repeatcall_list_keeps_raw_rows_narrow(self):
         response = self.client.get(reverse("browser:repeatcall-list"), {"run": "run-alpha"})
 
         self.assertEqual(response.status_code, 200)
         repeat_call = response.context["page_obj"].object_list[0]
         self.assertIn("aa_sequence", repeat_call.get_deferred_fields())
         self.assertIn("codon_sequence", repeat_call.get_deferred_fields())
-        self.assertIn("amino_acid_sequence", repeat_call.protein.get_deferred_fields())
+        self.assertIn("pipeline_run", repeat_call._state.fields_cache)
+        self.assertIn("taxon", repeat_call._state.fields_cache)
+        self.assertNotIn("genome", repeat_call._state.fields_cache)
+        self.assertNotIn("protein", repeat_call._state.fields_cache)
+
+    def test_repeatcall_list_uses_local_ids_and_denormalized_fields_for_links(self):
+        response = self.client.get(reverse("browser:repeatcall-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("browser:protein-detail", args=[self.alpha["protein"].pk]))
+        self.assertContains(response, reverse("browser:genome-detail", args=[self.alpha["genome"].pk]))
+        self.assertContains(response, reverse("browser:run-detail", args=[self.alpha["pipeline_run"].pk]))
+        self.assertContains(
+            response,
+            f'{reverse("browser:taxon-detail", args=[self.alpha["taxon"].pk])}?run={self.alpha["pipeline_run"].run_id}',
+        )
+        self.assertContains(response, self.alpha["genome"].accession)
+        self.assertContains(response, self.alpha["protein"].protein_name)
 
     def test_repeatcall_list_default_ordering_matches_optimize_contract(self):
         self.assertEqual(

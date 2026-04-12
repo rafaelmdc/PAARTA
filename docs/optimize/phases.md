@@ -35,7 +35,7 @@ Current baseline artifact:
 
 Current next slice:
 
-- `3.4` trim the repeat-call raw query shape
+- `3.5` trim the protein and sequence raw query shapes
 
 ## Phase 1: Baseline And Metadata Contract
 
@@ -333,7 +333,7 @@ Exit criteria:
 
 Status:
 
-- pending
+- implemented
 
 ### Slice 3.5: Trim the protein and sequence raw query shapes
 
