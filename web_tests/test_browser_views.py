@@ -872,6 +872,71 @@ class BrowserViewTests(TestCase):
             ("pipeline_run_id", "assembly_accession", "sequence_name", "id"),
         )
 
+    def test_sequence_list_uses_cursor_pagination_for_default_raw_order(self):
+        for index in range(25):
+            self._create_repeat_call(
+                self.alpha,
+                suffix=f"cursor_sequence_{index:02d}",
+                gene_symbol=f"SEQCURSOR{index:02d}",
+                method=RepeatCall.Method.THRESHOLD,
+                residue="A",
+                length=8,
+                purity=0.75,
+            )
+
+        response = self.client.get(reverse("browser:sequence-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        first_page = response.context["page_obj"]
+        first_ids = [sequence.sequence_id for sequence in first_page.object_list]
+        self.assertTrue(first_page.cursor_pagination)
+        self.assertTrue(first_page.has_next())
+        self.assertIn("after=", first_page.next_query)
+        self.assertNotIn("page=", first_page.next_query)
+
+        next_response = self.client.get(f"{reverse('browser:sequence-list')}?{first_page.next_query}")
+
+        self.assertEqual(next_response.status_code, 200)
+        second_page = next_response.context["page_obj"]
+        second_ids = [sequence.sequence_id for sequence in second_page.object_list]
+        self.assertTrue(second_page.has_previous())
+        self.assertIn("before=", second_page.previous_query)
+        self.assertTrue(set(first_ids).isdisjoint(second_ids))
+
+    def test_sequence_list_alternate_sort_falls_back_to_page_pagination(self):
+        for index in range(25):
+            self._create_repeat_call(
+                self.alpha,
+                suffix=f"page_sequence_{index:02d}",
+                gene_symbol=f"SEQPAGE{index:02d}",
+                method=RepeatCall.Method.THRESHOLD,
+                residue="A",
+                length=8,
+                purity=0.75,
+            )
+
+        response = self.client.get(
+            reverse("browser:sequence-list"),
+            {"run": "run-alpha", "order_by": "gene_symbol"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        first_page = response.context["page_obj"]
+        self.assertFalse(getattr(first_page, "cursor_pagination", False))
+        self.assertTrue(first_page.has_next())
+        self.assertIn("page=2", response.context["virtual_scroll_next_query"])
+        self.assertIn("order_by=gene_symbol", response.context["virtual_scroll_next_query"])
+        self.assertNotIn("after=", response.context["virtual_scroll_next_query"])
+
+        next_response = self.client.get(
+            f"{reverse('browser:sequence-list')}?{response.context['virtual_scroll_next_query']}"
+        )
+
+        self.assertEqual(next_response.status_code, 200)
+        second_page = next_response.context["page_obj"]
+        self.assertFalse(getattr(second_page, "cursor_pagination", False))
+        self.assertEqual(second_page.number, 2)
+
     def test_sequence_detail_shows_linked_records_and_navigation(self):
         response = self.client.get(reverse("browser:sequence-detail", args=[self.alpha["sequence"].pk]))
 
@@ -951,6 +1016,40 @@ class BrowserViewTests(TestCase):
         self.assertTrue(second_page.has_previous())
         self.assertIn("before=", second_page.previous_query)
         self.assertTrue(set(first_names).isdisjoint(second_names))
+
+    def test_protein_list_alternate_sort_falls_back_to_page_pagination(self):
+        for index in range(25):
+            self._create_repeat_call(
+                self.alpha,
+                suffix=f"page_protein_{index:02d}",
+                gene_symbol=f"PROTPAGE{index:02d}",
+                method=RepeatCall.Method.THRESHOLD,
+                residue="A",
+                length=8,
+                purity=0.75,
+            )
+
+        response = self.client.get(
+            reverse("browser:protein-list"),
+            {"run": "run-alpha", "order_by": "gene_symbol"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        first_page = response.context["page_obj"]
+        self.assertFalse(getattr(first_page, "cursor_pagination", False))
+        self.assertTrue(first_page.has_next())
+        self.assertIn("page=2", response.context["virtual_scroll_next_query"])
+        self.assertIn("order_by=gene_symbol", response.context["virtual_scroll_next_query"])
+        self.assertNotIn("after=", response.context["virtual_scroll_next_query"])
+
+        next_response = self.client.get(
+            f"{reverse('browser:protein-list')}?{response.context['virtual_scroll_next_query']}"
+        )
+
+        self.assertEqual(next_response.status_code, 200)
+        second_page = next_response.context["page_obj"]
+        self.assertFalse(getattr(second_page, "cursor_pagination", False))
+        self.assertEqual(second_page.number, 2)
 
     def test_protein_list_renders_virtual_scroll_hooks_for_raw_results(self):
         response = self.client.get(reverse("browser:protein-list"), {"run": "run-alpha"})
@@ -1223,6 +1322,41 @@ class BrowserViewTests(TestCase):
         second_ids = [repeat_call.call_id for repeat_call in second_page.object_list]
         self.assertTrue(second_page.has_previous())
         self.assertTrue(set(first_ids).isdisjoint(second_ids))
+
+    def test_repeatcall_list_alternate_sort_falls_back_to_page_pagination(self):
+        for index in range(25):
+            self._create_repeat_call(
+                self.alpha,
+                suffix=f"page_call_{index:02d}",
+                gene_symbol=f"CALLPAGE{index:02d}",
+                method=RepeatCall.Method.THRESHOLD,
+                residue="A",
+                length=9 + index,
+                purity=0.80,
+                start=100 + index,
+            )
+
+        response = self.client.get(
+            reverse("browser:repeatcall-list"),
+            {"run": "run-alpha", "order_by": "gene_symbol"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        first_page = response.context["page_obj"]
+        self.assertFalse(getattr(first_page, "cursor_pagination", False))
+        self.assertTrue(first_page.has_next())
+        self.assertIn("page=2", response.context["virtual_scroll_next_query"])
+        self.assertIn("order_by=gene_symbol", response.context["virtual_scroll_next_query"])
+        self.assertNotIn("after=", response.context["virtual_scroll_next_query"])
+
+        next_response = self.client.get(
+            f"{reverse('browser:repeatcall-list')}?{response.context['virtual_scroll_next_query']}"
+        )
+
+        self.assertEqual(next_response.status_code, 200)
+        second_page = next_response.context["page_obj"]
+        self.assertFalse(getattr(second_page, "cursor_pagination", False))
+        self.assertEqual(second_page.number, 2)
 
     def test_repeatcall_list_renders_virtual_scroll_hooks_for_raw_results(self):
         response = self.client.get(reverse("browser:repeatcall-list"), {"run": "run-alpha"})

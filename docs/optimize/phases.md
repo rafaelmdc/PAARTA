@@ -35,7 +35,7 @@ Current baseline artifact:
 
 Current next slice:
 
-- `3.3` restrict cursor virtual scroll to fast default orders only
+- `3.4` trim the repeat-call raw query shape
 
 ## Phase 1: Baseline And Metadata Contract
 
@@ -311,7 +311,7 @@ Exit criteria:
 
 Status:
 
-- pending
+- implemented
 
 ### Slice 3.4: Trim the repeat-call raw query shape
 

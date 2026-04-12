@@ -181,6 +181,9 @@ class CursorPaginatedListView(BrowserListView):
     def use_cursor_pagination(self, queryset):
         return False
 
+    def uses_fast_default_ordering(self):
+        return tuple(self.get_ordering() or ()) == tuple(self.default_ordering or ())
+
     def get_cursor_ordering(self):
         ordering = tuple(self.get_ordering() or ())
         if not ordering:
@@ -1334,6 +1337,9 @@ class SequenceListView(VirtualScrollListView):
     def include_virtual_scroll_count(self, *, context=None, page_obj=None):
         return False
 
+    def use_cursor_pagination(self, queryset):
+        return hasattr(queryset, "filter") and self.uses_fast_default_ordering()
+
     def _load_filter_state(self):
         self.current_run = _resolve_current_run(self.request)
         self.branch_scope = _resolve_branch_scope(self.request)
@@ -1638,7 +1644,7 @@ class ProteinListView(VirtualScrollListView):
         self.current_mode = _resolve_browser_mode(self.request)
 
     def use_cursor_pagination(self, queryset):
-        return self.current_mode == "run" and hasattr(queryset, "filter")
+        return self.current_mode == "run" and hasattr(queryset, "filter") and self.uses_fast_default_ordering()
 
     def include_virtual_scroll_count(self, *, context=None, page_obj=None):
         return getattr(self, "current_mode", "run") != "run"
@@ -1923,7 +1929,7 @@ class RepeatCallListView(VirtualScrollListView):
         self.current_mode = _resolve_browser_mode(self.request)
 
     def use_cursor_pagination(self, queryset):
-        return self.current_mode == "run" and hasattr(queryset, "filter")
+        return self.current_mode == "run" and hasattr(queryset, "filter") and self.uses_fast_default_ordering()
 
     def include_virtual_scroll_count(self, *, context=None, page_obj=None):
         return getattr(self, "current_mode", "run") != "run"
