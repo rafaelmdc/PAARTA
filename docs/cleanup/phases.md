@@ -18,8 +18,9 @@ Verified cleanup pressure points:
   URL-facing browser classes now split into domain modules
 - `apps/imports/services/import_run.py` is the main import-service monolith at
   2206 lines
-- `apps/imports/services/published_run.py` still mixes contract resolution,
-  manifest handling, and row iteration at 889 lines
+- `apps/imports/services/published_run.py` has been replaced by
+  `apps/imports/services/published_run/`, with parser contracts, artifact
+  discovery, manifest validation, and TSV iteration split into focused modules
 - `apps/browser/merged.py` has been replaced by `apps/browser/merged/`, with
   merged query helpers, identity logic, and aggregation flow split into domain
   modules
@@ -40,7 +41,7 @@ Stable public surfaces that must keep working during cleanup:
 
 Current next phase:
 
-- Phase 4
+- Phase 5
 
 ## Phase 1: Split Browser View Foundations
 
@@ -154,6 +155,9 @@ Implementation notes:
 - create `iterators.py` for TSV row iterators
 - create `load.py` for `load_published_run` assembly
 - re-export the current public parser API from `published_run/__init__.py`
+- validate this cleanup with the small parser tests first; do not use the
+  large `chr_all3_raw_2026_04_09` sibling-run parser case as the default
+  cleanup check
 
 Exit criteria:
 
@@ -163,7 +167,7 @@ Exit criteria:
 
 Status:
 
-- pending
+- implemented
 
 ## Phase 5: Split Import-Run Orchestration
 
