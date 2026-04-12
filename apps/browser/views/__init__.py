@@ -1,26 +1,19 @@
 from ..metadata import resolve_browser_facets, resolve_run_browser_metadata
 from .base import BrowserListView
-from .pages import (
+from .accessions import AccessionDetailView, AccessionsListView
+from .genomes import GenomeDetailView, GenomeListView
+from .home import BrowserHomeView
+from .operations import (
     AccessionCallCountListView,
-    AccessionDetailView,
     AccessionStatusListView,
-    AccessionsListView,
-    BrowserHomeView,
     DownloadManifestEntryListView,
-    GenomeDetailView,
-    GenomeListView,
     NormalizationWarningListView,
-    ProteinDetailView,
-    ProteinListView,
-    RepeatCallDetailView,
-    RepeatCallListView,
-    RunDetailView,
-    RunListView,
-    SequenceDetailView,
-    SequenceListView,
-    TaxonDetailView,
-    TaxonListView,
 )
+from .proteins import ProteinDetailView, ProteinListView
+from .repeat_calls import RepeatCallDetailView, RepeatCallListView
+from .runs import RunDetailView, RunListView
+from .sequences import SequenceDetailView, SequenceListView
+from .taxonomy import TaxonDetailView, TaxonListView
 from .pagination import CursorPage, CursorPaginatedListView, CursorPaginator, VirtualScrollListView
 
 __all__ = [
