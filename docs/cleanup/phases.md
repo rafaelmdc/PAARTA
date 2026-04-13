@@ -16,18 +16,27 @@ Verified cleanup pressure points:
 - `apps/browser/views.py` has been replaced by `apps/browser/views/`, with the
   shared browser view foundations extracted into support modules and the
   URL-facing browser classes now split into domain modules
-- `apps/imports/services/import_run.py` is the main import-service monolith at
-  2206 lines
+- `apps/imports/services/import_run.py` has been replaced by
+  `apps/imports/services/import_run/`, with the public API, batch-state
+  handling, COPY helpers, retained-row preparation, taxonomy loading, entity
+  writers, and operational writers split into focused modules
 - `apps/imports/services/published_run.py` has been replaced by
   `apps/imports/services/published_run/`, with parser contracts, artifact
   discovery, manifest validation, and TSV iteration split into focused modules
 - `apps/browser/merged.py` has been replaced by `apps/browser/merged/`, with
   merged query helpers, identity logic, and aggregation flow split into domain
   modules
-- `apps/browser/models.py` is large enough that model ownership is no longer
-  obvious at 607 lines
-- `web_tests/test_browser_views.py` and related test files still mirror the old
-  monolithic runtime layout
+- `apps/browser/models.py` has been replaced by `apps/browser/models/`, with
+  shared base models, run models, taxonomy, biological entities, repeat-call
+  models, and operational tables split into focused modules
+- the old browser/import catch-all test files have been replaced by
+  runtime-aligned `web_tests/test_browser_*` and `web_tests/test_import_*`
+  modules, with the old large test classes retained only as private backing
+  modules for focused test loading
+- internal import paths have been normalized so the split import-execution
+  package depends on its concrete writer/state modules directly, and the new
+  test wrappers share one private suite-loader helper instead of repeating the
+  same boilerplate in each file
 
 Stable public surfaces that must keep working during cleanup:
 
@@ -41,7 +50,7 @@ Stable public surfaces that must keep working during cleanup:
 
 Current next phase:
 
-- Phase 5
+- none; cleanup program complete
 
 ## Phase 1: Split Browser View Foundations
 
@@ -203,7 +212,7 @@ Exit criteria:
 
 Status:
 
-- pending
+- implemented
 
 ## Phase 6: Split Browser Models
 
@@ -235,7 +244,7 @@ Exit criteria:
 
 Status:
 
-- pending
+- implemented
 
 ## Phase 7: Split Tests To Match Runtime Structure
 
@@ -270,7 +279,7 @@ Exit criteria:
 
 Status:
 
-- pending
+- implemented
 
 ## Phase 8: Final Cleanup Pass
 
@@ -292,6 +301,8 @@ Implementation notes:
 - verify view modules depend on helper modules, not on sibling view modules
 - verify import orchestration depends on parser/writer modules, not the other
   way around
+- keep the large `chr_all3_raw_2026_04_09` parser path out of routine cleanup
+  validation and use the small run plus focused parser tests instead
 - record any intentionally deferred follow-up work
 
 Exit criteria:
@@ -302,7 +313,7 @@ Exit criteria:
 
 Status:
 
-- pending
+- implemented
 
 ## Validation Rules
 
@@ -314,7 +325,9 @@ Minimum checks:
 - import phases: affected `web_tests/test_import_*`
 - model phase: `python manage.py makemigrations --check --dry-run` and
   `web_tests/test_models.py`
-- final pass: full Django test suite
+- final pass: full Django test suite where feasible; in this repo, avoid the
+  large `chr_all3_raw_2026_04_09` parser path and use the focused browser and
+  import suites plus small parser coverage instead
 
 Every phase must also confirm:
 

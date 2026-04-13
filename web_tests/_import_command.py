@@ -430,7 +430,7 @@ class ImportRunCommandTests(TestCase):
             publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-progress")
             stdout = StringIO()
 
-            with patch("apps.imports.services.import_run._ImportBatchStateReporter", FakeReporter):
+            with patch("apps.imports.services.import_run.api._ImportBatchStateReporter", FakeReporter):
                 call_command("import_run", publish_root=str(publish_root), stdout=stdout)
 
         self.assertIn("Imported run run-progress", stdout.getvalue())
@@ -450,7 +450,7 @@ class ImportRunCommandTests(TestCase):
             stdout = StringIO()
 
             with patch(
-                "apps.imports.services.import_run._analyze_models",
+                "apps.imports.services.import_run.api._analyze_models",
                 return_value=True,
             ) as analyze_models:
                 call_command("import_run", publish_root=str(publish_root), stdout=stdout)
