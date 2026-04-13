@@ -4,8 +4,15 @@ from pathlib import Path
 
 from django.db import transaction
 
+from apps.browser.merged.build import rebuild_merged_summaries_for_run
 from apps.browser.metadata import build_browser_metadata
 from apps.browser.models.genomes import Protein, Sequence
+from apps.browser.models.merged import (
+    MergedProteinOccurrence,
+    MergedProteinSummary,
+    MergedResidueOccurrence,
+    MergedResidueSummary,
+)
 from apps.browser.models.operations import NormalizationWarning
 from apps.browser.models.repeat_calls import RepeatCall
 from apps.imports.models import ImportBatch
@@ -104,9 +111,20 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
                 raw_counts=counts,
             )
             pipeline_run.save(update_fields=["browser_metadata"])
+            _set_batch_state(
+                batch,
+                phase=ImportPhase.SUMMARIZING_MERGED,
+                progress_payload={
+                    "message": "Rebuilding merged summary rows.",
+                    "counts": counts,
+                },
+                reporter=reporter,
+                force=True,
+            )
+            rebuild_merged_summaries_for_run(pipeline_run)
         _set_batch_state(
             batch,
-            phase=ImportPhase.IMPORTING,
+            phase=ImportPhase.SUMMARIZING_MERGED,
             progress_payload={
                 "message": "Analyzing bulk-loaded tables.",
                 "counts": counts,
@@ -114,7 +132,18 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
             reporter=reporter,
             force=True,
         )
-        _analyze_models([Sequence, Protein, RepeatCall, NormalizationWarning])
+        _analyze_models(
+            [
+                Sequence,
+                Protein,
+                RepeatCall,
+                NormalizationWarning,
+                MergedProteinSummary,
+                MergedResidueSummary,
+                MergedProteinOccurrence,
+                MergedResidueOccurrence,
+            ]
+        )
     except Exception as exc:
         _mark_batch_failed(batch, exc, reporter=reporter)
         if isinstance(exc, ImportContractError):

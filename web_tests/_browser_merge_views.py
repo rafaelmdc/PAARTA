@@ -1,6 +1,7 @@
 from django.test import TestCase
 from django.urls import reverse
 
+from apps.browser.merged.build import rebuild_merged_summaries_for_run
 from apps.browser.models import Genome, PipelineRun, Protein, RepeatCall, Sequence
 
 from .support import ensure_test_taxonomy
@@ -97,6 +98,7 @@ class BrowserMergeViewTests(TestCase):
             purity=purity,
             aa_sequence=aa_sequence,
         )
+        rebuild_merged_summaries_for_run(pipeline_run)
         return {
             "pipeline_run": pipeline_run,
             "genome": genome,
@@ -474,6 +476,62 @@ class BrowserMergeViewTests(TestCase):
             ],
         )
 
+    def test_protein_list_merged_mode_limits_inline_provenance_payload(self):
+        alpha = self._create_accession_source(
+            run_id="run-alpha",
+            accession="GCF_SHARED",
+            genome_suffix="protein_list_preview_alpha",
+            protein_name="SharedProtein",
+            protein_length=320,
+            call_id="call_protein_list_preview_alpha",
+            protein_id="prot_shared",
+            method=RepeatCall.Method.PURE,
+            residue="Q",
+        )
+        beta = self._create_accession_source(
+            run_id="run-beta",
+            accession="GCF_SHARED",
+            genome_suffix="protein_list_preview_beta",
+            protein_name="SharedProtein",
+            protein_length=300,
+            call_id="call_protein_list_preview_beta",
+            protein_id="prot_shared",
+            method=RepeatCall.Method.PURE,
+            residue="Q",
+        )
+        self._create_accession_source(
+            run_id="run-gamma",
+            accession="GCF_SHARED",
+            genome_suffix="protein_list_preview_gamma",
+            protein_name="SharedProtein",
+            protein_length=300,
+            call_id="call_protein_list_preview_gamma",
+            protein_id="prot_shared",
+            method=RepeatCall.Method.PURE,
+            residue="Q",
+        )
+
+        response = self.client.get(reverse("browser:protein-list"), {"mode": "merged"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("browser:repeatcall-detail", args=[alpha["repeat_call"].pk]))
+        self.assertContains(response, reverse("browser:repeatcall-detail", args=[beta["repeat_call"].pk]))
+        self.assertContains(response, "run-alpha:prot_shared")
+        self.assertContains(response, "run-beta:prot_shared")
+        self.assertNotContains(response, "call_protein_list_preview_gamma")
+        self.assertNotContains(response, "run-gamma:prot_shared")
+        protein_group = response.context["proteins"][0]
+        self.assertEqual(len(protein_group["source_repeat_calls"]), 2)
+        self.assertEqual(len(protein_group["source_proteins"]), 2)
+        self.assertEqual(len(protein_group["source_run_records"]), 2)
+        self.assertEqual(protein_group["source_repeat_calls_count"], 3)
+        self.assertContains(response, "+1 more raw call")
+        self.assertContains(response, "+1 more protein row")
+        self.assertContains(
+            response,
+            reverse("browser:repeatcall-list") + "?accession=GCF_SHARED&amp;protein=prot_shared&amp;method=pure",
+        )
+
     def test_protein_list_merged_mode_filters_by_matching_evidence(self):
         self._create_accession_source(
             run_id="run-alpha",
@@ -664,6 +722,64 @@ class BrowserMergeViewTests(TestCase):
                 (RepeatCall.Method.PURE, "10-20"),
                 (RepeatCall.Method.THRESHOLD, "18-28"),
             ],
+        )
+
+    def test_repeatcall_list_merged_mode_limits_inline_provenance_payload(self):
+        alpha = self._create_accession_source(
+            run_id="run-alpha",
+            accession="GCF_SHARED",
+            genome_suffix="call_list_preview_alpha",
+            protein_name="SharedProtein",
+            protein_length=320,
+            call_id="call_call_list_preview_alpha",
+            protein_id="prot_shared",
+            method=RepeatCall.Method.PURE,
+            residue="Q",
+        )
+        beta = self._create_accession_source(
+            run_id="run-beta",
+            accession="GCF_SHARED",
+            genome_suffix="call_list_preview_beta",
+            protein_name="SharedProtein",
+            protein_length=300,
+            call_id="call_call_list_preview_beta",
+            protein_id="prot_shared",
+            method=RepeatCall.Method.PURE,
+            residue="Q",
+        )
+        self._create_accession_source(
+            run_id="run-gamma",
+            accession="GCF_SHARED",
+            genome_suffix="call_list_preview_gamma",
+            protein_name="SharedProtein",
+            protein_length=300,
+            call_id="call_call_list_preview_gamma",
+            protein_id="prot_shared",
+            method=RepeatCall.Method.PURE,
+            residue="Q",
+        )
+
+        response = self.client.get(reverse("browser:repeatcall-list"), {"mode": "merged"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("browser:repeatcall-detail", args=[alpha["repeat_call"].pk]))
+        self.assertContains(response, reverse("browser:repeatcall-detail", args=[beta["repeat_call"].pk]))
+        self.assertContains(response, "run-alpha:prot_shared")
+        self.assertContains(response, "run-beta:prot_shared")
+        self.assertNotContains(response, "call_call_list_preview_gamma")
+        self.assertNotContains(response, "run-gamma:prot_shared")
+        residue_group = response.context["repeat_calls"][0]
+        self.assertEqual(len(residue_group["source_repeat_calls"]), 2)
+        self.assertEqual(len(residue_group["source_proteins"]), 2)
+        self.assertEqual(len(residue_group["source_run_records"]), 2)
+        self.assertEqual(residue_group["source_count"], 3)
+        self.assertContains(response, "+1 more raw call")
+        self.assertContains(response, "+1 more protein row")
+        self.assertContains(response, "+1 more run")
+        self.assertContains(
+            response,
+            reverse("browser:repeatcall-list")
+            + "?accession=GCF_SHARED&amp;protein=prot_shared&amp;method=pure&amp;residue=Q",
         )
 
     def test_repeatcall_list_merged_mode_filters_by_matching_evidence(self):

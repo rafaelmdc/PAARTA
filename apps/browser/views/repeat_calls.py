@@ -4,7 +4,7 @@ from django.db.models import Q
 from django.urls import reverse
 from django.views.generic import DetailView
 
-from ..merged import merged_repeat_call_groups
+from ..merged import materialize_merged_repeat_call_groups, merged_repeat_call_group_queryset
 from ..models import PipelineRun, RepeatCall
 from .filters import (
     _apply_branch_scope_filter,
@@ -51,11 +51,12 @@ class RepeatCallListView(VirtualScrollListView):
         "-length": ("-length", "accession", "protein_name", "start"),
         "purity": ("normalized_purity", "accession", "protein_name", "start"),
         "-purity": ("-normalized_purity", "accession", "protein_name", "start"),
-        "source_rows": ("source_count", "accession", "protein_name", "start"),
-        "-source_rows": ("-source_count", "accession", "protein_name", "start"),
-        "run": ("source_runs_count", "accession", "protein_name", "start"),
-        "-run": ("-source_runs_count", "accession", "protein_name", "start"),
+        "source_rows": ("scoped_source_count", "accession", "protein_name", "start"),
+        "-source_rows": ("-scoped_source_count", "accession", "protein_name", "start"),
+        "run": ("scoped_source_runs_count", "accession", "protein_name", "start"),
+        "-run": ("-scoped_source_runs_count", "accession", "protein_name", "start"),
     }
+    merged_default_ordering = ("accession", "protein_name", "start", "end", "method")
     ordering_map = {
         "call_id": ("pipeline_run__run_id", "call_id"),
         "-call_id": ("pipeline_run__run_id", "-call_id"),
@@ -196,7 +197,7 @@ class RepeatCallListView(VirtualScrollListView):
     def get_queryset(self):
         self._load_filter_state()
         if self.current_mode == "merged":
-            records = merged_repeat_call_groups(
+            queryset = merged_repeat_call_group_queryset(
                 current_run=self.current_run,
                 branch_taxon=self.selected_branch_taxon,
                 branch_taxa_ids=self.branch_scope["branch_taxa_ids"],
@@ -212,86 +213,40 @@ class RepeatCallListView(VirtualScrollListView):
                 purity_min=self.current_purity_min,
                 purity_max=self.current_purity_max,
             )
-            return _sort_dict_records(
-                records,
-                requested_ordering=self.request.GET.get("order_by", "").strip(),
-                default_ordering="call_id",
-                key_map={
-                    "call_id": lambda record: (
-                        record["accession"],
-                        record["protein_name"],
-                        record["start"],
-                        record["end"],
-                        record["method"],
-                    ),
-                    "accession": lambda record: (
-                        record["accession"],
-                        record["protein_name"],
-                        record["start"],
-                        record["end"],
-                    ),
-                    "protein_name": lambda record: (
-                        record["protein_name"],
-                        record["accession"],
-                        record["start"],
-                        record["end"],
-                    ),
-                    "gene_symbol": lambda record: (
-                        record["gene_symbol_label"],
-                        record["protein_name"],
-                        record["accession"],
-                        record["start"],
-                    ),
-                    "coordinates": lambda record: (
-                        record["start"],
-                        record["end"],
-                        record["accession"],
-                        record["protein_name"],
-                    ),
-                    "method": lambda record: (
-                        record["method"],
-                        record["accession"],
-                        record["protein_name"],
-                        record["start"],
-                    ),
-                    "residue": lambda record: (
-                        record["repeat_residue"],
-                        record["accession"],
-                        record["protein_name"],
-                        record["start"],
-                    ),
-                    "length": lambda record: (
-                        record["length"],
-                        record["accession"],
-                        record["protein_name"],
-                        record["start"],
-                    ),
-                    "purity": lambda record: (
-                        float(record["normalized_purity"]),
-                        record["accession"],
-                        record["protein_name"],
-                        record["start"],
-                    ),
-                    "run": lambda record: (
-                        record["source_runs_count"],
-                        record["accession"],
-                        record["protein_name"],
-                        record["start"],
-                    ),
-                    "source_rows": lambda record: (
-                        record["source_count"],
-                        record["accession"],
-                        record["protein_name"],
-                        record["start"],
-                    ),
-                },
-            )
+            requested_ordering = self.request.GET.get("order_by", "").strip()
+            ordering = self.merged_ordering_map.get(requested_ordering, self.merged_default_ordering)
+            return queryset.order_by(*ordering, "id")
         return super().get_queryset()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if self.is_virtual_scroll_fragment_request() and getattr(self, "current_mode", "run") == "run":
             return context
+        if getattr(self, "current_mode", "run") == "merged":
+            page_obj = context.get("page_obj")
+            page_summaries = list(getattr(page_obj, "object_list", []))
+            merged_groups = materialize_merged_repeat_call_groups(
+                page_summaries,
+                current_run=getattr(self, "current_run", None),
+                branch_taxon=getattr(self, "selected_branch_taxon", None),
+                branch_taxa_ids=getattr(self, "branch_scope", {}).get("branch_taxa_ids"),
+                search_query=self.get_search_query(),
+                gene_symbol=getattr(self, "current_gene_symbol", ""),
+                accession_query=getattr(self, "current_accession", ""),
+                genome_id=getattr(self, "current_genome", ""),
+                protein_id=getattr(self, "current_protein", ""),
+                method=getattr(self, "current_method", ""),
+                residue=getattr(self, "current_residue", ""),
+                length_min=getattr(self, "current_length_min", ""),
+                length_max=getattr(self, "current_length_max", ""),
+                purity_min=getattr(self, "current_purity_min", ""),
+                purity_max=getattr(self, "current_purity_max", ""),
+                provenance_preview_limit=2,
+            )
+            if page_obj is not None:
+                page_obj.object_list = merged_groups
+            context["object_list"] = merged_groups
+            context[self.context_object_name] = merged_groups
         current_run = getattr(self, "current_run", None)
         run_choices = PipelineRun.objects.order_by("-imported_at", "run_id")
         facet_choices = resolve_browser_facets(

@@ -260,6 +260,7 @@ def create_imported_run_fixture(
         RunParameter,
         Sequence,
     )
+    from apps.browser.merged.build import rebuild_merged_summaries_for_run
 
     taxa = ensure_test_taxonomy()
     selected_taxon = taxa[taxon_key]
@@ -367,6 +368,7 @@ def create_imported_run_fixture(
         purity=1.0,
         aa_sequence="QQQQQQQQQQQ",
     )
+    rebuild_merged_summaries_for_run(pipeline_run)
     return {
         "pipeline_run": pipeline_run,
         "batch": batch,

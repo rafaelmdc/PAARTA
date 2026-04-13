@@ -4,7 +4,7 @@ from django.db.models import Count, Exists, Max, Min, OuterRef, Q
 from django.urls import reverse
 from django.views.generic import DetailView
 
-from ..merged import merged_protein_groups
+from ..merged import materialize_merged_protein_groups, merged_protein_group_queryset
 from ..models import PipelineRun, Protein, RepeatCall
 from .filters import (
     _apply_branch_scope_filter,
@@ -42,12 +42,12 @@ class ProteinListView(VirtualScrollListView):
         "-gene_symbol": ("-gene_symbol", "protein_name", "accession"),
         "accession": ("accession", "protein_name"),
         "-accession": ("-accession", "protein_name"),
-        "run": ("source_runs_count", "protein_name", "accession"),
-        "-run": ("-source_runs_count", "protein_name", "accession"),
-        "source_proteins": ("source_proteins_count", "protein_name", "accession"),
-        "-source_proteins": ("-source_proteins_count", "protein_name", "accession"),
-        "calls": ("collapsed_repeat_calls_count", "protein_name", "accession"),
-        "-calls": ("-collapsed_repeat_calls_count", "protein_name", "accession"),
+        "run": ("scoped_source_runs_count", "protein_name", "accession"),
+        "-run": ("-scoped_source_runs_count", "protein_name", "accession"),
+        "source_proteins": ("scoped_source_proteins_count", "protein_name", "accession"),
+        "-source_proteins": ("-scoped_source_proteins_count", "protein_name", "accession"),
+        "calls": ("scoped_collapsed_repeat_calls_count", "protein_name", "accession"),
+        "-calls": ("-scoped_collapsed_repeat_calls_count", "protein_name", "accession"),
     }
     merged_default_ordering = ("protein_name", "accession")
     ordering_map = {
@@ -160,7 +160,7 @@ class ProteinListView(VirtualScrollListView):
     def get_queryset(self):
         self._load_filter_state()
         if self.current_mode == "merged":
-            records = merged_protein_groups(
+            queryset = merged_protein_group_queryset(
                 current_run=self.current_run,
                 branch_taxon=self.selected_branch_taxon,
                 branch_taxa_ids=self.branch_scope["branch_taxa_ids"],
@@ -168,6 +168,7 @@ class ProteinListView(VirtualScrollListView):
                 gene_symbol=self.current_gene_symbol,
                 accession_query=self.current_accession,
                 genome_id=self.current_genome,
+                protein_id="",
                 method=self.current_method,
                 residue=self.current_residue,
                 length_min=self.current_length_min,
@@ -175,34 +176,40 @@ class ProteinListView(VirtualScrollListView):
                 purity_min=self.current_purity_min,
                 purity_max=self.current_purity_max,
             )
-            return _sort_dict_records(
-                records,
-                requested_ordering=self.request.GET.get("order_by", "").strip(),
-                default_ordering="protein_name",
-                key_map={
-                    "protein_name": lambda record: (record["protein_name"], record["accession"]),
-                    "gene_symbol": lambda record: (record["gene_symbol_label"], record["protein_name"], record["accession"]),
-                    "protein_length": lambda record: (record["protein_length"], record["protein_name"], record["accession"]),
-                    "accession": lambda record: (record["accession"], record["protein_name"]),
-                    "run": lambda record: (record["source_runs_count"], record["protein_name"], record["accession"]),
-                    "source_proteins": lambda record: (
-                        record["source_proteins_count"],
-                        record["protein_name"],
-                        record["accession"],
-                    ),
-                    "calls": lambda record: (
-                        record["collapsed_repeat_calls_count"],
-                        record["protein_name"],
-                        record["accession"],
-                    ),
-                },
-            )
+            requested_ordering = self.request.GET.get("order_by", "").strip()
+            ordering = self.merged_ordering_map.get(requested_ordering, self.merged_default_ordering)
+            return queryset.order_by(*ordering, "id")
         return super().get_queryset()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if self.is_virtual_scroll_fragment_request() and getattr(self, "current_mode", "run") == "run":
             return context
+        if getattr(self, "current_mode", "run") == "merged":
+            page_obj = context.get("page_obj")
+            page_summaries = list(getattr(page_obj, "object_list", []))
+            merged_groups = materialize_merged_protein_groups(
+                page_summaries,
+                current_run=getattr(self, "current_run", None),
+                branch_taxon=getattr(self, "selected_branch_taxon", None),
+                branch_taxa_ids=getattr(self, "branch_scope", {}).get("branch_taxa_ids"),
+                search_query=self.get_search_query(),
+                gene_symbol=getattr(self, "current_gene_symbol", ""),
+                accession_query=getattr(self, "current_accession", ""),
+                genome_id=getattr(self, "current_genome", ""),
+                protein_id="",
+                method=getattr(self, "current_method", ""),
+                residue=getattr(self, "current_residue", ""),
+                length_min=getattr(self, "current_length_min", ""),
+                length_max=getattr(self, "current_length_max", ""),
+                purity_min=getattr(self, "current_purity_min", ""),
+                purity_max=getattr(self, "current_purity_max", ""),
+                provenance_preview_limit=2,
+            )
+            if page_obj is not None:
+                page_obj.object_list = merged_groups
+            context["object_list"] = merged_groups
+            context[self.context_object_name] = merged_groups
         current_run = getattr(self, "current_run", None)
         run_choices = PipelineRun.objects.order_by("-imported_at", "run_id")
         facet_choices = resolve_browser_facets(

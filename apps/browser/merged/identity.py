@@ -223,6 +223,24 @@ def _representative_repeat_call(source_repeat_calls):
     return max(source_repeat_calls, key=_representative_repeat_call_key)
 
 
+def _trim_group_provenance(group, *, limit: int | None):
+    if limit is None or limit < 0:
+        return group
+
+    trimmed_group = dict(group)
+    for field_name in (
+        "source_repeat_calls",
+        "source_run_records",
+        "source_proteins",
+        "source_runs",
+        "source_taxa",
+    ):
+        values = trimmed_group.get(field_name)
+        if isinstance(values, list):
+            trimmed_group[field_name] = values[:limit]
+    return trimmed_group
+
+
 def _representative_repeat_call_key(repeat_call):
     protein_name = repeat_call.protein.protein_name or repeat_call.protein_name
     gene_symbol = repeat_call.protein.gene_symbol or repeat_call.gene_symbol

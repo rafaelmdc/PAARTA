@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 
+from apps.browser.merged.build import rebuild_merged_summaries_for_run
 from apps.browser.merged import (
     _identity_merged_protein_groups_from_repeat_calls,
     _identity_merged_residue_groups_from_repeat_calls,
@@ -94,7 +95,7 @@ class MergedHelperTests(TestCase):
 
         repeat_count = length if residue else 0
         non_repeat_count = max(length - repeat_count, 0)
-        return RepeatCall.objects.create(
+        repeat_call = RepeatCall.objects.create(
             pipeline_run=pipeline_run,
             genome=genome,
             sequence=sequence,
@@ -115,6 +116,8 @@ class MergedHelperTests(TestCase):
             purity=purity,
             aa_sequence=aa_sequence,
         )
+        rebuild_merged_summaries_for_run(pipeline_run)
+        return repeat_call
 
     def test_protein_identity_groups_collapse_on_accession_and_protein_id(self):
         alpha = self._create_repeat_call_source(
@@ -331,9 +334,9 @@ class MergedHelperTests(TestCase):
             protein_length=301,
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             protein_groups = merged_protein_groups()
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             residue_groups = merged_repeat_call_groups()
 
         self.assertEqual(len(protein_groups), 1)

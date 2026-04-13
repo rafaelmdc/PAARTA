@@ -12,6 +12,10 @@ from apps.browser.models import (
     AcquisitionBatch,
     DownloadManifestEntry,
     Genome,
+    MergedProteinOccurrence,
+    MergedProteinSummary,
+    MergedResidueOccurrence,
+    MergedResidueSummary,
     NormalizationWarning,
     PipelineRun,
     Protein,
@@ -57,6 +61,14 @@ class ImportRunCommandTests(TestCase):
                     "residues": ["Q"],
                 },
             )
+            self.assertEqual(MergedProteinSummary.objects.count(), 1)
+            self.assertEqual(MergedResidueSummary.objects.count(), 1)
+            self.assertEqual(MergedProteinOccurrence.objects.count(), 1)
+            self.assertEqual(MergedResidueOccurrence.objects.count(), 1)
+            self.assertEqual(MergedProteinSummary.objects.get().source_runs_count, 1)
+            self.assertEqual(MergedResidueSummary.objects.get().source_runs_count, 1)
+            self.assertEqual(MergedProteinSummary.objects.get().representative_repeat_call.call_id, "call_1")
+            self.assertEqual(MergedResidueSummary.objects.get().representative_repeat_call.call_id, "call_1")
 
     def test_import_run_keeps_only_repeat_linked_sequences_and_proteins(self):
         with TemporaryDirectory() as tempdir:
@@ -211,6 +223,15 @@ class ImportRunCommandTests(TestCase):
             self.assertEqual(DownloadManifestEntry.objects.get().download_status, "rehydrated")
             self.assertEqual(DownloadManifestEntry.objects.get().notes, "replaced")
             self.assertEqual(NormalizationWarning.objects.get().warning_code, "partial_cds")
+            self.assertEqual(MergedProteinSummary.objects.count(), 1)
+            self.assertEqual(MergedResidueSummary.objects.count(), 1)
+            self.assertEqual(MergedProteinOccurrence.objects.count(), 1)
+            self.assertEqual(MergedResidueOccurrence.objects.count(), 1)
+            self.assertEqual(MergedProteinSummary.objects.get().method, RepeatCall.Method.SEED_EXTEND)
+            self.assertEqual(MergedResidueSummary.objects.get().method, RepeatCall.Method.SEED_EXTEND)
+            self.assertEqual(MergedResidueSummary.objects.get().repeat_residue, "A")
+            self.assertEqual(MergedProteinSummary.objects.get().representative_repeat_call.call_id, "call_2")
+            self.assertEqual(MergedResidueSummary.objects.get().representative_repeat_call.call_id, "call_2")
             self.assertEqual(
                 PipelineRun.objects.get().browser_metadata,
                 {
@@ -230,6 +251,22 @@ class ImportRunCommandTests(TestCase):
                     },
                 },
             )
+
+    def test_import_run_merged_summaries_aggregate_across_runs(self):
+        with TemporaryDirectory() as tempdir_alpha, TemporaryDirectory() as tempdir_beta:
+            publish_root_alpha = build_minimal_publish_root(Path(tempdir_alpha), run_id="run-merged-alpha")
+            publish_root_beta = build_minimal_publish_root(Path(tempdir_beta), run_id="run-merged-beta")
+            stdout = StringIO()
+
+            call_command("import_run", publish_root=str(publish_root_alpha), stdout=stdout)
+            call_command("import_run", publish_root=str(publish_root_beta), stdout=stdout)
+
+            self.assertEqual(MergedProteinSummary.objects.count(), 1)
+            self.assertEqual(MergedResidueSummary.objects.count(), 1)
+            self.assertEqual(MergedProteinOccurrence.objects.count(), 2)
+            self.assertEqual(MergedResidueOccurrence.objects.count(), 2)
+            self.assertEqual(MergedProteinSummary.objects.get().source_runs_count, 2)
+            self.assertEqual(MergedResidueSummary.objects.get().source_runs_count, 2)
 
     def test_import_run_rolls_back_on_broken_references(self):
         with TemporaryDirectory() as tempdir:
@@ -442,6 +479,9 @@ class ImportRunCommandTests(TestCase):
         )
         self.assertTrue(
             any(payload.get("message") == "Importing repeat-call rows." for payload in recorded_payloads)
+        )
+        self.assertTrue(
+            any(payload.get("message") == "Rebuilding merged summary rows." for payload in recorded_payloads)
         )
 
     def test_import_run_triggers_post_load_analyze_hook(self):

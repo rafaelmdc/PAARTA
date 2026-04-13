@@ -20,29 +20,47 @@
       <td>
         <div>{{ protein.source_runs_count }}</div>
         <div class="d-flex flex-wrap gap-1 mt-1">
-          {% for source_run in protein.source_run_records %}
+          {% for source_run in protein.source_run_records|slice:":2" %}
             <a class="btn btn-outline-secondary btn-sm" href="{% url 'browser:run-detail' source_run.pk %}">{{ source_run.run_id }}</a>
           {% endfor %}
         </div>
+        {% if protein.source_runs_count > 2 %}
+          <div class="small text-secondary mt-1">
+            +{{ protein.source_runs_count|add:"-2" }} more run{{ protein.source_runs_count|add:"-2"|pluralize }}
+          </div>
+        {% endif %}
       </td>
       <td>
         <div>{{ protein.source_proteins_count }}</div>
         <div class="d-flex flex-wrap gap-1 mt-1">
-          {% for source_protein in protein.source_proteins %}
+          {% for source_protein in protein.source_proteins|slice:":2" %}
             <a class="btn btn-outline-secondary btn-sm" href="{% url 'browser:protein-detail' source_protein.pk %}">
               {{ source_protein.run_id }}:{{ source_protein.protein_id }}
             </a>
           {% endfor %}
         </div>
+        {% if protein.source_proteins_count > 2 %}
+          <div class="small text-secondary mt-1">
+            +{{ protein.source_proteins_count|add:"-2" }} more protein row{{ protein.source_proteins_count|add:"-2"|pluralize }}
+          </div>
+        {% endif %}
       </td>
       <td>
         <div>{{ protein.collapsed_repeat_calls_count }} residue unit{{ protein.collapsed_repeat_calls_count|pluralize }} from {{ protein.source_repeat_calls_count }} raw call{{ protein.source_repeat_calls_count|pluralize }}</div>
         <div class="d-flex flex-wrap gap-1 mt-1">
-          {% for repeat_call in protein.source_repeat_calls %}
+          {% for repeat_call in protein.source_repeat_calls|slice:":2" %}
             <a class="btn btn-outline-secondary btn-sm" href="{% url 'browser:repeatcall-detail' repeat_call.pk %}">
               {{ repeat_call.pipeline_run.run_id }}:{{ repeat_call.call_id }}
             </a>
           {% endfor %}
+        </div>
+        {% if protein.source_repeat_calls_count > 2 %}
+          <div class="small text-secondary mt-1">
+            +{{ protein.source_repeat_calls_count|add:"-2" }} more raw call{{ protein.source_repeat_calls_count|add:"-2"|pluralize }}
+          </div>
+        {% endif %}
+        <div class="small mt-2">
+          <a href="{% url 'browser:repeatcall-list' %}?accession={{ protein.accession|urlencode }}{% if current_run_id %}&amp;run={{ current_run_id|urlencode }}{% endif %}{% if current_branch_q %}&amp;branch_q={{ current_branch_q|urlencode }}{% elif current_branch %}&amp;branch={{ current_branch|urlencode }}{% endif %}&amp;protein={{ protein.protein_id|urlencode }}&amp;method={{ protein.method|urlencode }}">Open raw calls</a>
         </div>
       </td>
     </tr>

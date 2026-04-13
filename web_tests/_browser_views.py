@@ -5,6 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.browser.metadata import BROWSER_METADATA_RAW_COUNT_KEYS
+from apps.browser.merged.build import rebuild_merged_summaries_for_run
 from apps.browser.models import (
     AccessionCallCount,
     AccessionStatus,
@@ -127,6 +128,7 @@ class BrowserViewTests(TestCase):
             purity=purity,
             aa_sequence=aa_sequence,
         )
+        rebuild_merged_summaries_for_run(pipeline_run)
         return {"sequence": sequence, "protein": protein, "repeat_call": repeat_call}
 
     def test_browser_home_shows_counts_and_recent_runs(self):

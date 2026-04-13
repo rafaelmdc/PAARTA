@@ -2,7 +2,11 @@ from django.db.models import Q
 from django.urls import reverse
 from django.views.generic import DetailView
 
-from ..merged import accession_group_queryset, merged_protein_groups, merged_repeat_call_groups
+from ..merged import (
+    accession_group_queryset,
+    count_merged_protein_groups,
+    count_merged_repeat_call_groups,
+)
 from ..models import Genome, PipelineRun, Protein, RepeatCall, Taxon, TaxonClosure
 from .filters import (
     _apply_branch_scope_filter,
@@ -124,11 +128,13 @@ class TaxonDetailView(DetailView):
                 current_run=current_run,
                 branch_taxon=taxon,
             ).count()
-            context["branch_proteins_count"] = len(
-                merged_protein_groups(current_run=current_run, branch_taxon=taxon)
+            context["branch_proteins_count"] = count_merged_protein_groups(
+                current_run=current_run,
+                branch_taxon=taxon,
             )
-            context["branch_repeat_calls_count"] = len(
-                merged_repeat_call_groups(current_run=current_run, branch_taxon=taxon)
+            context["branch_repeat_calls_count"] = count_merged_repeat_call_groups(
+                current_run=current_run,
+                branch_taxon=taxon,
             )
             context["linked_accessions"] = linked_accessions
         else:
