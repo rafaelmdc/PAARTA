@@ -34,6 +34,7 @@ def sync_canonical_catalog_for_run(
     *,
     import_batch: ImportBatch,
     last_seen_at=None,
+    replace_all_repeat_call_methods: bool = False,
 ) -> CatalogSyncResult:
     if import_batch.pipeline_run_id not in (None, pipeline_run.pk):
         raise ValueError("Import batch does not belong to the requested pipeline run.")
@@ -55,12 +56,30 @@ def sync_canonical_catalog_for_run(
             import_batch=import_batch,
             last_seen_at=last_seen_at,
         )
+        _prune_stale_canonical_genomes(
+            pipeline_run,
+            current_accessions={genome.accession for genome in raw_genomes},
+        )
+        _prune_stale_canonical_sequences(
+            pipeline_run,
+            current_sequence_keys={
+                (canonical_genomes_by_raw_pk[sequence.genome_id].accession, sequence.sequence_id)
+                for sequence in raw_sequences
+            },
+        )
         canonical_sequences_by_raw_pk = _sync_canonical_sequences(
             raw_sequences,
             canonical_genomes_by_raw_pk=canonical_genomes_by_raw_pk,
             pipeline_run=pipeline_run,
             import_batch=import_batch,
             last_seen_at=last_seen_at,
+        )
+        _prune_stale_canonical_proteins(
+            pipeline_run,
+            current_protein_keys={
+                (canonical_genomes_by_raw_pk[protein.genome_id].accession, protein.protein_id)
+                for protein in raw_proteins
+            },
         )
         canonical_proteins_by_raw_pk = _sync_canonical_proteins(
             raw_proteins,
@@ -82,6 +101,7 @@ def sync_canonical_catalog_for_run(
             import_batch=import_batch,
             last_seen_at=last_seen_at,
             touched_methods=touched_methods,
+            replace_all_repeat_call_methods=replace_all_repeat_call_methods,
         )
 
         _refresh_canonical_protein_repeat_call_counts(
@@ -149,6 +169,60 @@ def _sync_canonical_genomes(
         field_name="accession",
     )
     return {genome.pk: canonical_by_accession[genome.accession] for genome in raw_genomes}
+
+
+def _prune_stale_canonical_genomes(
+    pipeline_run: PipelineRun,
+    *,
+    current_accessions: set[str],
+) -> None:
+    stale_genomes = CanonicalGenome.objects.filter(
+        latest_pipeline_run=pipeline_run,
+    ).exclude(accession__in=current_accessions)
+    for genome in stale_genomes:
+        if Genome.objects.filter(accession=genome.accession).exists():
+            continue
+        genome.delete()
+
+
+def _prune_stale_canonical_sequences(
+    pipeline_run: PipelineRun,
+    *,
+    current_sequence_keys: set[tuple[str, str]],
+) -> None:
+    stale_sequences = CanonicalSequence.objects.filter(
+        latest_pipeline_run=pipeline_run,
+    ).select_related("genome")
+    for sequence in stale_sequences:
+        key = (sequence.genome.accession, sequence.sequence_id)
+        if key in current_sequence_keys:
+            continue
+        if Sequence.objects.filter(
+            genome__accession=sequence.genome.accession,
+            sequence_id=sequence.sequence_id,
+        ).exists():
+            continue
+        sequence.delete()
+
+
+def _prune_stale_canonical_proteins(
+    pipeline_run: PipelineRun,
+    *,
+    current_protein_keys: set[tuple[str, str]],
+) -> None:
+    stale_proteins = CanonicalProtein.objects.filter(
+        latest_pipeline_run=pipeline_run,
+    ).select_related("genome")
+    for protein in stale_proteins:
+        key = (protein.genome.accession, protein.protein_id)
+        if key in current_protein_keys:
+            continue
+        if Protein.objects.filter(
+            genome__accession=protein.genome.accession,
+            protein_id=protein.protein_id,
+        ).exists():
+            continue
+        protein.delete()
 
 
 def _sync_canonical_sequences(
@@ -319,13 +393,16 @@ def _replace_canonical_repeat_calls(
     import_batch: ImportBatch,
     last_seen_at,
     touched_methods: tuple[str, ...],
+    replace_all_repeat_call_methods: bool,
 ) -> int:
     touched_protein_ids = {canonical_proteins_by_raw_pk[protein.pk].pk for protein in raw_proteins}
-    if touched_protein_ids and touched_methods:
-        replaced_repeat_calls, _ = CanonicalRepeatCall.objects.filter(
+    if touched_protein_ids and (replace_all_repeat_call_methods or touched_methods):
+        delete_queryset = CanonicalRepeatCall.objects.filter(
             protein_id__in=touched_protein_ids,
-            method__in=touched_methods,
-        ).delete()
+        )
+        if not replace_all_repeat_call_methods:
+            delete_queryset = delete_queryset.filter(method__in=touched_methods)
+        replaced_repeat_calls, _ = delete_queryset.delete()
     else:
         replaced_repeat_calls = 0
 

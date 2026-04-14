@@ -4,15 +4,10 @@ from pathlib import Path
 
 from django.db import transaction
 
-from apps.browser.merged.build import rebuild_merged_summaries_for_run
+from apps.browser.catalog import sync_canonical_catalog_for_run
 from apps.browser.metadata import build_browser_metadata
+from apps.browser.models import CanonicalGenome, CanonicalProtein, CanonicalRepeatCall, CanonicalSequence
 from apps.browser.models.genomes import Protein, Sequence
-from apps.browser.models.merged import (
-    MergedProteinOccurrence,
-    MergedProteinSummary,
-    MergedResidueOccurrence,
-    MergedResidueSummary,
-)
 from apps.browser.models.operations import NormalizationWarning
 from apps.browser.models.repeat_calls import RepeatCall
 from apps.imports.models import ImportBatch
@@ -113,18 +108,22 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
             pipeline_run.save(update_fields=["browser_metadata"])
             _set_batch_state(
                 batch,
-                phase=ImportPhase.SUMMARIZING_MERGED,
+                phase=ImportPhase.CATALOG_SYNC,
                 progress_payload={
-                    "message": "Rebuilding merged summary rows.",
+                    "message": "Syncing canonical catalog rows.",
                     "counts": counts,
                 },
                 reporter=reporter,
                 force=True,
             )
-            rebuild_merged_summaries_for_run(pipeline_run)
+            sync_canonical_catalog_for_run(
+                pipeline_run,
+                import_batch=batch,
+                replace_all_repeat_call_methods=batch.replace_existing,
+            )
         _set_batch_state(
             batch,
-            phase=ImportPhase.SUMMARIZING_MERGED,
+            phase=ImportPhase.CATALOG_SYNC,
             progress_payload={
                 "message": "Analyzing bulk-loaded tables.",
                 "counts": counts,
@@ -138,10 +137,10 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
                 Protein,
                 RepeatCall,
                 NormalizationWarning,
-                MergedProteinSummary,
-                MergedResidueSummary,
-                MergedProteinOccurrence,
-                MergedResidueOccurrence,
+                CanonicalGenome,
+                CanonicalSequence,
+                CanonicalProtein,
+                CanonicalRepeatCall,
             ]
         )
     except Exception as exc:

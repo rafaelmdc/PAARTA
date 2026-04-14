@@ -27,7 +27,7 @@ class ImportPhase:
     PREPARING = "preparing_import"
     LOADING_FASTA = "loading_fasta"
     IMPORTING = "importing_rows"
-    SUMMARIZING_MERGED = "summarizing_merged"
+    CATALOG_SYNC = "syncing_canonical_catalog"
     COMPLETED = "completed"
     FAILED = "failed"
 

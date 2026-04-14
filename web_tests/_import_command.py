@@ -11,6 +11,10 @@ from apps.browser.models import (
     AccessionCallCount,
     AccessionStatus,
     AcquisitionBatch,
+    CanonicalGenome,
+    CanonicalProtein,
+    CanonicalRepeatCall,
+    CanonicalSequence,
     DownloadManifestEntry,
     Genome,
     MergedProteinOccurrence,
@@ -62,14 +66,19 @@ class ImportRunCommandTests(TestCase):
                     "residues": ["Q"],
                 },
             )
-            self.assertEqual(MergedProteinSummary.objects.count(), 1)
-            self.assertEqual(MergedResidueSummary.objects.count(), 1)
-            self.assertEqual(MergedProteinOccurrence.objects.count(), 1)
-            self.assertEqual(MergedResidueOccurrence.objects.count(), 1)
-            self.assertEqual(MergedProteinSummary.objects.get().source_runs_count, 1)
-            self.assertEqual(MergedResidueSummary.objects.get().source_runs_count, 1)
-            self.assertEqual(MergedProteinSummary.objects.get().representative_repeat_call.call_id, "call_1")
-            self.assertEqual(MergedResidueSummary.objects.get().representative_repeat_call.call_id, "call_1")
+            self.assertEqual(CanonicalGenome.objects.count(), 1)
+            self.assertEqual(CanonicalSequence.objects.count(), 1)
+            self.assertEqual(CanonicalProtein.objects.count(), 1)
+            self.assertEqual(CanonicalRepeatCall.objects.count(), 1)
+            self.assertEqual(MergedProteinSummary.objects.count(), 0)
+            self.assertEqual(MergedResidueSummary.objects.count(), 0)
+            self.assertEqual(MergedProteinOccurrence.objects.count(), 0)
+            self.assertEqual(MergedResidueOccurrence.objects.count(), 0)
+            self.assertEqual(CanonicalGenome.objects.get().latest_pipeline_run, pipeline_run)
+            self.assertEqual(CanonicalGenome.objects.get().latest_import_batch, batch)
+            self.assertEqual(CanonicalProtein.objects.get().repeat_call_count, 1)
+            self.assertEqual(CanonicalRepeatCall.objects.get().latest_repeat_call.call_id, "call_1")
+            self.assertEqual(CanonicalRepeatCall.objects.get().source_call_id, "call_1")
 
     def test_import_run_keeps_only_repeat_linked_sequences_and_proteins(self):
         with TemporaryDirectory() as tempdir:
@@ -224,15 +233,15 @@ class ImportRunCommandTests(TestCase):
             self.assertEqual(DownloadManifestEntry.objects.get().download_status, "rehydrated")
             self.assertEqual(DownloadManifestEntry.objects.get().notes, "replaced")
             self.assertEqual(NormalizationWarning.objects.get().warning_code, "partial_cds")
-            self.assertEqual(MergedProteinSummary.objects.count(), 1)
-            self.assertEqual(MergedResidueSummary.objects.count(), 1)
-            self.assertEqual(MergedProteinOccurrence.objects.count(), 1)
-            self.assertEqual(MergedResidueOccurrence.objects.count(), 1)
-            self.assertEqual(MergedProteinSummary.objects.get().method, RepeatCall.Method.SEED_EXTEND)
-            self.assertEqual(MergedResidueSummary.objects.get().method, RepeatCall.Method.SEED_EXTEND)
-            self.assertEqual(MergedResidueSummary.objects.get().repeat_residue, "A")
-            self.assertEqual(MergedProteinSummary.objects.get().representative_repeat_call.call_id, "call_2")
-            self.assertEqual(MergedResidueSummary.objects.get().representative_repeat_call.call_id, "call_2")
+            self.assertEqual(CanonicalGenome.objects.count(), 1)
+            self.assertEqual(CanonicalSequence.objects.count(), 1)
+            self.assertEqual(CanonicalProtein.objects.count(), 1)
+            self.assertEqual(CanonicalRepeatCall.objects.count(), 1)
+            self.assertEqual(CanonicalGenome.objects.get().genome_name, "Replacement genome")
+            self.assertEqual(CanonicalGenome.objects.get().notes, "updated")
+            self.assertEqual(CanonicalRepeatCall.objects.get().method, RepeatCall.Method.SEED_EXTEND)
+            self.assertEqual(CanonicalRepeatCall.objects.get().repeat_residue, "A")
+            self.assertEqual(CanonicalRepeatCall.objects.get().source_call_id, "call_2")
             self.assertEqual(
                 PipelineRun.objects.get().browser_metadata,
                 {
@@ -253,17 +262,17 @@ class ImportRunCommandTests(TestCase):
                 },
             )
 
-    def test_import_run_replace_existing_removes_stale_merged_accessions(self):
+    def test_import_run_replace_existing_removes_stale_canonical_repeat_entities(self):
         with TemporaryDirectory() as tempdir:
             publish_root = build_multibatch_publish_root(Path(tempdir), run_id="run-replace-stale")
             stdout = StringIO()
 
             call_command("import_run", publish_root=str(publish_root), stdout=stdout)
 
-            self.assertEqual(MergedProteinSummary.objects.count(), 2)
-            self.assertEqual(MergedResidueSummary.objects.count(), 2)
-            self.assertEqual(MergedProteinOccurrence.objects.count(), 2)
-            self.assertEqual(MergedResidueOccurrence.objects.count(), 2)
+            self.assertEqual(CanonicalGenome.objects.count(), 2)
+            self.assertEqual(CanonicalSequence.objects.count(), 2)
+            self.assertEqual(CanonicalProtein.objects.count(), 2)
+            self.assertEqual(CanonicalRepeatCall.objects.count(), 2)
 
             (publish_root / "calls" / "repeat_calls.tsv").write_text(
                 "call_id\tmethod\tgenome_id\ttaxon_id\tsequence_id\tprotein_id\tstart\tend\tlength\trepeat_residue\trepeat_count\tnon_repeat_count\tpurity\taa_sequence\tcodon_sequence\tcodon_metric_name\tcodon_metric_value\twindow_definition\ttemplate_name\tmerge_rule\tscore\n"
@@ -294,28 +303,59 @@ class ImportRunCommandTests(TestCase):
             )
 
             self.assertEqual(RepeatCall.objects.count(), 1)
-            self.assertEqual(MergedProteinSummary.objects.count(), 1)
-            self.assertEqual(MergedResidueSummary.objects.count(), 1)
-            self.assertEqual(MergedProteinOccurrence.objects.count(), 1)
-            self.assertEqual(MergedResidueOccurrence.objects.count(), 1)
-            self.assertEqual(MergedProteinSummary.objects.get().accession, "GCF_000001405.40")
-            self.assertEqual(MergedResidueSummary.objects.get().accession, "GCF_000001405.40")
+            self.assertEqual(CanonicalGenome.objects.count(), 2)
+            self.assertEqual(CanonicalSequence.objects.count(), 1)
+            self.assertEqual(CanonicalProtein.objects.count(), 1)
+            self.assertEqual(CanonicalRepeatCall.objects.count(), 1)
+            self.assertEqual(CanonicalProtein.objects.get().accession, "GCF_000001405.40")
+            self.assertEqual(CanonicalRepeatCall.objects.get().accession, "GCF_000001405.40")
 
-    def test_import_run_merged_summaries_aggregate_across_runs(self):
+    def test_import_run_canonical_catalog_latest_run_wins_across_runs(self):
         with TemporaryDirectory() as tempdir_alpha, TemporaryDirectory() as tempdir_beta:
             publish_root_alpha = build_minimal_publish_root(Path(tempdir_alpha), run_id="run-merged-alpha")
             publish_root_beta = build_minimal_publish_root(Path(tempdir_beta), run_id="run-merged-beta")
             stdout = StringIO()
 
+            (publish_root_beta / "acquisition" / "batches" / "batch_0001" / "genomes.tsv").write_text(
+                "genome_id\tsource\taccession\tgenome_name\tassembly_type\ttaxon_id\tassembly_level\tspecies_name\tnotes\n"
+                "genome_1\tncbi_datasets\tGCF_000001405.40\tGenome beta\thaploid\t9606\tChromosome\tHomo sapiens\t\n",
+                encoding="utf-8",
+            )
+            (publish_root_beta / "acquisition" / "batches" / "batch_0001" / "sequences.tsv").write_text(
+                "sequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\n"
+                "seq_1\tgenome_1\tNM_BETA.1\t90\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\n"
+                "seq_2\tgenome_1\tNM_000002.1\t84\tGENE2\tNM_000002.1\tNP_000002.1\tGCF_000001405.40\t9606\tcds-2\tNP_000002.1\t1\tGENE2\tgff\t\n",
+                encoding="utf-8",
+            )
+            (publish_root_beta / "acquisition" / "batches" / "batch_0001" / "proteins.tsv").write_text(
+                "protein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\n"
+                "prot_1\tseq_1\tgenome_1\tNP_BETA.1\t30\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\n"
+                "prot_2\tseq_2\tgenome_1\tNP_000002.1\t28\tGENE2\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE2\tNP_000002.1\n",
+                encoding="utf-8",
+            )
+            (publish_root_beta / "calls" / "repeat_calls.tsv").write_text(
+                "call_id\tmethod\tgenome_id\ttaxon_id\tsequence_id\tprotein_id\tstart\tend\tlength\trepeat_residue\trepeat_count\tnon_repeat_count\tpurity\taa_sequence\tcodon_sequence\tcodon_metric_name\tcodon_metric_value\twindow_definition\ttemplate_name\tmerge_rule\tscore\n"
+                "call_beta\tpure\tgenome_1\t9606\tseq_1\tprot_1\t12\t24\t13\tQ\t13\t0\t1.0\tQQQQQQQQQQQQQ\t\t\t\t\t\t\t\n",
+                encoding="utf-8",
+            )
+
             call_command("import_run", publish_root=str(publish_root_alpha), stdout=stdout)
             call_command("import_run", publish_root=str(publish_root_beta), stdout=stdout)
 
-            self.assertEqual(MergedProteinSummary.objects.count(), 1)
-            self.assertEqual(MergedResidueSummary.objects.count(), 1)
-            self.assertEqual(MergedProteinOccurrence.objects.count(), 2)
-            self.assertEqual(MergedResidueOccurrence.objects.count(), 2)
-            self.assertEqual(MergedProteinSummary.objects.get().source_runs_count, 2)
-            self.assertEqual(MergedResidueSummary.objects.get().source_runs_count, 2)
+            self.assertEqual(Genome.objects.count(), 2)
+            self.assertEqual(RepeatCall.objects.count(), 2)
+            self.assertEqual(CanonicalGenome.objects.count(), 1)
+            self.assertEqual(CanonicalSequence.objects.count(), 1)
+            self.assertEqual(CanonicalProtein.objects.count(), 1)
+            self.assertEqual(CanonicalRepeatCall.objects.count(), 1)
+            self.assertEqual(CanonicalGenome.objects.get().genome_name, "Genome beta")
+            self.assertEqual(CanonicalSequence.objects.get().sequence_name, "NM_BETA.1")
+            self.assertEqual(CanonicalProtein.objects.get().protein_name, "NP_BETA.1")
+            self.assertEqual(CanonicalRepeatCall.objects.get().source_call_id, "call_beta")
+            self.assertEqual(
+                CanonicalGenome.objects.get().latest_pipeline_run.run_id,
+                "run-merged-beta",
+            )
 
     def test_import_run_rolls_back_on_broken_references(self):
         with TemporaryDirectory() as tempdir:
@@ -558,7 +598,7 @@ class ImportRunCommandTests(TestCase):
             any(payload.get("message") == "Importing repeat-call rows." for payload in recorded_payloads)
         )
         self.assertTrue(
-            any(payload.get("message") == "Rebuilding merged summary rows." for payload in recorded_payloads)
+            any(payload.get("message") == "Syncing canonical catalog rows." for payload in recorded_payloads)
         )
 
     def test_import_run_triggers_post_load_analyze_hook(self):
@@ -574,3 +614,8 @@ class ImportRunCommandTests(TestCase):
 
             self.assertIn("Imported run run-analyze", stdout.getvalue())
             analyze_models.assert_called_once()
+            analyzed_models = analyze_models.call_args.args[0]
+            self.assertIn(CanonicalGenome, analyzed_models)
+            self.assertIn(CanonicalSequence, analyzed_models)
+            self.assertIn(CanonicalProtein, analyzed_models)
+            self.assertIn(CanonicalRepeatCall, analyzed_models)
