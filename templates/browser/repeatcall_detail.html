@@ -15,7 +15,6 @@
       </p>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-dark" href="{{ repeatcall_list_url }}">Back to repeat calls</a>
-        <a class="btn btn-outline-dark" href="{{ run_detail_url }}">Open run</a>
         <a class="btn btn-outline-dark" href="{{ protein_detail_url }}">Open protein</a>
         <a class="btn btn-brand" href="{{ genome_detail_url }}">Open genome</a>
         <a class="btn btn-outline-dark" href="{{ taxon_detail_url }}">Open taxon</a>
@@ -68,7 +67,7 @@
         <dd><a href="{{ genome_detail_url }}">{{ repeat_call.genome.accession }}</a></dd>
         <dt>Taxon</dt>
         <dd><a href="{{ taxon_detail_url }}">{{ repeat_call.taxon.taxon_name }}</a></dd>
-        <dt>Latest run</dt>
+        <dt>Latest import run</dt>
         <dd><a href="{{ run_detail_url }}">{{ repeat_call.latest_pipeline_run.run_id }}</a></dd>
         <dt>Sequence</dt>
         <dd><a href="{{ sequence_detail_url }}">{{ repeat_call.sequence.sequence_name }}</a></dd>

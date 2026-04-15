@@ -163,6 +163,10 @@ class RunDetailView(DetailView):
             reverse("browser:genome-list"),
             run=pipeline_run.run_id,
         )
+        context["sequence_browser_url"] = _url_with_query(
+            reverse("browser:sequence-list"),
+            run=pipeline_run.run_id,
+        )
         context["protein_browser_url"] = _url_with_query(
             reverse("browser:protein-list"),
             run=pipeline_run.run_id,
@@ -174,16 +178,6 @@ class RunDetailView(DetailView):
         context["accession_browser_url"] = _url_with_query(
             reverse("browser:accession-list"),
             run=pipeline_run.run_id,
-        )
-        context["merged_protein_browser_url"] = _url_with_query(
-            reverse("browser:protein-list"),
-            run=pipeline_run.run_id,
-            mode="merged",
-        )
-        context["merged_repeatcall_browser_url"] = _url_with_query(
-            reverse("browser:repeatcall-list"),
-            run=pipeline_run.run_id,
-            mode="merged",
         )
         context["accession_status_browser_url"] = _url_with_query(
             reverse("browser:accessionstatus-list"),

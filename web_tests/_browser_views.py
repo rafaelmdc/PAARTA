@@ -142,7 +142,10 @@ class BrowserViewTests(TestCase):
         response = self.client.get(reverse("browser:home"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Imported runs")
+        self.assertContains(response, "Current catalog")
+        self.assertContains(response, "Open accession browser")
+        self.assertContains(response, reverse("browser:accession-list"))
+        self.assertContains(response, "Run provenance")
         self.assertContains(response, "Operational provenance")
         self.assertContains(response, reverse("browser:accessionstatus-list"))
         self.assertContains(response, reverse("browser:downloadmanifest-list"))
@@ -180,6 +183,8 @@ class BrowserViewTests(TestCase):
         response = self.client.get(reverse("browser:run-list"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Imported run history")
+        self.assertContains(response, "Primary browsing now starts from the canonical entity")
         self.assertContains(response, "run-alpha")
         self.assertContains(response, "run-beta")
         self.assertContains(response, reverse("browser:run-detail", args=[self.alpha["pipeline_run"].pk]))
@@ -231,7 +236,12 @@ class BrowserViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "run-alpha")
+        self.assertContains(response, "Open current accessions")
         self.assertContains(response, "Distinct taxa referenced")
+        self.assertContains(response, "Imported genomes")
+        self.assertContains(response, "Imported sequences")
+        self.assertContains(response, "Imported proteins")
+        self.assertContains(response, "Imported repeat calls")
         self.assertContains(response, "?run=run-alpha")
         self.assertContains(response, reverse("browser:accessionstatus-list"))
         self.assertContains(response, reverse("browser:accessioncallcount-list"))
@@ -319,7 +329,7 @@ class BrowserViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Publish mode: raw")
         self.assertContains(response, "Acquisition publish mode")
-        self.assertContains(response, "Heartbeat and row visibility")
+        self.assertContains(response, "Heartbeat and provenance visibility")
         self.assertContains(response, "Loading FASTA payloads.")
         self.assertContains(response, "Inserted sequences")
         self.assertContains(response, "batch_0002")
@@ -842,6 +852,7 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "call_alpha")
         self.assertContains(response, "Protein browser")
         self.assertContains(response, "Open sequences")
+        self.assertNotContains(response, "Open run")
 
     def test_accession_detail_links_to_source_proteins_and_repeat_calls(self):
         response = self.client.get(reverse("browser:accession-detail", args=["GCF_ALPHA"]))
@@ -965,6 +976,7 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "call_alpha")
         self.assertContains(response, reverse("browser:protein-list"))
         self.assertContains(response, reverse("browser:repeatcall-list"))
+        self.assertNotContains(response, "Open run")
 
     def test_protein_list_run_filter_scopes_results(self):
         response = self.client.get(reverse("browser:protein-list"), {"run": "run-alpha"})
@@ -1196,6 +1208,7 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "Stored protein sequence")
         self.assertContains(response, "Q" * 30)
         self.assertContains(response, "CAG" * 30)
+        self.assertNotContains(response, "Open run")
 
     def test_repeatcall_list_combined_filters_and_branch_scope_work(self):
         matched = self._create_repeat_call(
@@ -1450,3 +1463,4 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, matched["protein"].protein_name)
         self.assertContains(response, "GCF_ALPHA")
         self.assertContains(response, reverse("browser:sequence-detail", args=[matched["sequence"].pk]))
+        self.assertNotContains(response, "Open run")

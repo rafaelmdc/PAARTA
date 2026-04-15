@@ -11,7 +11,8 @@
       <h1 class="display-4 fw-semibold mb-3">{{ pipeline_run.run_id }}</h1>
       <p class="lead text-secondary mb-3">
         Imported {{ pipeline_run.imported_at|date:"Y-m-d H:i" }}{% if pipeline_run.profile %} using the <strong>{{ pipeline_run.profile }}</strong> profile{% endif %}.
-        This is the provenance root for every run-scoped browser view.
+        This run anchors imported observations, import batches, and operator-facing provenance.
+        Current browsing starts from the canonical entity catalog.
       </p>
       <div class="d-flex flex-wrap gap-2 mb-4">
         <span class="badge rounded-pill text-bg-light border status-badge">Status: {{ pipeline_run.status }}</span>
@@ -31,6 +32,7 @@
       </div>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-primary" href="{% url 'browser:run-list' %}">Back to runs</a>
+        <a class="btn btn-brand" href="{{ accession_browser_url }}">Open current accessions</a>
         <a class="btn btn-outline-secondary" href="{{ imports_history_url }}">Import history</a>
       </div>
     </div>
@@ -41,9 +43,11 @@
           <p class="text-uppercase text-secondary small mb-3">At a glance</p>
           <ul class="stack-list mb-0">
             <li>{{ pipeline_run.acquisition_batches_count }} acquisition batch{{ pipeline_run.acquisition_batches_count|pluralize:"es" }}</li>
-            <li><a href="{{ genome_browser_url }}">{{ pipeline_run.genomes_count }} genome{{ pipeline_run.genomes_count|pluralize }}</a></li>
-            <li><a href="{{ protein_browser_url }}">{{ pipeline_run.proteins_count }} repeat-bearing protein{{ pipeline_run.proteins_count|pluralize }}</a></li>
-            <li><a href="{{ repeatcall_browser_url }}">{{ pipeline_run.repeat_calls_count }} repeat call{{ pipeline_run.repeat_calls_count|pluralize }}</a></li>
+            <li><a href="{{ accession_browser_url }}">Browse current accession records linked to this run</a></li>
+            <li><a href="{{ genome_browser_url }}">{{ pipeline_run.genomes_count }} imported genome row{{ pipeline_run.genomes_count|pluralize }}</a></li>
+            <li><a href="{{ sequence_browser_url }}">{{ pipeline_run.sequences_count }} imported sequence row{{ pipeline_run.sequences_count|pluralize }}</a></li>
+            <li><a href="{{ protein_browser_url }}">{{ pipeline_run.proteins_count }} imported protein row{{ pipeline_run.proteins_count|pluralize }}</a></li>
+            <li><a href="{{ repeatcall_browser_url }}">{{ pipeline_run.repeat_calls_count }} imported repeat call row{{ pipeline_run.repeat_calls_count|pluralize }}</a></li>
             <li><a href="{{ accession_status_browser_url }}">{{ pipeline_run.accession_status_rows_count }} accession status row{{ pipeline_run.accession_status_rows_count|pluralize }}</a></li>
             <li><a href="{{ warning_browser_url }}">{{ pipeline_run.normalization_warnings_count }} normalization warning{{ pipeline_run.normalization_warnings_count|pluralize }}</a></li>
             <li><a href="{{ taxon_browser_url }}">{{ distinct_taxa_count }} distinct taxa referenced</a></li>
@@ -60,7 +64,7 @@
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Acquisition batches</p>
         <p class="display-5 fw-semibold mb-3">{{ pipeline_run.acquisition_batches_count }}</p>
-        <p class="text-secondary mb-0">Raw acquisition batches represented by this imported run.</p>
+        <p class="text-secondary mb-0">Raw acquisition batches retained as provenance for this imported run.</p>
       </div>
     </article>
   </div>
@@ -69,43 +73,43 @@
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Taxa</p>
         <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ taxon_browser_url }}">{{ distinct_taxa_count }}</a>
-        <p class="text-secondary mb-0">Distinct taxa referenced by this run’s imported biological records.</p>
+        <p class="text-secondary mb-0">Distinct taxa referenced by this run’s imported biological observations.</p>
       </div>
     </article>
   </div>
   <div class="col-sm-6 col-xl-4">
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
-        <p class="text-uppercase text-secondary small mb-2">Genomes</p>
+        <p class="text-uppercase text-secondary small mb-2">Imported genomes</p>
         <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ genome_browser_url }}">{{ pipeline_run.genomes_count }}</a>
-        <p class="text-secondary mb-0">Assembly-level records imported for this run.</p>
+        <p class="text-secondary mb-0">Genome rows imported for this run and still available as provenance.</p>
       </div>
     </article>
   </div>
   <div class="col-sm-6 col-xl-4">
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
-        <p class="text-uppercase text-secondary small mb-2">Sequences</p>
-        <p class="display-5 fw-semibold mb-3">{{ pipeline_run.sequences_count }}</p>
-        <p class="text-secondary mb-0">Retained repeat-linked sequence records imported for browser navigation.</p>
+        <p class="text-uppercase text-secondary small mb-2">Imported sequences</p>
+        <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ sequence_browser_url }}">{{ pipeline_run.sequences_count }}</a>
+        <p class="text-secondary mb-0">Sequence rows imported for this run and retained as browseable history.</p>
       </div>
     </article>
   </div>
   <div class="col-sm-6 col-xl-4">
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
-        <p class="text-uppercase text-secondary small mb-2">Proteins</p>
+        <p class="text-uppercase text-secondary small mb-2">Imported proteins</p>
         <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ protein_browser_url }}">{{ pipeline_run.proteins_count }}</a>
-        <p class="text-secondary mb-0">Imported repeat-bearing protein records available for run-scoped browsing.</p>
+        <p class="text-secondary mb-0">Protein rows imported for this run and linked back into the current catalog.</p>
       </div>
     </article>
   </div>
   <div class="col-sm-6 col-xl-4">
     <article class="card h-100 border-0 shadow-sm stat-card">
       <div class="card-body">
-        <p class="text-uppercase text-secondary small mb-2">Repeat calls</p>
+        <p class="text-uppercase text-secondary small mb-2">Imported repeat calls</p>
         <a class="display-5 fw-semibold mb-3 d-inline-block text-decoration-none" href="{{ repeatcall_browser_url }}">{{ pipeline_run.repeat_calls_count }}</a>
-        <p class="text-secondary mb-0">Canonical merged repeat-call rows available for browser and graphs.</p>
+        <p class="text-secondary mb-0">Repeat-call rows imported for this run and preserved as provenance.</p>
       </div>
     </article>
   </div>
@@ -199,7 +203,7 @@
         <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
           <div>
             <p class="eyebrow mb-2">Import activity</p>
-            <h2 class="mb-0">Heartbeat and row visibility</h2>
+            <h2 class="mb-0">Heartbeat and provenance visibility</h2>
           </div>
           <a class="btn btn-sm btn-outline-secondary" href="{{ imports_history_url }}">Open history</a>
         </div>
@@ -295,7 +299,7 @@
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
           <div>
-            <p class="eyebrow mb-2">Method coverage</p>
+            <p class="eyebrow mb-2">Imported method coverage</p>
             <h2 class="mb-0">Methods and residues</h2>
           </div>
           <a class="btn btn-sm btn-outline-secondary" href="{{ accession_call_count_browser_url }}">Browse call-count rows</a>

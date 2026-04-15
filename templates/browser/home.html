@@ -8,17 +8,18 @@
   <div class="landing-band-shell">
     <div class="landing-copy">
       <span class="section-kicker mb-3">Browser</span>
-      <h1 class="landing-title mb-3">Run-first database browser with room for lineage views and graph layers.</h1>
+      <h1 class="landing-title mb-3">Canonical entity browser with imported runs kept available as provenance.</h1>
       <p class="landing-lead mb-0">
-        Inspect imported runs, enter scoped browse views, and keep the
-        connection between taxa, genomes, proteins, repeat calls, and pipeline
-        provenance visible at every step.
+        Start from the current accession, genome, sequence, protein, and
+        repeat-call catalog. Imported runs and operational tables remain
+        available when you need audit history, import scope, or troubleshooting
+        context.
       </p>
     </div>
     <aside class="landing-aside">
       <p class="sheet-label">Start here</p>
-      <p class="mb-3">Begin with imported runs, then branch into taxa, genomes, proteins, and repeat calls.</p>
-      <a class="btn btn-brand w-100" href="{% url 'browser:run-list' %}">Open run browser</a>
+      <p class="mb-3">Begin with current accessions, then drill into genomes, sequences, proteins, and repeat calls.</p>
+      <a class="btn btn-brand w-100" href="{% url 'browser:accession-list' %}">Open accession browser</a>
     </aside>
   </div>
 </section>
@@ -55,10 +56,10 @@
 <section class="surface-card surface-card-wide">
   <div class="section-header">
     <div>
-      <p class="section-kicker mb-2">Recent runs</p>
+      <p class="section-kicker mb-2">Recent provenance</p>
       <h2>Latest imported runs</h2>
     </div>
-    <a class="btn btn-outline-dark" href="{% url 'browser:run-list' %}">All runs</a>
+    <a class="btn btn-outline-dark" href="{% url 'browser:run-list' %}">Run history</a>
   </div>
 
   <div class="table-responsive">

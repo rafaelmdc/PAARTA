@@ -15,7 +15,6 @@
       </p>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-dark" href="{{ protein_list_url }}">Back to proteins</a>
-        <a class="btn btn-outline-dark" href="{{ run_detail_url }}">Open run</a>
         <a class="btn btn-outline-dark" href="{{ genome_detail_url }}">Open genome</a>
         <a class="btn btn-outline-dark" href="{{ sequence_detail_url }}">Open sequence</a>
         <a class="btn btn-outline-dark" href="{{ taxon_detail_url }}">Open taxon</a>
@@ -67,7 +66,7 @@
         <dd><a href="{{ genome_detail_url }}">{{ protein.genome.accession }}</a></dd>
         <dt>Taxon</dt>
         <dd><a href="{{ taxon_detail_url }}">{{ protein.taxon.taxon_name }}</a></dd>
-        <dt>Latest run</dt>
+        <dt>Latest import run</dt>
         <dd><a href="{{ run_detail_url }}">{{ protein.latest_pipeline_run.run_id }}</a></dd>
         <dt>Assembly accession</dt>
         <dd>{{ protein.assembly_accession|default:"-" }}</dd>

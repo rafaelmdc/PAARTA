@@ -15,7 +15,6 @@
       </p>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-dark" href="{% url 'browser:genome-list' %}">Back to genomes</a>
-        <a class="btn btn-outline-dark" href="{{ run_detail_url }}">Open run</a>
         <a class="btn btn-brand" href="{{ taxon_detail_url }}">Open taxon branch</a>
         <a class="btn btn-outline-dark" href="{{ sequence_browser_url }}">Open sequences</a>
         <a class="btn btn-outline-dark" href="{{ accession_detail_url }}">Open accession record</a>
@@ -72,6 +71,8 @@
           {% endif %}
         {% endfor %}
       </div>
+      <p class="small text-secondary mb-2">Latest import run</p>
+      <p class="mb-3"><a href="{{ run_detail_url }}">{{ genome.latest_pipeline_run.run_id }}</a></p>
       <p class="small text-secondary mb-2">Imported observations</p>
       <p class="mb-0">{{ source_genomes_count }} genome row{{ source_genomes_count|pluralize }} across {{ source_runs_count }} run{{ source_runs_count|pluralize }} support this accession.</p>
     </div>
