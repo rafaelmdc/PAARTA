@@ -4,9 +4,6 @@ from ._suite import build_named_test_suite
 
 TEST_NAMES = [
     "test_taxon_list_run_filter_keeps_ancestor_path",
-    "test_taxon_list_removes_merged_mode_controls",
-    "test_legacy_merged_mode_redirects_list_pages",
-    "test_legacy_merged_mode_redirects_taxon_detail",
     "test_taxon_list_branch_filter_includes_descendants",
     "test_taxon_list_branch_q_name_prefix_filter_includes_descendants",
     "test_taxon_detail_shows_lineage_and_branch_genomes",

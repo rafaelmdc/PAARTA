@@ -1,12 +1,22 @@
 import csv
 import json
+import os
 from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from django.test import SimpleTestCase
 
-from apps.imports.services import ImportContractError, load_published_run
+from apps.imports.services.published_run import (
+    ImportContractError,
+    inspect_published_run,
+    iter_accession_call_count_rows,
+    iter_accession_status_rows,
+    iter_genome_rows,
+    iter_repeat_call_rows,
+    iter_run_parameter_rows,
+    load_published_run,
+)
 
 from .support import build_minimal_publish_root, build_multibatch_publish_root
 
@@ -14,10 +24,23 @@ from .support import build_minimal_publish_root, build_multibatch_publish_root
 SIBLING_PIPELINE_RUNS_ROOT = Path(__file__).resolve().parents[2] / "homorepeat_pipeline" / "runs"
 SMALL_REAL_RUN_ID = "live_raw_effective_params_2026_04_09"
 LARGE_REAL_RUN_ID = "chr_all3_raw_2026_04_09"
+RUN_LARGE_REAL_RUN_TESTS = os.environ.get("HOMOREPEAT_RUN_LARGE_IMPORT_TESTS", "").strip() == "1"
 
 
 def _sibling_publish_root(run_id: str) -> Path:
     return SIBLING_PIPELINE_RUNS_ROOT / run_id / "publish"
+
+
+def _require_large_real_run_validation(test_case: SimpleTestCase) -> Path:
+    if not RUN_LARGE_REAL_RUN_TESTS:
+        test_case.skipTest(
+            "large real-run import contract checks are manual final validation; "
+            "set HOMOREPEAT_RUN_LARGE_IMPORT_TESTS=1 to run them"
+        )
+    publish_root = _sibling_publish_root(LARGE_REAL_RUN_ID)
+    if not publish_root.exists():
+        test_case.skipTest(f"requires sibling pipeline run at {publish_root}")
+    return publish_root
 
 
 def _tsv_row_count(path: Path) -> int:
@@ -58,6 +81,44 @@ def _sum_tsv_int_column(path: Path, field_name: str) -> int:
 
 def _sum_tsv_row_counts(paths: list[Path]) -> int:
     return sum(_tsv_row_count(path) for path in paths)
+
+
+def _stream_tsv_stats(
+    path: Path,
+    *,
+    value_fields: list[str] | None = None,
+    distinct_fields: list[str] | None = None,
+    sum_int_fields: list[str] | None = None,
+) -> dict[str, object]:
+    value_fields = value_fields or []
+    distinct_fields = distinct_fields or []
+    sum_int_fields = sum_int_fields or []
+    value_sets = {field: set() for field in value_fields}
+    distinct_sets = {field: set() for field in distinct_fields}
+    int_sums = {field: 0 for field in sum_int_fields}
+    row_count = 0
+
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for row in reader:
+            row_count += 1
+            for field in value_fields:
+                value = (row.get(field) or "").strip()
+                if value:
+                    value_sets[field].add(value)
+            for field in distinct_fields:
+                value = (row.get(field) or "").strip()
+                if value:
+                    distinct_sets[field].add(value)
+            for field in sum_int_fields:
+                int_sums[field] += int((row.get(field) or "0").strip())
+
+    return {
+        "row_count": row_count,
+        "value_sets": value_sets,
+        "distinct_counts": {field: len(values) for field, values in distinct_sets.items()},
+        "int_sums": int_sums,
+    }
 
 
 class PublishedRunImportServiceTests(SimpleTestCase):
@@ -305,38 +366,31 @@ class PublishedRunImportServiceTests(SimpleTestCase):
             self.assertEqual(batch_summaries["batch_0002"].total_repeat_linked_proteins, 1)
             self.assertEqual(batch_summaries["batch_0002"].acquisition_validation["status"], "warn")
 
-    def test_load_published_run_parses_large_real_raw_run_without_db_import(self):
-        publish_root = _sibling_publish_root(LARGE_REAL_RUN_ID)
-        if not publish_root.exists():
-            self.skipTest(f"requires sibling pipeline run at {publish_root}")
+    def test_inspect_published_run_exposes_large_real_raw_run_without_db_import(self):
+        publish_root = _require_large_real_run_validation(self)
 
-        payload = load_published_run(publish_root)
+        inspected = inspect_published_run(publish_root)
         batch_paths = list(sorted((publish_root / "acquisition" / "batches").glob("*/")))
+        first_batch = inspected.artifact_paths.acquisition_batches[0]
+        first_genome = next(iter(iter_genome_rows(first_batch.genomes_tsv, batch_id=first_batch.batch_id)))
+        first_run_parameter = next(iter(iter_run_parameter_rows(inspected.artifact_paths.run_params_tsv)))
+        first_repeat_call = next(iter(iter_repeat_call_rows(inspected.artifact_paths.repeat_calls_tsv)))
+        first_accession_status = next(iter(iter_accession_status_rows(inspected.artifact_paths.accession_status_tsv)))
+        first_accession_call_count = next(
+            iter(iter_accession_call_count_rows(inspected.artifact_paths.accession_call_counts_tsv))
+        )
 
-        self.assertEqual(payload.pipeline_run["run_id"], LARGE_REAL_RUN_ID)
-        self.assertEqual(len(payload.batch_summaries), len(batch_paths))
-        self.assertEqual(
-            len(payload.download_manifest_rows),
-            _sum_tsv_row_counts([batch_path / "download_manifest.tsv" for batch_path in batch_paths]),
-        )
-        self.assertEqual(
-            len(payload.normalization_warning_rows),
-            _sum_tsv_row_counts([batch_path / "normalization_warnings.tsv" for batch_path in batch_paths]),
-        )
-        self.assertEqual(
-            sum(summary.total_repeat_calls for summary in payload.batch_summaries),
-            len(payload.repeat_call_rows),
-        )
-        self.assertGreater(len(payload.repeat_linked_ids.sequence_ids), 0)
-        self.assertGreater(len(payload.repeat_linked_ids.protein_ids), 0)
-        self.assertTrue(
-            all(summary.acquisition_validation.get("scope") == "batch" for summary in payload.batch_summaries)
-        )
+        self.assertEqual(inspected.pipeline_run["run_id"], LARGE_REAL_RUN_ID)
+        self.assertEqual(inspected.manifest["acquisition_publish_mode"], "raw")
+        self.assertEqual(len(inspected.artifact_paths.acquisition_batches), len(batch_paths))
+        self.assertEqual(first_genome["batch_id"], first_batch.batch_id)
+        self.assertIn(first_run_parameter["method"], {"pure", "threshold", "seed_extend"})
+        self.assertIn(first_repeat_call["method"], {"pure", "threshold", "seed_extend"})
+        self.assertEqual(first_accession_status["terminal_status"], "completed")
+        self.assertIn(first_accession_call_count["method"], {"pure", "threshold", "seed_extend"})
 
     def test_large_real_raw_run_contract_counts_align_without_db_import(self):
-        publish_root = _sibling_publish_root(LARGE_REAL_RUN_ID)
-        if not publish_root.exists():
-            self.skipTest(f"requires sibling pipeline run at {publish_root}")
+        publish_root = _require_large_real_run_validation(self)
 
         manifest = json.loads((publish_root / "metadata" / "run_manifest.json").read_text(encoding="utf-8"))
         batch_dirs = sorted(path for path in (publish_root / "acquisition" / "batches").iterdir() if path.is_dir())
@@ -344,6 +398,24 @@ class PublishedRunImportServiceTests(SimpleTestCase):
         repeat_calls_path = publish_root / "calls" / "repeat_calls.tsv"
         accession_status_path = publish_root / "status" / "accession_status.tsv"
         accession_call_counts_path = publish_root / "status" / "accession_call_counts.tsv"
+        run_param_stats = _stream_tsv_stats(
+            run_params_path,
+            value_fields=["method", "repeat_residue"],
+        )
+        repeat_call_stats = _stream_tsv_stats(
+            repeat_calls_path,
+            value_fields=["method", "repeat_residue"],
+        )
+        accession_status_stats = _stream_tsv_stats(
+            accession_status_path,
+            distinct_fields=["batch_id"],
+            sum_int_fields=["n_repeat_calls"],
+        )
+        accession_call_count_stats = _stream_tsv_stats(
+            accession_call_counts_path,
+            value_fields=["method", "repeat_residue"],
+            sum_int_fields=["n_repeat_calls"],
+        )
 
         self.assertEqual(manifest["run_id"], LARGE_REAL_RUN_ID)
         self.assertEqual(manifest["acquisition_publish_mode"], "raw")
@@ -359,28 +431,25 @@ class PublishedRunImportServiceTests(SimpleTestCase):
             self.assertTrue((batch_dir / "cds.fna").is_file())
             self.assertTrue((batch_dir / "proteins.faa").is_file())
 
+        self.assertEqual(run_param_stats["value_sets"]["method"], {"pure", "threshold", "seed_extend"})
+        self.assertEqual(run_param_stats["value_sets"]["repeat_residue"], {"Q"})
+        self.assertEqual(repeat_call_stats["value_sets"]["method"], {"pure", "threshold", "seed_extend"})
+        self.assertEqual(repeat_call_stats["value_sets"]["repeat_residue"], {"Q"})
         self.assertEqual(
-            _tsv_value_set(run_params_path, "method"),
+            accession_call_count_stats["value_sets"]["method"],
             {"pure", "threshold", "seed_extend"},
         )
-        self.assertEqual(_tsv_value_set(run_params_path, "repeat_residue"), {"Q"})
-        self.assertEqual(_tsv_value_set(repeat_calls_path, "method"), {"pure", "threshold", "seed_extend"})
-        self.assertEqual(_tsv_value_set(repeat_calls_path, "repeat_residue"), {"Q"})
-        self.assertEqual(
-            _tsv_value_set(accession_call_counts_path, "method"),
-            {"pure", "threshold", "seed_extend"},
-        )
-        self.assertEqual(_tsv_value_set(accession_call_counts_path, "repeat_residue"), {"Q"})
+        self.assertEqual(accession_call_count_stats["value_sets"]["repeat_residue"], {"Q"})
 
         self.assertEqual(
             len(batch_dirs),
-            _unique_tsv_row_count([accession_status_path], ["batch_id"]),
+            accession_status_stats["distinct_counts"]["batch_id"],
         )
         self.assertEqual(
-            _tsv_row_count(repeat_calls_path),
-            _sum_tsv_int_column(accession_status_path, "n_repeat_calls"),
+            repeat_call_stats["row_count"],
+            accession_status_stats["int_sums"]["n_repeat_calls"],
         )
         self.assertEqual(
-            _tsv_row_count(repeat_calls_path),
-            _sum_tsv_int_column(accession_call_counts_path, "n_repeat_calls"),
+            repeat_call_stats["row_count"],
+            accession_call_count_stats["int_sums"]["n_repeat_calls"],
         )

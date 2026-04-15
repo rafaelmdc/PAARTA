@@ -17,10 +17,6 @@ from apps.browser.models import (
     CanonicalSequence,
     DownloadManifestEntry,
     Genome,
-    MergedProteinOccurrence,
-    MergedProteinSummary,
-    MergedResidueOccurrence,
-    MergedResidueSummary,
     NormalizationWarning,
     PipelineRun,
     Protein,
@@ -70,10 +66,6 @@ class ImportRunCommandTests(TestCase):
             self.assertEqual(CanonicalSequence.objects.count(), 1)
             self.assertEqual(CanonicalProtein.objects.count(), 1)
             self.assertEqual(CanonicalRepeatCall.objects.count(), 1)
-            self.assertEqual(MergedProteinSummary.objects.count(), 0)
-            self.assertEqual(MergedResidueSummary.objects.count(), 0)
-            self.assertEqual(MergedProteinOccurrence.objects.count(), 0)
-            self.assertEqual(MergedResidueOccurrence.objects.count(), 0)
             self.assertEqual(CanonicalGenome.objects.get().latest_pipeline_run, pipeline_run)
             self.assertEqual(CanonicalGenome.objects.get().latest_import_batch, batch)
             self.assertEqual(CanonicalProtein.objects.get().repeat_call_count, 1)
@@ -314,8 +306,8 @@ class ImportRunCommandTests(TestCase):
 
     def test_import_run_canonical_catalog_latest_run_wins_across_runs(self):
         with TemporaryDirectory() as tempdir_alpha, TemporaryDirectory() as tempdir_beta:
-            publish_root_alpha = build_minimal_publish_root(Path(tempdir_alpha), run_id="run-merged-alpha")
-            publish_root_beta = build_minimal_publish_root(Path(tempdir_beta), run_id="run-merged-beta")
+            publish_root_alpha = build_minimal_publish_root(Path(tempdir_alpha), run_id="run-latest-alpha")
+            publish_root_beta = build_minimal_publish_root(Path(tempdir_beta), run_id="run-latest-beta")
             stdout = StringIO()
 
             (publish_root_beta / "acquisition" / "batches" / "batch_0001" / "genomes.tsv").write_text(
@@ -356,7 +348,7 @@ class ImportRunCommandTests(TestCase):
             self.assertEqual(CanonicalRepeatCall.objects.get().source_call_id, "call_beta")
             self.assertEqual(
                 CanonicalGenome.objects.get().latest_pipeline_run.run_id,
-                "run-merged-beta",
+                "run-latest-beta",
             )
 
     def test_import_run_rolls_back_on_broken_references(self):

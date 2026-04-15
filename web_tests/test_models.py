@@ -7,10 +7,6 @@ from apps.browser.models import (
     AcquisitionBatch,
     DownloadManifestEntry,
     Genome,
-    MergedProteinOccurrence,
-    MergedProteinSummary,
-    MergedResidueOccurrence,
-    MergedResidueSummary,
     NormalizationWarning,
     PipelineRun,
     Protein,
@@ -234,36 +230,6 @@ class BiologicalModelTests(TestCase):
             [tuple(index.fields) for index in Protein._meta.indexes],
         )
 
-    def test_merged_protein_summary_defines_browse_indexes(self):
-        self.assertIn(
-            ("accession", "protein_name", "id"),
-            [tuple(index.fields) for index in MergedProteinSummary._meta.indexes],
-        )
-        self.assertIn(
-            ("protein_name", "accession", "id"),
-            [tuple(index.fields) for index in MergedProteinSummary._meta.indexes],
-        )
-
-    def test_merged_residue_summary_defines_browse_indexes(self):
-        self.assertIn(
-            ("accession", "protein_name", "id"),
-            [tuple(index.fields) for index in MergedResidueSummary._meta.indexes],
-        )
-        self.assertIn(
-            ("method", "repeat_residue", "accession", "id"),
-            [tuple(index.fields) for index in MergedResidueSummary._meta.indexes],
-        )
-
-    def test_merged_occurrence_models_define_run_taxon_indexes(self):
-        self.assertIn(
-            ("pipeline_run", "taxon", "summary"),
-            [tuple(index.fields) for index in MergedProteinOccurrence._meta.indexes],
-        )
-        self.assertIn(
-            ("pipeline_run", "taxon", "summary"),
-            [tuple(index.fields) for index in MergedResidueOccurrence._meta.indexes],
-        )
-
     def test_sequence_is_unique_within_run(self):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
@@ -287,85 +253,6 @@ class BiologicalModelTests(TestCase):
                     protein_id="prot_1",
                     protein_name="duplicate",
                     protein_length=50,
-                )
-
-    def test_merged_protein_summary_is_unique_per_accession_protein_method(self):
-        MergedProteinSummary.objects.create(
-            accession=self.genome.accession,
-            protein_id=self.protein.protein_id,
-            method=RepeatCall.Method.PURE,
-            protein_name=self.protein.protein_name,
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                MergedProteinSummary.objects.create(
-                    accession=self.genome.accession,
-                    protein_id=self.protein.protein_id,
-                    method=RepeatCall.Method.PURE,
-                    protein_name="duplicate",
-                )
-
-    def test_merged_residue_summary_is_unique_per_accession_protein_method_residue(self):
-        MergedResidueSummary.objects.create(
-            accession=self.genome.accession,
-            protein_id=self.protein.protein_id,
-            method=RepeatCall.Method.PURE,
-            repeat_residue="Q",
-            protein_name=self.protein.protein_name,
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                MergedResidueSummary.objects.create(
-                    accession=self.genome.accession,
-                    protein_id=self.protein.protein_id,
-                    method=RepeatCall.Method.PURE,
-                    repeat_residue="Q",
-                    protein_name="duplicate",
-                )
-
-    def test_merged_protein_occurrence_is_unique_per_summary_run_taxon(self):
-        summary = MergedProteinSummary.objects.create(
-            accession=self.genome.accession,
-            protein_id=self.protein.protein_id,
-            method=RepeatCall.Method.PURE,
-            protein_name=self.protein.protein_name,
-        )
-        MergedProteinOccurrence.objects.create(
-            summary=summary,
-            pipeline_run=self.run_alpha,
-            taxon=self.species,
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                MergedProteinOccurrence.objects.create(
-                    summary=summary,
-                    pipeline_run=self.run_alpha,
-                    taxon=self.species,
-                )
-
-    def test_merged_residue_occurrence_is_unique_per_summary_run_taxon(self):
-        summary = MergedResidueSummary.objects.create(
-            accession=self.genome.accession,
-            protein_id=self.protein.protein_id,
-            method=RepeatCall.Method.PURE,
-            repeat_residue="Q",
-            protein_name=self.protein.protein_name,
-        )
-        MergedResidueOccurrence.objects.create(
-            summary=summary,
-            pipeline_run=self.run_alpha,
-            taxon=self.species,
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                MergedResidueOccurrence.objects.create(
-                    summary=summary,
-                    pipeline_run=self.run_alpha,
-                    taxon=self.species,
                 )
 
     def test_run_parameter_is_unique_within_run_method_residue_name(self):

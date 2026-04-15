@@ -8,12 +8,6 @@ from .canonical import (
 from .runs import AcquisitionBatch, PipelineRun
 from .taxonomy import Taxon, TaxonClosure
 from .genomes import Genome, Protein, Sequence
-from .merged import (
-    MergedProteinOccurrence,
-    MergedProteinSummary,
-    MergedResidueOccurrence,
-    MergedResidueSummary,
-)
 from .repeat_calls import RepeatCall, RunParameter
 from .operations import (
     AccessionCallCount,
@@ -32,10 +26,6 @@ __all__ = [
     "CanonicalSequence",
     "DownloadManifestEntry",
     "Genome",
-    "MergedProteinOccurrence",
-    "MergedProteinSummary",
-    "MergedResidueOccurrence",
-    "MergedResidueSummary",
     "NormalizationWarning",
     "PipelineRun",
     "Protein",

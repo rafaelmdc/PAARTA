@@ -3,7 +3,6 @@ from django.urls import reverse
 from django.views.generic import DetailView
 
 from ..models import Genome, PipelineRun, Protein, RepeatCall, Taxon, TaxonClosure
-from .base import LegacyMergedModeRedirectMixin
 from .filters import (
     _apply_branch_scope_filter,
     _branch_taxon_ids,
@@ -80,7 +79,7 @@ class TaxonListView(VirtualScrollListView):
         return context
 
 
-class TaxonDetailView(LegacyMergedModeRedirectMixin, DetailView):
+class TaxonDetailView(DetailView):
     model = Taxon
     template_name = "browser/taxon_detail.html"
     context_object_name = "taxon"

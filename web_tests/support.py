@@ -248,7 +248,6 @@ def create_imported_run_fixture(
     accession: str,
     taxon_key: str = "human",
     genome_name: str | None = None,
-    rebuild_merged: bool = True,
 ):
     from apps.browser.models import (
         AccessionCallCount,
@@ -262,7 +261,6 @@ def create_imported_run_fixture(
         Sequence,
     )
     from apps.browser.catalog import sync_canonical_catalog_for_run
-    from apps.browser.merged.build import rebuild_merged_summaries_for_run
     from apps.imports.models import ImportBatch
     from django.utils import timezone
 
@@ -384,8 +382,6 @@ def create_imported_run_fixture(
         import_batch=import_batch,
         last_seen_at=timezone.now(),
     )
-    if rebuild_merged:
-        rebuild_merged_summaries_for_run(pipeline_run)
     return {
         "pipeline_run": pipeline_run,
         "batch": batch,

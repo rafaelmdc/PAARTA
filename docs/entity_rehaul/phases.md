@@ -422,7 +422,8 @@ Goal:
 
 Scope:
 
-- rerun the large raw import
+- rerun the large raw import as an explicit end-of-cycle manual validation, not
+  as part of the default automated test suite
 - validate canonical sync counts and replacement behavior
 - verify the browser serves canonical pages without merged codepaths
 - verify run/import provenance pages still function
@@ -440,4 +441,6 @@ Exit criteria:
 
 - the canonical catalog path works on the large run
 - merged removal is complete
+- the manual large-run validation procedure is clearly separated from routine
+  automated testing
 - the repo can treat the entity-centric rehaul as the new default architecture
