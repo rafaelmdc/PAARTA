@@ -28,6 +28,8 @@ class DownloadManifestEntry(TimestampedModel):
 
     class Meta:
         ordering = ["pipeline_run__run_id", "batch__batch_id", "assembly_accession"]
+        verbose_name = "imported download-manifest row"
+        verbose_name_plural = "imported download-manifest rows"
         constraints = [
             models.UniqueConstraint(
                 fields=["pipeline_run", "batch", "assembly_accession"],
@@ -72,6 +74,8 @@ class NormalizationWarning(TimestampedModel):
 
     class Meta:
         ordering = ["pipeline_run__run_id", "batch__batch_id", "warning_code", "assembly_accession"]
+        verbose_name = "imported normalization warning"
+        verbose_name_plural = "imported normalization warnings"
         indexes = [
             models.Index(
                 fields=["pipeline_run", "batch"],
@@ -120,6 +124,8 @@ class AccessionStatus(TimestampedModel):
 
     class Meta:
         ordering = ["pipeline_run__run_id", "assembly_accession"]
+        verbose_name = "imported accession status row"
+        verbose_name_plural = "imported accession status rows"
         constraints = [
             models.UniqueConstraint(
                 fields=["pipeline_run", "assembly_accession"],
@@ -159,6 +165,8 @@ class AccessionCallCount(TimestampedModel):
 
     class Meta:
         ordering = ["pipeline_run__run_id", "assembly_accession", "method", "repeat_residue"]
+        verbose_name = "imported accession call-count row"
+        verbose_name_plural = "imported accession call-count rows"
         constraints = [
             models.UniqueConstraint(
                 fields=["pipeline_run", "assembly_accession", "method", "repeat_residue"],

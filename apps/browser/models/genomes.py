@@ -33,6 +33,8 @@ class Genome(TimestampedModel):
 
     class Meta:
         ordering = ["pipeline_run__run_id", "accession", "genome_id"]
+        verbose_name = "imported genome observation"
+        verbose_name_plural = "imported genome observations"
         constraints = [
             models.UniqueConstraint(
                 fields=["pipeline_run", "genome_id"],
@@ -91,6 +93,8 @@ class Sequence(TimestampedModel):
 
     class Meta:
         ordering = ["pipeline_run__run_id", "sequence_name", "sequence_id"]
+        verbose_name = "imported sequence observation"
+        verbose_name_plural = "imported sequence observations"
         constraints = [
             models.UniqueConstraint(
                 fields=["pipeline_run", "sequence_id"],
@@ -156,6 +160,8 @@ class Protein(TimestampedModel):
 
     class Meta:
         ordering = ["pipeline_run__run_id", "protein_name", "protein_id"]
+        verbose_name = "imported protein observation"
+        verbose_name_plural = "imported protein observations"
         constraints = [
             models.UniqueConstraint(
                 fields=["pipeline_run", "protein_id"],

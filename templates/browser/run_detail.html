@@ -11,8 +11,9 @@
       <h1 class="display-4 fw-semibold mb-3">{{ pipeline_run.run_id }}</h1>
       <p class="lead text-secondary mb-3">
         Imported {{ pipeline_run.imported_at|date:"Y-m-d H:i" }}{% if pipeline_run.profile %} using the <strong>{{ pipeline_run.profile }}</strong> profile{% endif %}.
-        This run anchors imported observations, import batches, and operator-facing provenance.
-        Current browsing starts from the canonical entity catalog.
+        This run anchors historical imported observations, import batches, and
+        operator-facing provenance. Current browsing starts from the canonical
+        entity catalog.
       </p>
       <div class="d-flex flex-wrap gap-2 mb-4">
         <span class="badge rounded-pill text-bg-light border status-badge">Status: {{ pipeline_run.status }}</span>
@@ -142,7 +143,7 @@
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Imported genomes</p>
         <p class="display-5 fw-semibold mb-3">{{ pipeline_run.genomes_count }}</p>
-        <p class="text-secondary mb-0">Genome rows imported for this run and still available as provenance.</p>
+        <p class="text-secondary mb-0">Historical imported genome observations retained for provenance.</p>
       </div>
     </article>
   </div>
@@ -151,7 +152,7 @@
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Imported sequences</p>
         <p class="display-5 fw-semibold mb-3">{{ pipeline_run.sequences_count }}</p>
-        <p class="text-secondary mb-0">Sequence rows imported for this run and retained as browseable history.</p>
+        <p class="text-secondary mb-0">Historical imported sequence observations retained for provenance.</p>
       </div>
     </article>
   </div>
@@ -160,7 +161,7 @@
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Imported proteins</p>
         <p class="display-5 fw-semibold mb-3">{{ pipeline_run.proteins_count }}</p>
-        <p class="text-secondary mb-0">Protein rows imported for this run and linked back into the current catalog.</p>
+        <p class="text-secondary mb-0">Historical imported protein observations retained for provenance.</p>
       </div>
     </article>
   </div>
@@ -169,7 +170,7 @@
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Imported repeat calls</p>
         <p class="display-5 fw-semibold mb-3">{{ pipeline_run.repeat_calls_count }}</p>
-        <p class="text-secondary mb-0">Repeat-call rows imported for this run and preserved as provenance.</p>
+        <p class="text-secondary mb-0">Historical imported repeat-call observations preserved for provenance.</p>
       </div>
     </article>
   </div>
@@ -178,7 +179,7 @@
       <div class="card-body">
         <p class="text-uppercase text-secondary small mb-2">Run parameters</p>
         <p class="display-5 fw-semibold mb-3">{{ pipeline_run.run_parameters_count }}</p>
-        <p class="text-secondary mb-0">Imported method parameter rows from the published run artifacts.</p>
+        <p class="text-secondary mb-0">Historical imported method parameter rows from the published run artifacts.</p>
       </div>
     </article>
   </div>

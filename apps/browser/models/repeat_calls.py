@@ -22,6 +22,8 @@ class RunParameter(models.Model):
 
     class Meta:
         ordering = ["pipeline_run__run_id", "method", "repeat_residue", "param_name"]
+        verbose_name = "imported run parameter"
+        verbose_name_plural = "imported run parameters"
         constraints = [
             models.UniqueConstraint(
                 fields=["pipeline_run", "method", "repeat_residue", "param_name"],
@@ -89,6 +91,8 @@ class RepeatCall(TimestampedModel):
 
     class Meta:
         ordering = ["pipeline_run__run_id", "protein__protein_name", "start", "call_id"]
+        verbose_name = "imported repeat-call observation"
+        verbose_name_plural = "imported repeat-call observations"
         constraints = [
             models.UniqueConstraint(
                 fields=["pipeline_run", "call_id"],

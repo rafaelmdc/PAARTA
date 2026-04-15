@@ -144,6 +144,12 @@ class RawProvenanceModelTests(TestCase):
         self.assertEqual(warning.assembly_accession, "")
         self.assertEqual(warning.sequence_id, "")
 
+    def test_raw_provenance_models_expose_historical_import_labels(self):
+        self.assertEqual(DownloadManifestEntry._meta.verbose_name_plural, "imported download-manifest rows")
+        self.assertEqual(NormalizationWarning._meta.verbose_name_plural, "imported normalization warnings")
+        self.assertEqual(AccessionStatus._meta.verbose_name_plural, "imported accession status rows")
+        self.assertEqual(AccessionCallCount._meta.verbose_name_plural, "imported accession call-count rows")
+
 
 class BiologicalModelTests(TestCase):
     def setUp(self):
@@ -529,3 +535,10 @@ class BiologicalModelTests(TestCase):
         self.assertEqual(repeat_call.accession, self.genome.accession)
         self.assertEqual(repeat_call.protein_name, self.protein.protein_name)
         self.assertEqual(repeat_call.protein_length, self.protein.protein_length)
+
+    def test_biological_run_scoped_models_expose_imported_observation_labels(self):
+        self.assertEqual(Genome._meta.verbose_name_plural, "imported genome observations")
+        self.assertEqual(Sequence._meta.verbose_name_plural, "imported sequence observations")
+        self.assertEqual(Protein._meta.verbose_name_plural, "imported protein observations")
+        self.assertEqual(RepeatCall._meta.verbose_name_plural, "imported repeat-call observations")
+        self.assertEqual(RunParameter._meta.verbose_name_plural, "imported run parameters")

@@ -251,6 +251,7 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "Current repeat calls")
         self.assertContains(response, "Current entities linked to this run")
         self.assertContains(response, "Historical rows stored by this run")
+        self.assertContains(response, "historical imported observations")
         self.assertContains(response, "Distinct taxa referenced")
         self.assertContains(response, "Imported genomes")
         self.assertContains(response, "Imported sequences")

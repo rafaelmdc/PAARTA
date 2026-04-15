@@ -86,5 +86,7 @@ class ImportViewTests(TestCase):
             self.assertContains(response, "failed")
             self.assertContains(response, "completed")
             self.assertContains(response, "failed")
+            self.assertContains(response, "row counts for historical")
+            self.assertContains(response, "imported observations")
             self.assertContains(response, "genomes")
             self.assertContains(response, "already exists")
