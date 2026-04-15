@@ -363,6 +363,8 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, f"{reverse('browser:repeatcall-list')}?run=run-alpha")
         self.assertContains(response, "terminal_status=completed")
         self.assertContains(response, "method=pure")
+        self.assertContains(response, "historical imported status rows")
+        self.assertNotContains(response, f"{reverse('browser:repeatcall-list')}?run=run-alpha&amp;method=pure")
 
     def test_run_detail_replacement_import_separates_current_and_imported_counts(self):
         create_imported_run_fixture(

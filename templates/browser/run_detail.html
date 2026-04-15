@@ -365,6 +365,9 @@
           </div>
           <a class="btn btn-sm btn-outline-secondary" href="{{ accession_call_count_browser_url }}">Browse call-count rows</a>
         </div>
+        <p class="text-secondary mb-3">
+          These totals describe historical imported status rows for this run, not current canonical repeat-call ownership.
+        </p>
         <div class="table-responsive">
           <table class="table align-middle mb-0 data-table">
             <thead>
@@ -372,7 +375,7 @@
                 <th>Method</th>
                 <th>Residue</th>
                 <th>Accessions</th>
-                <th>Repeat calls</th>
+                <th>Imported repeat calls</th>
               </tr>
             </thead>
             <tbody>
@@ -381,7 +384,7 @@
                   <td>{{ item.method }}</td>
                   <td>{{ item.repeat_residue|default:"-" }}</td>
                   <td><a href="{{ accession_call_count_browser_url }}&amp;method={{ item.method|urlencode }}{% if item.repeat_residue %}&amp;residue={{ item.repeat_residue|urlencode }}{% endif %}">{{ item.accession_total }}</a></td>
-                  <td><a href="{{ repeatcall_browser_url }}&amp;method={{ item.method|urlencode }}{% if item.repeat_residue %}&amp;residue={{ item.repeat_residue|urlencode }}{% endif %}">{{ item.repeat_calls_total }}</a></td>
+                  <td>{{ item.repeat_calls_total }}</td>
                 </tr>
               {% empty %}
                 <tr>
