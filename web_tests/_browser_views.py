@@ -832,6 +832,43 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "Primates")
         self.assertNotContains(response, "Mus musculus")
 
+    def test_taxon_list_removes_merged_mode_controls(self):
+        response = self.client.get(reverse("browser:taxon-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'name="mode"')
+        self.assertNotContains(response, "mode-switch")
+        self.assertNotContains(response, 'value="merged"')
+
+    def test_legacy_merged_mode_redirects_list_pages(self):
+        cases = [
+            reverse("browser:taxon-list"),
+            reverse("browser:accession-list"),
+            reverse("browser:genome-list"),
+            reverse("browser:sequence-list"),
+            reverse("browser:protein-list"),
+            reverse("browser:repeatcall-list"),
+        ]
+
+        for url in cases:
+            with self.subTest(url=url):
+                response = self.client.get(url, {"mode": "merged", "run": "run-alpha"})
+                self.assertRedirects(
+                    response,
+                    f"{url}?run=run-alpha",
+                    fetch_redirect_response=False,
+                )
+
+    def test_legacy_merged_mode_redirects_taxon_detail(self):
+        url = reverse("browser:taxon-detail", args=[self.alpha["taxon"].pk])
+        response = self.client.get(url, {"mode": "merged", "run": "run-alpha"})
+
+        self.assertRedirects(
+            response,
+            f"{url}?run=run-alpha",
+            fetch_redirect_response=False,
+        )
+
     def test_taxon_list_branch_filter_includes_descendants(self):
         response = self.client.get(reverse("browser:taxon-list"), {"branch": str(self.mammalia.pk)})
 
@@ -863,6 +900,8 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "Chordata")
         self.assertContains(response, "GCF_ALPHA")
         self.assertNotContains(response, "GCF_BETA")
+        self.assertContains(response, "Open branch accessions")
+        self.assertNotContains(response, "merged")
 
     def test_genome_list_branch_filter_includes_descendant_taxa(self):
         response = self.client.get(reverse("browser:genome-list"), {"branch": str(self.mammalia.pk)})

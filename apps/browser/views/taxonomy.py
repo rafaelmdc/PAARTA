@@ -2,16 +2,11 @@ from django.db.models import Q
 from django.urls import reverse
 from django.views.generic import DetailView
 
-from ..merged import (
-    accession_group_queryset,
-    count_merged_protein_groups,
-    count_merged_repeat_call_groups,
-)
 from ..models import Genome, PipelineRun, Protein, RepeatCall, Taxon, TaxonClosure
+from .base import LegacyMergedModeRedirectMixin
 from .filters import (
     _apply_branch_scope_filter,
     _branch_taxon_ids,
-    _resolve_browser_mode,
     _resolve_branch_scope,
     _resolve_current_run,
     _run_taxon_ids,
@@ -57,7 +52,6 @@ class TaxonListView(VirtualScrollListView):
         self.branch_scope = _resolve_branch_scope(self.request)
         self.selected_branch_taxon = self.branch_scope["selected_branch_taxon"]
         self.current_rank = self.request.GET.get("rank", "").strip()
-        self.current_mode = _resolve_browser_mode(self.request)
 
         if self.current_run:
             queryset = queryset.filter(pk__in=_run_taxon_ids(self.current_run))
@@ -74,7 +68,6 @@ class TaxonListView(VirtualScrollListView):
         current_run = getattr(self, "current_run", None)
         context["current_run"] = current_run
         context["current_run_id"] = current_run.run_id if current_run else ""
-        context["current_mode"] = getattr(self, "current_mode", "run")
         context["run_choices"] = PipelineRun.objects.order_by("-imported_at", "run_id")
         context["current_rank"] = getattr(self, "current_rank", "")
         context["rank_choices"] = (
@@ -87,7 +80,7 @@ class TaxonListView(VirtualScrollListView):
         return context
 
 
-class TaxonDetailView(DetailView):
+class TaxonDetailView(LegacyMergedModeRedirectMixin, DetailView):
     model = Taxon
     template_name = "browser/taxon_detail.html"
     context_object_name = "taxon"
@@ -99,7 +92,6 @@ class TaxonDetailView(DetailView):
         context = super().get_context_data(**kwargs)
         taxon = self.object
         current_run = _resolve_current_run(self.request)
-        current_mode = _resolve_browser_mode(self.request)
         branch_ids = _branch_taxon_ids(taxon)
         branch_genomes = Genome.objects.filter(taxon_id__in=branch_ids).select_related("pipeline_run", "taxon")
         branch_proteins = Protein.objects.filter(taxon_id__in=branch_ids)
@@ -112,7 +104,6 @@ class TaxonDetailView(DetailView):
 
         context["current_run"] = current_run
         context["current_run_id"] = current_run.run_id if current_run else ""
-        context["current_mode"] = current_mode
         context["lineage"] = (
             TaxonClosure.objects.filter(descendant=taxon)
             .select_related("ancestor")
@@ -120,45 +111,24 @@ class TaxonDetailView(DetailView):
         )
         context["descendant_count"] = TaxonClosure.objects.filter(ancestor=taxon, depth__gt=0).count()
         context["child_taxa"] = taxon.children.order_by("taxon_name")[:12]
-        if current_mode == "merged":
-            linked_accessions = list(
-                accession_group_queryset(current_run=current_run, branch_taxon=taxon).order_by("accession")[:10]
-            )
-            context["branch_genomes_count"] = accession_group_queryset(
-                current_run=current_run,
-                branch_taxon=taxon,
-            ).count()
-            context["branch_proteins_count"] = count_merged_protein_groups(
-                current_run=current_run,
-                branch_taxon=taxon,
-            )
-            context["branch_repeat_calls_count"] = count_merged_repeat_call_groups(
-                current_run=current_run,
-                branch_taxon=taxon,
-            )
-            context["linked_accessions"] = linked_accessions
-        else:
-            context["branch_genomes_count"] = branch_genomes.count()
-            context["branch_proteins_count"] = branch_proteins.count()
-            context["branch_repeat_calls_count"] = branch_repeat_calls.count()
-            context["linked_genomes"] = branch_genomes.order_by("accession", "pipeline_run__run_id")[:10]
+        context["branch_genomes_count"] = branch_genomes.count()
+        context["branch_proteins_count"] = branch_proteins.count()
+        context["branch_repeat_calls_count"] = branch_repeat_calls.count()
+        context["linked_genomes"] = branch_genomes.order_by("accession", "pipeline_run__run_id")[:10]
         context["genome_branch_url"] = _url_with_query(
             reverse("browser:genome-list"),
             run=current_run.run_id if current_run else None,
             branch=taxon.pk,
-            mode=current_mode,
         )
         context["protein_branch_url"] = _url_with_query(
             reverse("browser:protein-list"),
             run=current_run.run_id if current_run else None,
             branch=taxon.pk,
-            mode=current_mode,
         )
         context["repeatcall_branch_url"] = _url_with_query(
             reverse("browser:repeatcall-list"),
             run=current_run.run_id if current_run else None,
             branch=taxon.pk,
-            mode=current_mode,
         )
         context["accession_branch_url"] = _url_with_query(
             reverse("browser:accession-list"),

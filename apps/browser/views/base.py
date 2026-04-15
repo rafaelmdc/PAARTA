@@ -1,10 +1,26 @@
 from django.db.models import Q
+from django.http import HttpResponseRedirect
 from django.views.generic import ListView
 
 from .formatting import _ordering_label
 
 
-class BrowserListView(ListView):
+class LegacyMergedModeRedirectMixin:
+    legacy_mode_param = "mode"
+    legacy_mode_value = "merged"
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.GET.get(self.legacy_mode_param, "").strip() == self.legacy_mode_value:
+            query = request.GET.copy()
+            query.pop(self.legacy_mode_param, None)
+            redirect_url = request.path
+            if query:
+                redirect_url = f"{redirect_url}?{query.urlencode()}"
+            return HttpResponseRedirect(redirect_url)
+        return super().dispatch(request, *args, **kwargs)
+
+
+class BrowserListView(LegacyMergedModeRedirectMixin, ListView):
     paginate_by = 20
     ordering_map = {}
     default_ordering = ()
