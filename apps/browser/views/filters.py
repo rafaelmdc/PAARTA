@@ -79,13 +79,6 @@ def _resolve_batch_filter(current_run, batch_pk):
     return queryset.first()
 
 
-def _resolve_browser_mode(request):
-    requested_mode = request.GET.get("mode", "").strip()
-    if requested_mode == "merged":
-        return "merged"
-    return "run"
-
-
 def _resolve_genome_filter(current_run, genome_id):
     if not genome_id:
         return None
