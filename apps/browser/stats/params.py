@@ -2,8 +2,8 @@ ALLOWED_STATS_RANKS = ("phylum", "class", "order", "family", "genus", "species")
 
 DEFAULT_UNSCOPED_RANK = "class"
 DEFAULT_BRANCH_SCOPED_RANK = "species"
-DEFAULT_TOP_N = 25
-MAX_TOP_N = 100
+DEFAULT_TOP_N = 1000
+MAX_TOP_N = 2000
 DEFAULT_MIN_COUNT = 3
 
 

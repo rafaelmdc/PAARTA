@@ -48,7 +48,7 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(filter_state.current_run_id, "")
         self.assertFalse(filter_state.branch_scope_active)
         self.assertEqual(filter_state.rank, "class")
-        self.assertEqual(filter_state.top_n, 25)
+        self.assertEqual(filter_state.top_n, 1000)
         self.assertEqual(filter_state.min_count, 3)
         self.assertEqual(filter_state.cache_key_data()["rank"], "class")
 
@@ -67,7 +67,7 @@ class BrowserStatsTests(TestCase):
                 "purity_min": "0.8",
                 "purity_max": "1.0",
                 "min_count": "0",
-                "top_n": "999",
+                "top_n": "9999",
             },
         )
 
@@ -85,7 +85,7 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(filter_state.purity_min, 0.8)
         self.assertEqual(filter_state.purity_max, 1.0)
         self.assertEqual(filter_state.min_count, 1)
-        self.assertEqual(filter_state.top_n, 100)
+        self.assertEqual(filter_state.top_n, 2000)
 
     def test_ranked_taxon_group_query_rolls_up_and_summarizes_lengths(self):
         request = self.factory.get(

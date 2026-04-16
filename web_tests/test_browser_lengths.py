@@ -98,7 +98,7 @@ class BrowserLengthExplorerTests(TestCase):
         self.assertTemplateUsed(response, "browser/repeat_length_explorer.html")
         self.assertContains(response, "Lineage-aware repeat length exploration over the current catalog.")
         self.assertEqual(response.context["current_rank"], "class")
-        self.assertEqual(response.context["current_top_n"], 25)
+        self.assertEqual(response.context["current_top_n"], 1000)
         self.assertEqual(response.context["current_min_count"], 3)
         self.assertEqual(response.context["matching_repeat_calls_count"], 2)
         self.assertEqual(response.context["total_taxa_count"], 0)
@@ -128,7 +128,7 @@ class BrowserLengthExplorerTests(TestCase):
             {
                 "run": "run-beta",
                 "residue": "q",
-                "top_n": "999",
+                "top_n": "9999",
                 "min_count": "0",
                 "length_min": "bad",
                 "length_max": "12",
@@ -138,7 +138,7 @@ class BrowserLengthExplorerTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["current_run_id"], "run-beta")
         self.assertEqual(response.context["current_residue"], "Q")
-        self.assertEqual(response.context["current_top_n"], 100)
+        self.assertEqual(response.context["current_top_n"], 2000)
         self.assertEqual(response.context["current_min_count"], 1)
         self.assertIsNone(response.context["current_length_min"])
         self.assertEqual(response.context["current_length_max"], 12)
