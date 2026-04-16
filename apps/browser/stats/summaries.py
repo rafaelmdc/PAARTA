@@ -11,9 +11,9 @@ def build_length_summary(lengths):
     sorted_lengths = sorted(lengths)
     return {
         "min_length": sorted_lengths[0],
-        "q1": _normalize_quantile(_linear_quantile(sorted_lengths, 0.25)),
-        "median": _normalize_quantile(_linear_quantile(sorted_lengths, 0.5)),
-        "q3": _normalize_quantile(_linear_quantile(sorted_lengths, 0.75)),
+        "q1": normalize_length_summary_value(_linear_quantile(sorted_lengths, 0.25)),
+        "median": normalize_length_summary_value(_linear_quantile(sorted_lengths, 0.5)),
+        "q3": normalize_length_summary_value(_linear_quantile(sorted_lengths, 0.75)),
         "max_length": sorted_lengths[-1],
     }
 
@@ -56,7 +56,7 @@ def _linear_quantile(sorted_values, quantile: float) -> float:
     return lower_value + ((upper_value - lower_value) * fraction)
 
 
-def _normalize_quantile(value: float):
+def normalize_length_summary_value(value: float):
     rounded = round(value, 3)
     if float(rounded).is_integer():
         return int(rounded)

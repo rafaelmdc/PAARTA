@@ -3,11 +3,8 @@ from django.views.generic import TemplateView
 
 from apps.browser.stats import (
     apply_stats_filter_context,
-    build_filtered_repeat_call_queryset,
-    build_group_length_values_queryset,
-    build_ranked_taxon_group_queryset,
+    build_ranked_length_summary_bundle,
     build_stats_filter_state,
-    summarize_ranked_length_groups,
 )
 from apps.browser.stats.params import ALLOWED_STATS_RANKS
 
@@ -24,36 +21,14 @@ class RepeatLengthExplorerView(TemplateView):
             self._filter_state = build_stats_filter_state(self.request)
         return self._filter_state
 
-    def _get_matching_repeat_calls_count(self) -> int:
-        if not hasattr(self, "_matching_repeat_calls_count"):
-            self._matching_repeat_calls_count = build_filtered_repeat_call_queryset(self._get_filter_state()).count()
-        return self._matching_repeat_calls_count
-
-    def _get_group_rows(self) -> list[dict[str, object]]:
-        if not hasattr(self, "_group_rows"):
-            self._group_rows = list(build_ranked_taxon_group_queryset(self._get_filter_state()))
-        return self._group_rows
-
-    def _get_summary_rows(self) -> list[dict[str, object]]:
-        if hasattr(self, "_summary_rows"):
-            return self._summary_rows
-
-        filter_state = self._get_filter_state()
-        group_rows = self._get_group_rows()
-        display_taxon_ids = [row["display_taxon_id"] for row in group_rows]
-        grouped_lengths = (
-            list(
-                build_group_length_values_queryset(
-                    filter_state,
-                    display_taxon_ids=display_taxon_ids,
-                )
-            )
-            if display_taxon_ids
-            else []
-        )
-        summary_rows = summarize_ranked_length_groups(group_rows, grouped_lengths)
-        self._summary_rows = [self._with_row_links(row) for row in summary_rows]
-        return self._summary_rows
+    def _get_summary_bundle(self) -> dict[str, object]:
+        if not hasattr(self, "_summary_bundle"):
+            summary_bundle = build_ranked_length_summary_bundle(self._get_filter_state())
+            self._summary_bundle = {
+                **summary_bundle,
+                "summary_rows": [self._with_row_links(row) for row in summary_bundle["summary_rows"]],
+            }
+        return self._summary_bundle
 
     def _get_facet_choices(self) -> dict[str, list[str]]:
         if not hasattr(self, "_facet_choices"):
@@ -127,12 +102,13 @@ class RepeatLengthExplorerView(TemplateView):
         context = super().get_context_data(**kwargs)
         filter_state = self._get_filter_state()
         facet_choices = self._get_facet_choices()
-        summary_rows = self._get_summary_rows()
+        summary_bundle = self._get_summary_bundle()
+        summary_rows = summary_bundle["summary_rows"]
 
         apply_stats_filter_context(context, filter_state)
-        context["matching_repeat_calls_count"] = self._get_matching_repeat_calls_count()
+        context["matching_repeat_calls_count"] = summary_bundle["matching_repeat_calls_count"]
         context["summary_rows"] = summary_rows
-        context["visible_taxa_count"] = len(summary_rows)
+        context["visible_taxa_count"] = summary_bundle["visible_taxa_count"]
         context["run_choices"] = PipelineRun.objects.order_by("-imported_at", "run_id")
         context["rank_choices"] = [
             {"value": rank, "label": rank}

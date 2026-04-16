@@ -1,8 +1,12 @@
+from unittest.mock import patch
+
+from django.core.cache import cache
 from django.test import RequestFactory, TestCase
 
 from apps.browser.stats import (
     build_group_length_values_queryset,
     build_ranked_length_chart_payload,
+    build_ranked_length_summary_bundle,
     build_ranked_taxon_group_queryset,
     build_stats_filter_state,
     summarize_ranked_length_groups,
@@ -14,6 +18,7 @@ from .support import create_imported_run_fixture
 class BrowserStatsTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
+        cache.clear()
         self.alpha = create_imported_run_fixture(
             run_id="run-alpha",
             genome_id="genome_alpha",
@@ -146,3 +151,28 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(len(group_rows), 1)
         self.assertEqual(group_rows[0]["display_taxon_name"], "Homo sapiens")
         self.assertEqual(group_rows[0]["observation_count"], 1)
+
+    def test_ranked_length_summary_bundle_caches_visible_results(self):
+        request = self.factory.get(
+            "/browser/lengths/",
+            {
+                "rank": "class",
+                "min_count": "1",
+                "top_n": "10",
+            },
+        )
+        filter_state = build_stats_filter_state(request)
+
+        first_bundle = build_ranked_length_summary_bundle(filter_state)
+
+        self.assertEqual(first_bundle["matching_repeat_calls_count"], 2)
+        self.assertEqual(first_bundle["visible_taxa_count"], 1)
+        self.assertEqual(first_bundle["summary_rows"][0]["taxon_name"], "Mammalia")
+
+        with patch(
+            "apps.browser.stats.queries.build_filtered_repeat_call_queryset",
+            side_effect=AssertionError("expected cached summary bundle"),
+        ):
+            second_bundle = build_ranked_length_summary_bundle(filter_state)
+
+        self.assertEqual(second_bundle, first_bundle)
