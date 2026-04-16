@@ -6,6 +6,8 @@
   const CHART_MODE_FULL_RANGE = "full-range";
   const GRID_COLOR = "rgba(23, 36, 44, 0.1)";
   const MAX_VISIBLE_ROWS_WITH_TAXON_LABELS = 24;
+  const PENDING_SCROLL_KEY = "repeat-length-explorer:pending-scroll";
+  const PENDING_SCROLL_MAX_AGE_MS = 15000;
   const TEXT_COLOR = "#17242c";
   const MUTED_TEXT_COLOR = "#63727a";
   const DEFAULT_VISIBLE_ROWS = 12;
@@ -123,6 +125,58 @@
 
   function shouldShowTaxonLabels(visibleRowCount) {
     return visibleRowCount <= MAX_VISIBLE_ROWS_WITH_TAXON_LABELS;
+  }
+
+  function savePendingScrollPosition() {
+    try {
+      window.sessionStorage.setItem(
+        PENDING_SCROLL_KEY,
+        JSON.stringify({
+          path: window.location.pathname,
+          scrollY: window.scrollY,
+          savedAt: Date.now(),
+        }),
+      );
+    } catch (error) {
+      // Ignore sessionStorage failures and fall back to default browser behavior.
+    }
+  }
+
+  function restorePendingScrollPosition() {
+    try {
+      const rawValue = window.sessionStorage.getItem(PENDING_SCROLL_KEY);
+      if (!rawValue) {
+        return;
+      }
+
+      window.sessionStorage.removeItem(PENDING_SCROLL_KEY);
+      const pendingState = JSON.parse(rawValue);
+      if (!pendingState || pendingState.path !== window.location.pathname) {
+        return;
+      }
+      if ((Date.now() - pendingState.savedAt) > PENDING_SCROLL_MAX_AGE_MS) {
+        return;
+      }
+      if (typeof pendingState.scrollY !== "number" || !Number.isFinite(pendingState.scrollY)) {
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          window.scrollTo({
+            top: pendingState.scrollY,
+            left: 0,
+            behavior: "auto",
+          });
+        });
+      });
+    } catch (error) {
+      try {
+        window.sessionStorage.removeItem(PENDING_SCROLL_KEY);
+      } catch (storageError) {
+        // Ignore cleanup failures.
+      }
+    }
   }
 
   function focusedDisplayMin(row) {
@@ -508,6 +562,7 @@
     if (!row || !row.branchExplorerUrl) {
       return;
     }
+    savePendingScrollPosition();
     window.location.assign(row.branchExplorerUrl);
   }
 
@@ -681,8 +736,24 @@
     renderPage(1);
   }
 
+  function installScrollPreservingLinks() {
+    document.querySelectorAll("[data-preserve-scroll-link]").forEach((link) => {
+      link.addEventListener("click", (event) => {
+        if (event.defaultPrevented || event.button !== 0) {
+          return;
+        }
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+          return;
+        }
+        savePendingScrollPosition();
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     mountLengthChart();
     mountSummaryTablePagination();
+    installScrollPreservingLinks();
+    restorePendingScrollPosition();
   });
 })();

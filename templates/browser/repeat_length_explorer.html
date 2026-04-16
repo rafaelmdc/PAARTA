@@ -109,27 +109,6 @@
   </form>
 </section>
 
-<section class="surface-card surface-card-wide">
-  <div class="section-header">
-    <div>
-      <p class="section-kicker mb-2">Current filter scope</p>
-      <h2>{{ matching_repeat_calls_count }} matching canonical repeat call{{ matching_repeat_calls_count|pluralize }}</h2>
-      <p class="text-secondary mb-0">Normalized filter handling is active and grouped taxon summaries are rendered below for the current visible set.</p>
-    </div>
-  </div>
-
-  <div class="row g-4">
-    {% for item in scope_items %}
-      <div class="col-md-6 col-xl-4">
-        <article class="metric-panel h-100">
-          <p class="sheet-label">{{ item.label }}</p>
-          <p class="mb-0">{{ item.value }}</p>
-        </article>
-      </div>
-    {% endfor %}
-  </div>
-</section>
-
 <section class="surface-card surface-card-wide mb-4">
   <div class="section-header">
     <div>
@@ -149,6 +128,27 @@
   <noscript>
     <p class="surface-note mb-0 mt-3">JavaScript is disabled, so the summary table remains the active view.</p>
   </noscript>
+</section>
+
+<section class="surface-card surface-card-wide mb-4">
+  <div class="section-header">
+    <div>
+      <p class="section-kicker mb-2">Current filter scope</p>
+      <h2>{{ matching_repeat_calls_count }} matching canonical repeat call{{ matching_repeat_calls_count|pluralize }}</h2>
+      <p class="text-secondary mb-0">Normalized filter handling is active and grouped taxon summaries are rendered below for the current visible set.</p>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    {% for item in scope_items %}
+      <div class="col-md-6 col-xl-4">
+        <article class="metric-panel h-100">
+          <p class="sheet-label">{{ item.label }}</p>
+          <p class="mb-0">{{ item.value }}</p>
+        </article>
+      </div>
+    {% endfor %}
+  </div>
 </section>
 
 <section class="surface-card surface-card-wide" data-summary-section data-summary-page-size="25">
@@ -189,7 +189,7 @@
             <td>
               <div class="d-flex flex-wrap gap-2">
                 <a class="btn btn-outline-secondary btn-sm" href="{{ row.taxon_detail_url }}">Taxon</a>
-                <a class="btn btn-outline-dark btn-sm" href="{{ row.branch_explorer_url }}">Open branch</a>
+                <a class="btn btn-outline-dark btn-sm" href="{{ row.branch_explorer_url }}" data-preserve-scroll-link>Open branch</a>
               </div>
             </td>
           </tr>

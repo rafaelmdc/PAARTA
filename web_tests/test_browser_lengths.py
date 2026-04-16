@@ -224,6 +224,7 @@ class BrowserLengthExplorerTests(TestCase):
         self.assertContains(response, 'data-summary-row')
         self.assertContains(response, 'data-summary-pagination')
         self.assertContains(response, 'data-chart-mode-switch')
+        self.assertContains(response, 'data-preserve-scroll-link')
 
         summary_rows = response.context["summary_rows"]
         self.assertEqual(len(summary_rows), 1)
