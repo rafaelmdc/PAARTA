@@ -37,6 +37,12 @@ class BrowserLengthExplorerTests(TestCase):
         self.assertEqual(response.context["current_top_n"], 25)
         self.assertEqual(response.context["current_min_count"], 3)
         self.assertEqual(response.context["matching_repeat_calls_count"], 2)
+        self.assertEqual(response.context["visible_taxa_count"], 0)
+        self.assertEqual(response.context["summary_rows"], [])
+        self.assertContains(
+            response,
+            "No taxa reached the current display rank and minimum observation threshold.",
+        )
 
     def test_length_explorer_normalizes_run_and_numeric_filters(self):
         response = self.client.get(
@@ -60,6 +66,33 @@ class BrowserLengthExplorerTests(TestCase):
         self.assertEqual(response.context["current_length_max"], 12)
         self.assertEqual(response.context["matching_repeat_calls_count"], 1)
 
+    def test_length_explorer_renders_grouped_taxon_summary_rows(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {
+                "rank": "class",
+                "min_count": "1",
+                "top_n": "10",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["visible_taxa_count"], 1)
+        self.assertContains(response, "Grouped taxa")
+        self.assertContains(response, "Mammalia")
+        self.assertContains(response, "Open branch")
+
+        summary_rows = response.context["summary_rows"]
+        self.assertEqual(len(summary_rows), 1)
+        self.assertEqual(summary_rows[0]["taxon_name"], "Mammalia")
+        self.assertEqual(summary_rows[0]["rank"], "class")
+        self.assertEqual(summary_rows[0]["observation_count"], 2)
+        self.assertEqual(summary_rows[0]["min_length"], 11)
+        self.assertEqual(summary_rows[0]["median"], 11)
+        self.assertEqual(summary_rows[0]["max_length"], 11)
+        self.assertIn(reverse("browser:taxon-detail", args=[summary_rows[0]["taxon_id"]]), summary_rows[0]["taxon_detail_url"])
+        self.assertIn(f"branch={summary_rows[0]['taxon_id']}", summary_rows[0]["branch_explorer_url"])
+
     def test_length_explorer_branch_scope_defaults_rank_to_species(self):
         response = self.client.get(
             reverse("browser:lengths"),
@@ -73,3 +106,36 @@ class BrowserLengthExplorerTests(TestCase):
         self.assertEqual(response.context["current_branch_q"], "Prim")
         self.assertEqual(response.context["current_rank"], "species")
         self.assertEqual(response.context["matching_repeat_calls_count"], 1)
+
+    def test_length_explorer_branch_scope_can_render_species_summary_rows(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {
+                "branch_q": "Prim",
+                "min_count": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["current_rank"], "species")
+        self.assertEqual(response.context["visible_taxa_count"], 1)
+        self.assertEqual(response.context["summary_rows"][0]["taxon_name"], "Homo sapiens")
+        self.assertEqual(response.context["summary_rows"][0]["observation_count"], 1)
+
+    def test_length_explorer_explains_when_matches_exist_but_no_taxa_survive_threshold(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {
+                "branch_q": "Prim",
+                "min_count": "2",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["matching_repeat_calls_count"], 1)
+        self.assertEqual(response.context["visible_taxa_count"], 0)
+        self.assertEqual(response.context["summary_rows"], [])
+        self.assertContains(
+            response,
+            "No taxa reached the current display rank and minimum observation threshold.",
+        )

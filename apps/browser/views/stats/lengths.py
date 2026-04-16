@@ -4,12 +4,16 @@ from django.views.generic import TemplateView
 from apps.browser.stats import (
     apply_stats_filter_context,
     build_filtered_repeat_call_queryset,
+    build_group_length_values_queryset,
+    build_ranked_taxon_group_queryset,
     build_stats_filter_state,
+    summarize_ranked_length_groups,
 )
 from apps.browser.stats.params import ALLOWED_STATS_RANKS
 
 from ...metadata import resolve_browser_facets
 from ...models import PipelineRun
+from ..navigation import _url_with_query
 
 
 class RepeatLengthExplorerView(TemplateView):
@@ -24,6 +28,32 @@ class RepeatLengthExplorerView(TemplateView):
         if not hasattr(self, "_matching_repeat_calls_count"):
             self._matching_repeat_calls_count = build_filtered_repeat_call_queryset(self._get_filter_state()).count()
         return self._matching_repeat_calls_count
+
+    def _get_group_rows(self) -> list[dict[str, object]]:
+        if not hasattr(self, "_group_rows"):
+            self._group_rows = list(build_ranked_taxon_group_queryset(self._get_filter_state()))
+        return self._group_rows
+
+    def _get_summary_rows(self) -> list[dict[str, object]]:
+        if hasattr(self, "_summary_rows"):
+            return self._summary_rows
+
+        filter_state = self._get_filter_state()
+        group_rows = self._get_group_rows()
+        display_taxon_ids = [row["display_taxon_id"] for row in group_rows]
+        grouped_lengths = (
+            list(
+                build_group_length_values_queryset(
+                    filter_state,
+                    display_taxon_ids=display_taxon_ids,
+                )
+            )
+            if display_taxon_ids
+            else []
+        )
+        summary_rows = summarize_ranked_length_groups(group_rows, grouped_lengths)
+        self._summary_rows = [self._with_row_links(row) for row in summary_rows]
+        return self._summary_rows
 
     def _get_facet_choices(self) -> dict[str, list[str]]:
         if not hasattr(self, "_facet_choices"):
@@ -71,13 +101,38 @@ class RepeatLengthExplorerView(TemplateView):
             },
         ]
 
+    def _with_row_links(self, row: dict[str, object]) -> dict[str, object]:
+        filter_state = self._get_filter_state()
+        return {
+            **row,
+            "taxon_detail_url": _url_with_query(
+                reverse("browser:taxon-detail", args=[row["taxon_id"]]),
+                run=filter_state.current_run_id,
+            ),
+            "branch_explorer_url": _url_with_query(
+                reverse("browser:lengths"),
+                run=filter_state.current_run_id,
+                branch=row["taxon_id"],
+                q=filter_state.q,
+                method=filter_state.method,
+                residue=filter_state.residue,
+                length_min=filter_state.length_min,
+                length_max=filter_state.length_max,
+                min_count=filter_state.min_count,
+                top_n=filter_state.top_n,
+            ),
+        }
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         filter_state = self._get_filter_state()
         facet_choices = self._get_facet_choices()
+        summary_rows = self._get_summary_rows()
 
         apply_stats_filter_context(context, filter_state)
         context["matching_repeat_calls_count"] = self._get_matching_repeat_calls_count()
+        context["summary_rows"] = summary_rows
+        context["visible_taxa_count"] = len(summary_rows)
         context["run_choices"] = PipelineRun.objects.order_by("-imported_at", "run_id")
         context["rank_choices"] = [
             {"value": rank, "label": rank}
@@ -87,4 +142,9 @@ class RepeatLengthExplorerView(TemplateView):
         context["residue_choices"] = facet_choices["residues"]
         context["scope_items"] = self._scope_items()
         context["reset_url"] = reverse("browser:lengths")
+        context["summary_empty_reason"] = (
+            "No taxa reached the current display rank and minimum observation threshold."
+            if context["matching_repeat_calls_count"] > 0 and not summary_rows
+            else "No canonical repeat calls matched these filters."
+        )
         return context

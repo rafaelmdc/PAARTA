@@ -11,8 +11,8 @@
       <h1 class="landing-title mb-3">Lineage-aware repeat length exploration over the current catalog.</h1>
       <p class="landing-lead mb-0">
         Define the lineage, rank, method, residue, target search, and length
-        scope for repeat-length comparison before grouped taxon summaries are
-        rendered.
+        scope, then compare the visible taxa through grouped repeat-length
+        summaries.
       </p>
     </div>
     <aside class="landing-aside">
@@ -109,7 +109,7 @@
     <div>
       <p class="section-kicker mb-2">Current filter scope</p>
       <h2>{{ matching_repeat_calls_count }} matching canonical repeat call{{ matching_repeat_calls_count|pluralize }}</h2>
-      <p class="text-secondary mb-0">The route and normalized filter contract are active. Grouped taxon summaries land in the next slice.</p>
+      <p class="text-secondary mb-0">Normalized filter handling is active and grouped taxon summaries are rendered below for the current visible set.</p>
     </div>
   </div>
 
@@ -122,6 +122,58 @@
         </article>
       </div>
     {% endfor %}
+  </div>
+</section>
+
+<section class="surface-card surface-card-wide">
+  <div class="section-header">
+    <div>
+      <p class="section-kicker mb-2">Grouped taxa</p>
+      <h2>{{ visible_taxa_count }} visible taxon{{ visible_taxa_count|pluralize }} at rank {{ current_rank }}</h2>
+      <p class="text-secondary mb-0">Rows are ordered by observation count and limited by the current Top N setting.</p>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table align-middle mb-0 data-table">
+      <thead>
+        <tr>
+          <th>Taxon</th>
+          <th>Rank</th>
+          <th>Observations</th>
+          <th>Min</th>
+          <th>Q1</th>
+          <th>Median</th>
+          <th>Q3</th>
+          <th>Max</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in summary_rows %}
+          <tr>
+            <td><a href="{{ row.taxon_detail_url }}">{{ row.taxon_name }}</a></td>
+            <td>{{ row.rank }}</td>
+            <td>{{ row.observation_count }}</td>
+            <td>{{ row.min_length }}</td>
+            <td>{{ row.q1 }}</td>
+            <td>{{ row.median }}</td>
+            <td>{{ row.q3 }}</td>
+            <td>{{ row.max_length }}</td>
+            <td>
+              <div class="d-flex flex-wrap gap-2">
+                <a class="btn btn-outline-secondary btn-sm" href="{{ row.taxon_detail_url }}">Taxon</a>
+                <a class="btn btn-outline-dark btn-sm" href="{{ row.branch_explorer_url }}">Open branch</a>
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="9" class="empty-cell">{{ summary_empty_reason }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </section>
 {% endblock %}
