@@ -76,6 +76,11 @@ def _browser_directory_sections():
                     url_name="browser:repeatcall-list",
                     count=CanonicalRepeatCall.objects.count(),
                 ),
+                _nav_item(
+                    "Repeat lengths",
+                    "Current-catalog repeat length explorer for lineage-aware browsing across grouped taxon summaries.",
+                    url_name="browser:lengths",
+                ),
             ],
         },
         {

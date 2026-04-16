@@ -143,6 +143,8 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "Current catalog")
         self.assertContains(response, "Open accession browser")
         self.assertContains(response, reverse("browser:accession-list"))
+        self.assertContains(response, "Repeat lengths")
+        self.assertContains(response, reverse("browser:lengths"))
         self.assertContains(response, "Run provenance")
         self.assertContains(response, "Operational provenance")
         self.assertContains(response, reverse("browser:accessionstatus-list"))

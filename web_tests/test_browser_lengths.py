@@ -203,5 +203,7 @@ class BrowserLengthExplorerTests(TestCase):
         response = self.client.get(reverse("browser:home"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("browser:lengths"))
+        self.assertContains(response, "Repeat lengths")
         self.assertNotContains(response, "repeat-length-explorer.js")
         self.assertNotContains(response, "echarts.min.js")

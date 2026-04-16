@@ -256,6 +256,52 @@ class ImportRunCommandTests(TestCase):
                 },
             )
 
+    def test_import_run_keeps_raw_rows_when_canonical_sync_fails(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-sync-failed")
+            stdout = StringIO()
+
+            with patch(
+                "apps.imports.services.import_run.api.sync_canonical_catalog_for_run",
+                side_effect=RuntimeError("sync boom"),
+            ):
+                with self.assertRaises(RuntimeError):
+                    call_command("import_run", publish_root=str(publish_root), stdout=stdout)
+
+            pipeline_run = PipelineRun.objects.get(run_id="run-sync-failed")
+            batch = ImportBatch.objects.get()
+
+            self.assertEqual(batch.status, ImportBatch.Status.FAILED)
+            self.assertEqual(batch.pipeline_run, pipeline_run)
+            self.assertEqual(batch.error_message, "sync boom")
+            self.assertEqual(Genome.objects.count(), 1)
+            self.assertEqual(Sequence.objects.count(), 1)
+            self.assertEqual(Protein.objects.count(), 1)
+            self.assertEqual(RepeatCall.objects.count(), 1)
+            self.assertEqual(CanonicalGenome.objects.count(), 0)
+            self.assertEqual(CanonicalSequence.objects.count(), 0)
+            self.assertEqual(CanonicalProtein.objects.count(), 0)
+            self.assertEqual(CanonicalRepeatCall.objects.count(), 0)
+            self.assertEqual(
+                pipeline_run.browser_metadata,
+                {
+                    "raw_counts": {
+                        "genomes": 1,
+                        "sequences": 1,
+                        "proteins": 1,
+                        "repeat_calls": 1,
+                        "accession_status_rows": 1,
+                        "accession_call_count_rows": 1,
+                        "download_manifest_entries": 1,
+                        "normalization_warnings": 0,
+                    },
+                    "facets": {
+                        "methods": [RunParameter.Method.PURE],
+                        "residues": ["Q"],
+                    },
+                },
+            )
+
     def test_import_run_replace_existing_removes_stale_canonical_repeat_entities(self):
         with TemporaryDirectory() as tempdir:
             publish_root = build_multibatch_publish_root(Path(tempdir), run_id="run-replace-stale")

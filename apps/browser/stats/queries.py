@@ -3,9 +3,9 @@ from __future__ import annotations
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
-from django.db.models import CharField, Count, IntegerField, Max, Min, OuterRef, Q, Subquery
+from django.db.models import Count, F, Max, Min, Q
 
-from ..models import CanonicalRepeatCall, TaxonClosure
+from ..models import CanonicalRepeatCall
 from .aggregates import PercentileCont
 from .filters import StatsFilterState
 from .summaries import normalize_length_summary_value, summarize_ranked_length_groups
@@ -47,7 +47,7 @@ def build_ranked_length_summary_bundle(filter_state: StatsFilterState) -> dict[s
 
 
 def build_filtered_repeat_call_queryset(filter_state: StatsFilterState):
-    queryset = CanonicalRepeatCall.objects.all()
+    queryset = CanonicalRepeatCall.objects.order_by()
 
     if filter_state.current_run is not None:
         queryset = queryset.filter(latest_pipeline_run=filter_state.current_run)
@@ -150,22 +150,10 @@ def build_ranked_taxon_group_base_queryset(filter_state: StatsFilterState):
 
 
 def _with_display_taxon_annotations(queryset, *, rank: str):
-    ancestor_links = TaxonClosure.objects.filter(
-        descendant_id=OuterRef("taxon_id"),
-        ancestor__rank=rank,
-    ).order_by("depth", "ancestor_id")
-
-    return queryset.annotate(
-        display_taxon_id=Subquery(
-            ancestor_links.values("ancestor_id")[:1],
-            output_field=IntegerField(),
-        ),
-        display_taxon_name=Subquery(
-            ancestor_links.values("ancestor__taxon_name")[:1],
-            output_field=CharField(),
-        ),
-        display_taxon_rank=Subquery(
-            ancestor_links.values("ancestor__rank")[:1],
-            output_field=CharField(),
-        ),
+    return queryset.filter(
+        taxon__closure_ancestors__ancestor__rank=rank,
+    ).annotate(
+        display_taxon_id=F("taxon__closure_ancestors__ancestor_id"),
+        display_taxon_name=F("taxon__closure_ancestors__ancestor__taxon_name"),
+        display_taxon_rank=F("taxon__closure_ancestors__ancestor__rank"),
     )
