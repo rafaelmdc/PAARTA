@@ -22,6 +22,7 @@ from .explorer import (
 )
 from .base import BrowserListView
 from .pagination import CursorPage, CursorPaginatedListView, CursorPaginator, VirtualScrollListView
+from .stats import RepeatLengthExplorerView
 
 __all__ = [
     "AccessionCallCountListView",
@@ -39,6 +40,7 @@ __all__ = [
     "NormalizationWarningListView",
     "ProteinDetailView",
     "ProteinListView",
+    "RepeatLengthExplorerView",
     "RepeatCallDetailView",
     "RepeatCallListView",
     "RunDetailView",
