@@ -11,6 +11,7 @@ from apps.browser.stats import (
     build_stats_filter_state,
     summarize_ranked_length_groups,
 )
+from apps.browser.models import CanonicalRepeatCall
 
 from .support import create_imported_run_fixture
 
@@ -177,3 +178,28 @@ class BrowserStatsTests(TestCase):
             second_bundle = build_ranked_length_summary_bundle(filter_state)
 
         self.assertEqual(second_bundle, first_bundle)
+
+    def test_imported_run_fixture_populates_residue_specific_codon_defaults(self):
+        gamma = create_imported_run_fixture(
+            run_id="run-gamma",
+            genome_id="genome_gamma",
+            sequence_id="seq_gamma",
+            protein_id="prot_gamma",
+            call_id="call_gamma",
+            accession="GCF_GAMMA",
+            taxon_key="human",
+            repeat_residue="A",
+        )
+
+        repeat_call = gamma["repeat_call"]
+        canonical_repeat_call = CanonicalRepeatCall.objects.get(latest_repeat_call=repeat_call)
+
+        self.assertEqual(gamma["run_parameter"].repeat_residue, "A")
+        self.assertEqual(gamma["accession_call_count"].repeat_residue, "A")
+        self.assertEqual(repeat_call.repeat_residue, "A")
+        self.assertEqual(repeat_call.codon_metric_name, "codon_ratio")
+        self.assertEqual(repeat_call.codon_metric_value, "0.75")
+        self.assertEqual(repeat_call.codon_ratio_value, 0.75)
+        self.assertEqual(repeat_call.codon_sequence, "GCT" * 11)
+        self.assertEqual(canonical_repeat_call.repeat_residue, "A")
+        self.assertEqual(canonical_repeat_call.codon_ratio_value, 0.75)

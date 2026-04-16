@@ -21,7 +21,7 @@ from apps.browser.models import (
 from apps.browser.views import ProteinListView, RepeatCallListView, SequenceListView
 from apps.imports.models import ImportBatch
 
-from .support import create_imported_run_fixture
+from .support import build_test_repeat_call_values, create_imported_run_fixture
 
 
 class BrowserViewTests(TestCase):
@@ -104,10 +104,11 @@ class BrowserViewTests(TestCase):
             genome = protein.genome
             taxon = protein.taxon
 
-        repeat_count = max(1, min(length, int(round(length * purity))))
-        non_repeat_count = max(length - repeat_count, 0)
-        filler = "A" if residue != "A" else "Q"
-        aa_sequence = (residue * repeat_count) + (filler * non_repeat_count)
+        repeat_call_values = build_test_repeat_call_values(
+            residue=residue,
+            length=length,
+            purity=purity,
+        )
         repeat_call = RepeatCall.objects.create(
             pipeline_run=pipeline_run,
             genome=genome,
@@ -124,10 +125,14 @@ class BrowserViewTests(TestCase):
             end=start + length - 1,
             length=length,
             repeat_residue=residue,
-            repeat_count=repeat_count,
-            non_repeat_count=non_repeat_count,
+            repeat_count=repeat_call_values["repeat_count"],
+            non_repeat_count=repeat_call_values["non_repeat_count"],
             purity=purity,
-            aa_sequence=aa_sequence,
+            aa_sequence=repeat_call_values["aa_sequence"],
+            codon_sequence=repeat_call_values["codon_sequence"],
+            codon_metric_name=repeat_call_values["codon_metric_name"],
+            codon_metric_value=repeat_call_values["codon_metric_value"],
+            codon_ratio_value=repeat_call_values["codon_ratio_value"],
         )
         sync_canonical_catalog_for_run(
             pipeline_run,
