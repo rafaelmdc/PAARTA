@@ -4,14 +4,14 @@ Django project area for the HomoRepeat website.
 
 Current app split:
 - `apps/core/`: home page, shared site shell, healthcheck, and future graph pages
-- `apps/browser/`: run-first data browser
+- `apps/browser/`: canonical-first biology browser plus run/import provenance
 - `apps/imports/`: staff-facing published-run ingestion
 
 Current runtime model:
-- published `raw` runs are imported into PostgreSQL as the canonical runtime
-  truth
-- merged browser mode is derived from imported raw evidence and is never
-  treated as canonical imported truth
+- published `raw` runs are imported into PostgreSQL as historical observation
+  data plus a canonical current-serving catalog
+- normal browsing reads the canonical catalog first and links back to the
+  latest import/run provenance
 - normal browsing reads from PostgreSQL after import; pipeline TSV and JSON
   artifacts are required only at import time
 - the default local deployment is Docker-first: `web` serves requests and
@@ -67,9 +67,9 @@ With the Compose stack running, you can:
 Current endpoints:
 - `/`: site home
 - `/healthz/`: JSON healthcheck
-- `/browser/`: browser directory page for raw and merged browse paths
-- `/browser/runs/`: imported runs and run-level provenance
-- `/browser/accessions/`, `/browser/genomes/`, `/browser/sequences/`, `/browser/proteins/`, `/browser/calls/`: main biological browse surfaces
+- `/browser/`: browser directory page for canonical biology and provenance
+- `/browser/runs/`: imported runs and run-level provenance/history
+- `/browser/accessions/`, `/browser/genomes/`, `/browser/sequences/`, `/browser/proteins/`, `/browser/calls/`: main canonical biological browse surfaces
 - `/browser/warnings/`, `/browser/accession-status/`, `/browser/accession-call-counts/`, `/browser/download-manifest/`: operational provenance browsers
 - `/imports/`: staff-only import queue
 - `/imports/history/`: import batch history, phase, and progress

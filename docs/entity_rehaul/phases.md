@@ -26,28 +26,32 @@ Sequencing rules:
 
 Verified branch facts:
 
-- the main browser URLs still serve run-scoped data from the current browser
-  app:
+- the main biological browser URLs now serve canonical current-state data from
+  the current browser app:
   - `/browser/accessions/`
   - `/browser/genomes/`
   - `/browser/sequences/`
   - `/browser/proteins/`
   - `/browser/calls/`
-- merged behavior is still a first-class product path via `mode=merged` on the
-  existing list and detail pages
-- merged serving tables still exist in `apps/browser/models/merged.py`
+- `/browser/runs/` remains available as a provenance/history surface
+- merged behavior is gone from active browser routes and `mode=merged` no
+  longer drives live view logic
+- merged runtime schema is removed from live models and dropped by
+  `apps/browser/migrations/0016_delete_merged_schema.py`
 - import completion now enters `ImportPhase.CATALOG_SYNC`
 - `apps/imports/services/import_run/api.py` now syncs canonical catalog rows
   before batch completion and analyzes the canonical serving models
 - `backfill_canonical_catalog` exists as the active backfill command for
   existing imported runs
-- `backfill_merged_summaries` remains only as an explicit legacy/debug command
+- no runtime code or operator workflow depends on merged rebuilds
 - `PipelineRun`, `ImportBatch`, and the current run-scoped biological models
-  remain the only stored scientific entities the browser reads directly
+  remain as the historical imported-observation layer while canonical models
+  serve the main browse pages
 
 Current next slice:
 
-- `3.1` move accession and genome pages to canonical reads
+- phase `6` validation, with `6.2` large-run acceptance requiring a machine
+  that has the sibling pipeline outputs available
 
 ## Phase 1: Canonical Catalog Contract
 
