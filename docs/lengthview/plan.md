@@ -36,6 +36,7 @@ The natural fit is:
 - URL-facing view in `apps/browser/views/stats/lengths.py`, re-exported from
   `apps/browser/views/__init__.py`
 - stats service modules under `apps/browser/stats/`, especially:
+  - `filters.py`
   - `queries.py`
   - `summaries.py`
   - `payloads.py`
@@ -49,6 +50,8 @@ Current constraints to respect:
 
 - the browser should be structurally split into explorer vs stats before the
   first stats page lands; see `docs/lengthview/pre-refactor-plan.md`
+- browser-wide scope helpers should stay in `apps/browser/views/filters.py`,
+  while reusable stats-family filters should live in `apps/browser/stats/`
 - there is no chart stack yet
 - frontend JS is intentionally light and page-scoped
 - `base.html` does not currently expose page-specific asset blocks, so ECharts
@@ -150,6 +153,23 @@ rows into one page.
 
 ## 4. Filter Design
 
+### Shared filter architecture
+
+Filter reuse should be explicit from the first stats page:
+
+- keep `apps/browser/views/filters.py` for browser-wide scope helpers only
+  - `run`
+  - `branch`
+  - `branch_q`
+  - shared branch-scope context
+- add `apps/browser/stats/filters.py` for reusable stats-family filters
+- define one normalized filter object such as `StatsFilterState`
+- stats queries and payload builders should take normalized filter state, not
+  raw request params
+
+That separation lets future stats views share one filter contract without
+polluting the explorer-side shared helpers.
+
 ### Must-have for v1
 
 These should be visible in the main filter card:
@@ -222,6 +242,9 @@ Apply filters first:
 
 Then group repeat calls by ancestor taxon at the selected rank using
 `TaxonClosure`.
+
+The grouped query layer should consume normalized stats filter state from
+`apps/browser/stats/filters.py`, not parse request params directly.
 
 ### Live query vs precomputed summaries
 
@@ -341,6 +364,8 @@ Implement:
 
 - route `/browser/lengths/`
 - new stats view and template
+- reusable stats filter parsing plus normalized filter state in
+  `apps/browser/stats/filters.py`
 - stats parameter parsing, grouped repeat-length queries, and summary helpers in
   `apps/browser/stats/`
 - query params:
@@ -363,6 +388,7 @@ Acceptance:
 - page works without JS
 - branch scope and rank roll-up behave correctly
 - summary rows and links are correct
+- shared stats filters are defined once and can be reused by later stats views
 
 ### Phase 2: ECharts rendering and drill-down polish
 
@@ -425,6 +451,7 @@ Concrete first slice:
 Then the first feature slice is:
 
 - add the `/browser/lengths/` route and stats view
+- add reusable stats filters and normalized filter-state handling
 - support `branch_q`, `rank`, `q`, `method`, `residue`, `length_min`,
   `length_max`, `min_count`, and `top_n`
 - render a grouped summary table with count and quartile statistics

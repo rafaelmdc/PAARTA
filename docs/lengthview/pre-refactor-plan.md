@@ -20,6 +20,8 @@ The refactor should:
 - preserve `apps.browser.views` as the stable import surface for URL wiring
 - split URL-facing views into `explorer` and `stats`
 - introduce a dedicated `apps/browser/stats/` service package
+- make reusable stats filters a first-class internal layer rather than keeping
+  them as ad hoc request parsing inside each stats view
 - move explorer-specific non-view query helpers out of generic shared modules
   where that separation is already clear
 
@@ -36,7 +38,8 @@ We need to make these boundaries explicit:
 - **stats views**
   - chart-driven aggregate views like repeat length exploration
 - **stats service layer**
-  - aggregation, summary statistics, and chart payload shaping
+  - reusable filter parsing, aggregation, summary statistics, and chart payload
+    shaping
 
 Success criteria:
 
@@ -69,6 +72,16 @@ These are still generic enough to remain higher-level shared modules:
 
 These modules already behave like shared browser foundations and should not be
 buried under either explorer or stats.
+
+`apps/browser/views/filters.py` should remain limited to browser-wide shared
+scope helpers such as:
+
+- `run`
+- `branch`
+- `branch_q`
+- shared branch-scope context and entity filter resolution
+
+It should not become the home for stats-family-specific filter parsing.
 
 ### New explorer view package
 
@@ -115,6 +128,7 @@ browser infrastructure.
 ### New stats service package
 
 - `apps/browser/stats/__init__.py`
+- `apps/browser/stats/filters.py`
 - `apps/browser/stats/queries.py`
 - `apps/browser/stats/summaries.py`
 - `apps/browser/stats/payloads.py`
@@ -122,14 +136,33 @@ browser infrastructure.
 
 Initial ownership:
 
+- `filters.py`
+  - reusable stats-family filter parsing and normalized filter-state assembly
+  - shared stats filters such as:
+    - method
+    - residue
+    - length range
+    - optional run passthrough
+    - target search
+    - rank
+    - `top_n`
+    - `min_count`
 - `queries.py`
   - grouped aggregate queries over canonical models for stats pages
+  - take normalized stats filter state rather than raw request params
 - `summaries.py`
   - quartiles, range summaries, visible-row shaping
 - `payloads.py`
   - ECharts payload generation
 - `params.py`
-  - stats-view parameter parsing and defaults such as rank, top_n, min_count
+  - low-level parameter/default helpers used by stats filters where useful
+
+Recommended contract:
+
+- define a small normalized filter object such as `StatsFilterState`
+- stats views build this once from the request
+- stats queries and payload builders consume that object rather than raw
+  querystring values
 
 This package is the reusable base for the upcoming stats views and keeps
 chart-specific logic out of `views/filters.py` and other shared explorer code.
@@ -146,6 +179,8 @@ These rules should hold after the refactor:
 - stats view modules may depend on:
   - shared browser infrastructure
   - `apps.browser.stats`
+- stats view modules should not hand-parse repeated stats filters directly once
+  the shared stats filter layer exists
 - `apps.browser.explorer` must not depend on stats packages
 - `apps.browser.stats` must not depend on explorer view modules
 - `apps.browser.urls` should continue importing from `apps.browser.views`
@@ -190,7 +225,7 @@ Exit criteria:
 Implement:
 
 - create `apps/browser/stats/`
-- add parameter, query, summary, and payload modules
+- add filter, parameter, query, summary, and payload modules
 - do not add broad generic abstractions yet; only add the pieces needed for
   the first stats view family
 
@@ -199,6 +234,8 @@ Exit criteria:
 - the first length view can be implemented entirely in:
   - `views/stats/lengths.py`
   - `apps/browser/stats/*`
+- shared stats filters are defined once and reused through a normalized filter
+  contract
 - no chart-specific logic leaks into explorer modules
 
 ### Phase 4: Add the first stats route on the new structure
@@ -258,6 +295,8 @@ Also add focused import-surface checks where useful:
 
 - `apps.browser.views` still exports the expected explorer classes
 - `apps.browser.urls` still resolves current route wiring correctly
+- stats filter normalization can be unit-tested independently from the first
+  chart page
 
 ## 8. Explicit Non-Goals
 
@@ -295,3 +334,6 @@ explorer-versus-stats boundary instead of landing into another flat layer.
   `navigation.py` are still generic enough to stay at the higher shared level
 - future stats views will share aggregation and chart-payload logic, so a
   dedicated `apps/browser/stats/` package will pay for itself quickly
+- future stats views will also share most filter semantics, so
+  `apps/browser/stats/filters.py` and a normalized stats filter-state contract
+  are worth introducing from the first stats page
