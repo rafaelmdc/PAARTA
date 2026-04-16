@@ -7,7 +7,7 @@ from apps.browser.stats import (
     build_ranked_length_summary_bundle,
     build_stats_filter_state,
 )
-from apps.browser.stats.params import ALLOWED_STATS_RANKS
+from apps.browser.stats.params import ALLOWED_STATS_RANKS, next_lower_rank
 
 from ...metadata import resolve_browser_facets
 from ...models import PipelineRun
@@ -79,6 +79,7 @@ class RepeatLengthExplorerView(TemplateView):
 
     def _with_row_links(self, row: dict[str, object]) -> dict[str, object]:
         filter_state = self._get_filter_state()
+        drilldown_rank = next_lower_rank(row["rank"])
         return {
             **row,
             "taxon_detail_url": _url_with_query(
@@ -89,6 +90,7 @@ class RepeatLengthExplorerView(TemplateView):
                 reverse("browser:lengths"),
                 run=filter_state.current_run_id,
                 branch=row["taxon_id"],
+                rank=drilldown_rank,
                 q=filter_state.q,
                 method=filter_state.method,
                 residue=filter_state.residue,

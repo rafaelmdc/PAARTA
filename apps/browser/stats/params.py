@@ -57,6 +57,17 @@ def normalize_rank(value, *, branch_scope_active: bool) -> str:
     return DEFAULT_UNSCOPED_RANK
 
 
+def next_lower_rank(current_rank: str) -> str:
+    normalized = normalize_text(current_rank).lower()
+    if normalized not in ALLOWED_STATS_RANKS:
+        return DEFAULT_BRANCH_SCOPED_RANK
+
+    current_index = ALLOWED_STATS_RANKS.index(normalized)
+    if current_index >= len(ALLOWED_STATS_RANKS) - 1:
+        return ALLOWED_STATS_RANKS[-1]
+    return ALLOWED_STATS_RANKS[current_index + 1]
+
+
 def normalize_top_n(value) -> int:
     parsed = parse_non_negative_int(value)
     if parsed is None:

@@ -235,6 +235,7 @@ class BrowserLengthExplorerTests(TestCase):
         self.assertEqual(summary_rows[0]["max_length"], 11)
         self.assertIn(reverse("browser:taxon-detail", args=[summary_rows[0]["taxon_id"]]), summary_rows[0]["taxon_detail_url"])
         self.assertIn(f"branch={summary_rows[0]['taxon_id']}", summary_rows[0]["branch_explorer_url"])
+        self.assertIn("rank=order", summary_rows[0]["branch_explorer_url"])
         chart_payload = response.context["chart_payload"]
         self.assertEqual(chart_payload["visibleTaxaCount"], 1)
         self.assertEqual(chart_payload["x_min"], 11)
@@ -277,11 +278,29 @@ class BrowserLengthExplorerTests(TestCase):
         self.assertEqual(branch_query["purity_max"], ["1.0"])
         self.assertEqual(branch_query["min_count"], ["1"])
         self.assertEqual(branch_query["top_n"], ["10"])
-        self.assertNotIn("rank", branch_query)
+        self.assertEqual(branch_query["rank"], ["order"])
         self.assertEqual(
             response.context["chart_payload"]["rows"][0]["branchExplorerUrl"],
             row["branch_explorer_url"],
         )
+
+    def test_length_explorer_branch_link_steps_to_next_lower_rank(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {
+                "rank": "phylum",
+                "min_count": "1",
+                "top_n": "10",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        row = response.context["summary_rows"][0]
+        branch_query = parse_qs(urlparse(row["branch_explorer_url"]).query)
+
+        self.assertEqual(row["rank"], "phylum")
+        self.assertEqual(row["taxon_name"], "Chordata")
+        self.assertEqual(branch_query["rank"], ["class"])
 
     def test_length_explorer_branch_scope_defaults_rank_to_species(self):
         response = self.client.get(
