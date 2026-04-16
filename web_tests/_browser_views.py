@@ -1,3 +1,4 @@
+from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -866,7 +867,20 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "Chordata")
         self.assertContains(response, "GCF_ALPHA")
         self.assertNotContains(response, "GCF_BETA")
+        self.assertContains(response, "Explore branch lengths")
         self.assertContains(response, "Open branch accessions")
+
+        length_query = parse_qs(urlparse(response.context["length_branch_url"]).query)
+        self.assertEqual(length_query["run"], ["run-alpha"])
+        self.assertEqual(length_query["branch"], [str(self.alpha["taxon"].pk)])
+
+    def test_taxon_detail_length_handoff_omits_run_when_unscoped(self):
+        response = self.client.get(reverse("browser:taxon-detail", args=[self.alpha["taxon"].pk]))
+
+        self.assertEqual(response.status_code, 200)
+        length_query = parse_qs(urlparse(response.context["length_branch_url"]).query)
+        self.assertEqual(length_query["branch"], [str(self.alpha["taxon"].pk)])
+        self.assertNotIn("run", length_query)
 
     def test_genome_list_branch_filter_includes_descendant_taxa(self):
         response = self.client.get(reverse("browser:genome-list"), {"branch": str(self.mammalia.pk)})

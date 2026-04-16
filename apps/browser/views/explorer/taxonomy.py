@@ -119,6 +119,11 @@ class TaxonDetailView(DetailView):
             run=current_run.run_id if current_run else None,
             branch=taxon.pk,
         )
+        context["length_branch_url"] = _url_with_query(
+            reverse("browser:lengths"),
+            run=current_run.run_id if current_run else None,
+            branch=taxon.pk,
+        )
         context["protein_branch_url"] = _url_with_query(
             reverse("browser:protein-list"),
             run=current_run.run_id if current_run else None,
