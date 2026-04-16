@@ -197,6 +197,7 @@ Scope:
 - `Taxon x Length-bin Codon Heatmap`
 - lineage-aware taxon order
 - tooltip with taxon, length bin, count, and codon summary
+- hex-bin heatmap
 
 Exit criteria:
 

@@ -1,9 +1,15 @@
 from unittest.mock import patch
 
+from django.utils import timezone
+
+from apps.browser.catalog import sync_canonical_catalog_for_run
 from django.core.cache import cache
 from django.test import RequestFactory, TestCase
 
 from apps.browser.stats import (
+    apply_stats_filter_context,
+    build_available_codon_metric_names,
+    build_filtered_repeat_call_queryset,
     build_group_length_values_queryset,
     build_ranked_length_chart_payload,
     build_ranked_length_summary_bundle,
@@ -11,9 +17,9 @@ from apps.browser.stats import (
     build_stats_filter_state,
     summarize_ranked_length_groups,
 )
-from apps.browser.models import CanonicalRepeatCall
+from apps.browser.models import CanonicalRepeatCall, RepeatCall
 
-from .support import create_imported_run_fixture
+from .support import build_test_repeat_call_values, create_imported_run_fixture
 
 
 class BrowserStatsTests(TestCase):
@@ -41,6 +47,102 @@ class BrowserStatsTests(TestCase):
             genome_name="Mouse reference genome",
         )
 
+    def _create_repeat_call(
+        self,
+        run_data,
+        *,
+        suffix,
+        residue,
+        codon_metric_name,
+        codon_ratio_value,
+    ):
+        repeat_call_values = build_test_repeat_call_values(
+            residue=residue,
+            length=11,
+            purity=1.0,
+            codon_metric_name=codon_metric_name,
+            codon_ratio_value=codon_ratio_value,
+        )
+        repeat_call = RepeatCall.objects.create(
+            pipeline_run=run_data["pipeline_run"],
+            genome=run_data["genome"],
+            sequence=run_data["sequence"],
+            protein=run_data["protein"],
+            taxon=run_data["taxon"],
+            call_id=f"call_{suffix}",
+            method=RepeatCall.Method.PURE,
+            accession=run_data["genome"].accession,
+            gene_symbol=run_data["protein"].gene_symbol or run_data["sequence"].gene_symbol,
+            protein_name=run_data["protein"].protein_name,
+            protein_length=run_data["protein"].protein_length,
+            start=30 + (len(suffix) * 20),
+            end=40 + (len(suffix) * 20),
+            length=11,
+            repeat_residue=residue,
+            repeat_count=repeat_call_values["repeat_count"],
+            non_repeat_count=repeat_call_values["non_repeat_count"],
+            purity=1.0,
+            aa_sequence=repeat_call_values["aa_sequence"],
+            codon_sequence=repeat_call_values["codon_sequence"],
+            codon_metric_name=codon_metric_name,
+            codon_metric_value=repeat_call_values["codon_metric_value"],
+            codon_ratio_value=repeat_call_values["codon_ratio_value"],
+        )
+        sync_canonical_catalog_for_run(
+            run_data["pipeline_run"],
+            import_batch=run_data["import_batch"],
+            last_seen_at=timezone.now(),
+            replace_all_repeat_call_methods=True,
+        )
+        return repeat_call
+
+    def _create_null_codon_repeat_call(
+        self,
+        run_data,
+        *,
+        suffix,
+        residue,
+        codon_metric_name,
+        codon_metric_value,
+    ):
+        repeat_call_values = build_test_repeat_call_values(
+            residue=residue,
+            length=11,
+            purity=1.0,
+        )
+        repeat_call = RepeatCall.objects.create(
+            pipeline_run=run_data["pipeline_run"],
+            genome=run_data["genome"],
+            sequence=run_data["sequence"],
+            protein=run_data["protein"],
+            taxon=run_data["taxon"],
+            call_id=f"call_{suffix}",
+            method=RepeatCall.Method.PURE,
+            accession=run_data["genome"].accession,
+            gene_symbol=run_data["protein"].gene_symbol or run_data["sequence"].gene_symbol,
+            protein_name=run_data["protein"].protein_name,
+            protein_length=run_data["protein"].protein_length,
+            start=30 + (len(suffix) * 20),
+            end=40 + (len(suffix) * 20),
+            length=11,
+            repeat_residue=residue,
+            repeat_count=repeat_call_values["repeat_count"],
+            non_repeat_count=repeat_call_values["non_repeat_count"],
+            purity=1.0,
+            aa_sequence=repeat_call_values["aa_sequence"],
+            codon_sequence=repeat_call_values["codon_sequence"],
+            codon_metric_name=codon_metric_name,
+            codon_metric_value=codon_metric_value,
+            codon_ratio_value=None,
+        )
+        sync_canonical_catalog_for_run(
+            run_data["pipeline_run"],
+            import_batch=run_data["import_batch"],
+            last_seen_at=timezone.now(),
+            replace_all_repeat_call_methods=True,
+        )
+        return repeat_call
+
     def test_stats_filter_state_defaults_without_branch_scope(self):
         request = self.factory.get("/browser/lengths/")
 
@@ -51,6 +153,7 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(filter_state.rank, "class")
         self.assertEqual(filter_state.top_n, 1000)
         self.assertEqual(filter_state.min_count, 3)
+        self.assertEqual(filter_state.codon_metric_name, "")
         self.assertEqual(filter_state.cache_key_data()["rank"], "class")
 
     def test_stats_filter_state_clamps_and_uses_branch_defaults(self):
@@ -63,6 +166,7 @@ class BrowserStatsTests(TestCase):
                 "q": "GENE",
                 "method": "pure",
                 "residue": "q",
+                "codon_metric_name": "alt_ratio",
                 "length_min": "7",
                 "length_max": "12",
                 "purity_min": "0.8",
@@ -81,12 +185,17 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(filter_state.q, "GENE")
         self.assertEqual(filter_state.method, "pure")
         self.assertEqual(filter_state.residue, "Q")
+        self.assertEqual(filter_state.codon_metric_name, "alt_ratio")
         self.assertEqual(filter_state.length_min, 7)
         self.assertEqual(filter_state.length_max, 12)
         self.assertEqual(filter_state.purity_min, 0.8)
         self.assertEqual(filter_state.purity_max, 1.0)
         self.assertEqual(filter_state.min_count, 1)
         self.assertEqual(filter_state.top_n, 2000)
+        self.assertEqual(filter_state.cache_key_data()["codon_metric_name"], "alt_ratio")
+
+        context = apply_stats_filter_context({}, filter_state)
+        self.assertEqual(context["current_codon_metric_name"], "alt_ratio")
 
     def test_ranked_taxon_group_query_rolls_up_and_summarizes_lengths(self):
         request = self.factory.get(
@@ -203,3 +312,81 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(repeat_call.codon_sequence, "GCT" * 11)
         self.assertEqual(canonical_repeat_call.repeat_residue, "A")
         self.assertEqual(canonical_repeat_call.codon_ratio_value, 0.75)
+
+    def test_available_codon_metric_names_are_residue_scoped_and_ignore_null_rows(self):
+        self._create_repeat_call(
+            self.alpha,
+            suffix="alt_ratio_q",
+            residue="Q",
+            codon_metric_name="alt_ratio",
+            codon_ratio_value=0.9,
+        )
+        self._create_null_codon_repeat_call(
+            self.alpha,
+            suffix="null_ratio_q",
+            residue="Q",
+            codon_metric_name="null_ratio",
+            codon_metric_value="not-a-number",
+        )
+        self._create_repeat_call(
+            self.alpha,
+            suffix="alanine_ratio_a",
+            residue="A",
+            codon_metric_name="alanine_ratio",
+            codon_ratio_value=0.7,
+        )
+
+        filter_state = build_stats_filter_state(
+            self.factory.get(
+                "/browser/codon-ratios/",
+                {
+                    "run": "run-alpha",
+                    "branch": str(self.alpha["taxa"]["primates"].pk),
+                    "residue": "q",
+                },
+            )
+        )
+
+        self.assertEqual(
+            build_available_codon_metric_names(filter_state),
+            ["alt_ratio", "codon_ratio"],
+        )
+
+    def test_filtered_repeat_call_queryset_for_codon_applies_metric_selector_and_excludes_nulls(self):
+        self._create_repeat_call(
+            self.alpha,
+            suffix="alt_ratio_selected",
+            residue="Q",
+            codon_metric_name="alt_ratio",
+            codon_ratio_value=1.6,
+        )
+        self._create_null_codon_repeat_call(
+            self.alpha,
+            suffix="alt_ratio_null",
+            residue="Q",
+            codon_metric_name="alt_ratio",
+            codon_metric_value="bad",
+        )
+
+        filter_state = build_stats_filter_state(
+            self.factory.get(
+                "/browser/codon-ratios/",
+                {
+                    "run": "run-alpha",
+                    "branch": str(self.alpha["taxa"]["primates"].pk),
+                    "residue": "q",
+                    "codon_metric_name": "alt_ratio",
+                },
+            )
+        )
+
+        queryset = build_filtered_repeat_call_queryset(
+            filter_state,
+            require_codon_ratio=True,
+        )
+
+        self.assertEqual(queryset.count(), 1)
+        self.assertEqual(
+            list(queryset.values_list("codon_metric_name", "codon_ratio_value")),
+            [("alt_ratio", 1.6)],
+        )

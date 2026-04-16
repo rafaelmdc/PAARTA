@@ -1,6 +1,7 @@
 from .filters import StatsFilterState, apply_stats_filter_context, build_stats_filter_state
 from .payloads import build_ranked_length_chart_payload
 from .queries import (
+    build_available_codon_metric_names,
     build_filtered_repeat_call_queryset,
     build_group_length_values_queryset,
     build_ranked_length_summary_bundle,
@@ -11,6 +12,7 @@ from .summaries import build_length_summary, normalize_length_summary_value, sum
 __all__ = [
     "StatsFilterState",
     "apply_stats_filter_context",
+    "build_available_codon_metric_names",
     "build_filtered_repeat_call_queryset",
     "build_group_length_values_queryset",
     "build_length_summary",

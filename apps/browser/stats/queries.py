@@ -46,7 +46,12 @@ def build_ranked_length_summary_bundle(filter_state: StatsFilterState) -> dict[s
     return bundle
 
 
-def build_filtered_repeat_call_queryset(filter_state: StatsFilterState):
+def build_filtered_repeat_call_queryset(
+    filter_state: StatsFilterState,
+    *,
+    require_codon_ratio: bool = False,
+    apply_codon_metric_name: bool = True,
+):
     queryset = CanonicalRepeatCall.objects.order_by()
 
     if filter_state.current_run is not None:
@@ -72,8 +77,26 @@ def build_filtered_repeat_call_queryset(filter_state: StatsFilterState):
         queryset = queryset.filter(purity__gte=filter_state.purity_min)
     if filter_state.purity_max is not None:
         queryset = queryset.filter(purity__lte=filter_state.purity_max)
+    if require_codon_ratio:
+        queryset = queryset.exclude(codon_ratio_value__isnull=True)
+        if apply_codon_metric_name and filter_state.codon_metric_name:
+            queryset = queryset.filter(codon_metric_name=filter_state.codon_metric_name)
 
     return queryset
+
+
+def build_available_codon_metric_names(filter_state: StatsFilterState) -> list[str]:
+    return list(
+        build_filtered_repeat_call_queryset(
+            filter_state,
+            require_codon_ratio=True,
+            apply_codon_metric_name=False,
+        )
+        .exclude(codon_metric_name="")
+        .order_by("codon_metric_name")
+        .values_list("codon_metric_name", flat=True)
+        .distinct()
+    )
 
 
 def build_ranked_taxon_group_queryset(filter_state: StatsFilterState):
