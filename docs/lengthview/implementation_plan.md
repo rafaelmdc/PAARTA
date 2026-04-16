@@ -116,9 +116,9 @@ Goal:
 Scope:
 
 - create `apps/browser/explorer/`
-- move helper logic from:
-  - `apps/browser/views/canonical_entities.py`
-  - `apps/browser/views/canonical_genomes.py`
+- move canonical entity and genome helper logic into:
+  - `apps/browser/explorer/canonical.py`
+  - `apps/browser/explorer/accessions.py`
 - keep only URL-facing view logic in the explorer view modules
 
 Required behavior:

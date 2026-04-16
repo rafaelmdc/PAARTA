@@ -120,11 +120,10 @@ Create a non-view package for explorer-specific query and detail-context logic:
 Initial ownership:
 
 - `canonical.py`
-  - move current canonical entity list/detail query helpers here from
-    `views/canonical_entities.py` and `views/canonical_genomes.py`
+  - own canonical genome/sequence/protein/repeat-call list and detail query
+    helpers
 - `accessions.py`
-  - move accession-specific grouping/query helpers here if they are currently
-    mixed into explorer view modules
+  - own accession-specific grouping and summary helpers
 
 The purpose is to stop treating explorer-domain query assembly as generic
 browser infrastructure.
@@ -225,10 +224,9 @@ Exit criteria:
 Implement:
 
 - create `apps/browser/explorer/`
-- move current canonical entity helper functions from:
-  - `apps/browser/views/canonical_entities.py`
-  - `apps/browser/views/canonical_genomes.py`
-  into explorer-domain service modules
+- move canonical entity and accession helper logic into
+  `apps/browser/explorer/canonical.py` and
+  `apps/browser/explorer/accessions.py`
 - update explorer view imports to use `apps.browser.explorer.*`
 
 Exit criteria:
@@ -338,7 +336,7 @@ The next coding step should be:
 2. update `apps/browser/views/__init__.py` to re-export them
 3. create empty `apps/browser/stats/` and `apps/browser/views/stats/`
    packages
-4. move `canonical_entities.py` and `canonical_genomes.py` into a new
+4. move canonical entity and accession helper logic into the
    `apps/browser/explorer/` service package
 
 Once that is done, the first length view can be added on a stable
