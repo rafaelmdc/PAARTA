@@ -6,8 +6,8 @@ This directory is now the top-level planning surface for the first browser
 viewer family:
 
 1. `Length`
-2. `Codon Ratio`
-3. `Codon Ratio x Length`
+2. `Codon Composition`
+3. `Codon Composition x Length`
 
 The goal is to define these viewers as one coherent system rather than as
 independent charts. The existing length explorer is the current implementation
@@ -18,9 +18,9 @@ baseline, but it is only one slice of the intended viewer architecture.
 Each viewer follows the same 3-tier structure:
 
 - `Tier 1 - Overview`
-  - compressed
+  - taxonomy-first
   - lineage-aware
-  - binned and scalable
+  - hex-style and scalable
 - `Tier 2 - Browse`
   - ranked or comparison-oriented
   - filterable
@@ -44,19 +44,21 @@ default to lineage-aware, compact summaries rather than large raw-point views.
   - `apps/browser/stats/payloads.py`
   - `templates/browser/repeat_length_explorer.html`
   - `static/js/repeat-length-explorer.js`
-- `Codon Ratio` and `Codon Ratio x Length` should build on that foundation
-  instead of inventing new page patterns.
+- `Codon Composition` and `Codon Composition x Length` should reuse that
+  foundation where it still fits, but they should not inherit the obsolete
+  scalar codon-ratio contract.
 
 ## First-wave priorities
 
 1. keep the current length explorer as the Tier 2 baseline and align it to the
    general-views architecture
 2. centralize shared viewer rules and reuse points
-3. define the codon data contract so codon viewers do not depend on ad hoc
-   parsing of text metrics
-4. build the codon-ratio viewer on the shared stats surface
-5. build the codon-ratio x length viewer on the same filters, lineage helpers,
-   and binned-summary helpers
+3. replace the scalar codon-ratio assumptions with a codon-composition
+   contract built on normalized codon-usage rows
+4. define one shared `Tier 1 - Overview` shell so every viewer starts from a
+   taxonomy-first hex overview
+5. rewrite the codon viewers as composition-first viewers on the same browser
+   family rather than independent statistical pages
 
 ## Directory map
 
@@ -67,13 +69,13 @@ default to lineage-aware, compact summaries rather than large raw-point views.
   - how the implemented length explorer fits the target viewer model
 - `length/slices.md`
   - small, commit-sized next slices for the length viewer
-- `codon_ratio/overview.md`
-  - product definition and technical contract for the codon-ratio viewer
-- `codon_ratio/slices.md`
-  - small, commit-sized implementation slices for the codon-ratio viewer
-- `codon_ratio_x_length/overview.md`
-  - product definition for the flagship comparison viewer
-- `codon_ratio_x_length/slices.md`
+- `codon_composition/overview.md`
+  - product definition and technical contract for the codon-composition viewer
+- `codon_composition/slices.md`
+  - implementation slices for replacing the scalar codon-ratio direction
+- `codon_composition_x_length/overview.md`
+  - product definition for the flagship composition-first comparison viewer
+- `codon_composition_x_length/slices.md`
   - small, commit-sized implementation slices for the comparison viewer
 
 ## Shared principles
@@ -84,10 +86,14 @@ default to lineage-aware, compact summaries rather than large raw-point views.
 - keep filters normalized through the shared stats layer
 - never ship unbounded raw match sets to the browser
 - lineage-aware taxon ordering is mandatory for overview pages
-- codon viewers support all residues in the product, but codon summaries remain
-  residue-specific by default
+- every first-wave viewer should present a taxonomy-first `Tier 1 - Overview`
+  shell for continuity
+- codon viewers support all residues in the product, but codon composition
+  remains residue-specific by default
 - use real biological values first and keep transformed statistical views as
   secondary companion views
+- use normalized codon-usage rows as the hot-path codon browser contract rather
+  than a single derived scalar
 
 ## Deferred viewers
 

@@ -6,8 +6,8 @@ This document captures the implementation decisions that should be reused by
 all first-wave viewers:
 
 - `Length`
-- `Codon Ratio`
-- `Codon Ratio x Length`
+- `Codon Composition`
+- `Codon Composition x Length`
 
 Viewer-specific docs should point back here instead of repeating the same
 architecture, filter, and performance rules.
@@ -65,34 +65,75 @@ Every viewer page should follow the same base contract:
 - reuse the same lineage ordering helper across all viewers so adjacent rows
   remain biologically coherent
 
+### 5. Shared `Tier 1 - Overview` shell
+
+Every first-wave viewer should start from one recognizable overview pattern:
+
+- taxonomy-first
+- lineage-ordered
+- bounded through rank, branch, `min_count`, and `top_n`
+- hex-style cells for cross-viewer continuity
+
+This does not force every viewer into the same metric. It only forces one
+shared overview structure:
+
+- y-axis: lineage-ordered taxa or lineage groups
+- x-axis: viewer-specific domain
+- cell encoding: viewer-specific metric, composition, or count
+- interaction: shared branch drill-down and taxon handoff conventions
+
+The taxonomy side is not a learned or embedded 2D space. It remains a stable,
+ordered biological axis rendered through one consistent hex-overview shell.
+
 ## Shared codon contract
 
-The current schema preserves codon metrics as:
+The current repeat-call rows preserve these codon-adjacent fields:
 
+- `codon_sequence`
 - `codon_metric_name`
 - `codon_metric_value`
-
-That is useful provenance, but it is not a sufficient hot-path viewer contract.
-The codon viewers should standardize around a normalized numeric field:
-
 - `codon_ratio_value`
 
-Rules for that field:
+Those fields are not the correct hot-path browser contract for composition
+work. The codon viewers should standardize around normalized codon-usage rows.
 
-- populate it during import for `RepeatCall`
-- preserve it during canonical sync for `CanonicalRepeatCall`
-- leave it null when the upstream metric is blank or cannot be parsed safely
-- exclude null values from codon summaries and codon heatmaps
-- keep `codon_metric_name` and `codon_metric_value` for provenance and optional
-  selector behavior
+The canonical downstream artifact should be:
+
+- `publish/calls/codon_usage.tsv`
+
+The imported browser contract should mirror the normalized codon-usage rows
+already produced by codon slicing:
+
+- one row per `call_id` plus `amino_acid` plus `codon`
+- `codon_count`
+- `codon_fraction`
+
+The web browser should treat codon-usage rows as first-class imported and
+canonical data rather than deriving its main analytics from one scalar value.
+
+Role of the legacy fields:
+
+- `codon_sequence` remains useful provenance and a source-side audit field
+- `codon_metric_name`, `codon_metric_value`, and `codon_ratio_value` should not
+  be the primary browser analytics contract
+- if retained in the schema, those fields should be treated as legacy or
+  provenance-only fields unless a later product decision reintroduces a
+  secondary scalar companion view
 
 Residue behavior:
 
 - the product should support all residues
-- codon summaries stay residue-specific by default
-- do not aggregate mixed residues into one codon-ratio summary in v1
-- expose a `codon_metric_name` selector only when more than one metric exists
-  in the current scope
+- codon composition stays residue-specific by default
+- do not aggregate mixed residues into one codon-composition summary in v1
+- require an explicit residue scope for composition-first views
+
+Composition aggregation:
+
+- aggregate grouped codon composition with equal call weight by default
+- one longer tract should not dominate one shorter tract simply because it has
+  more codons
+- later viewers may add alternative weighting modes, but that should be treated
+  as an explicit product choice rather than an implementation convenience
 
 ## Shared implementation slices
 
@@ -116,7 +157,7 @@ Exit criteria:
 
 - the first three viewers feel like one family, not three unrelated pages
 
-### `F2` Extract shared view and template helpers only after the second viewer
+### `F2` Keep shared view and template helpers small
 
 Goal:
 
@@ -141,46 +182,49 @@ Goal:
 
 Scope:
 
-- one helper for taxon ordering usable by ranked summaries and heatmaps
+- one helper for taxon ordering usable by ranked summaries and taxonomy-first
+  overview payloads
 - a stable ordering contract that overview viewers can share
 
 Exit criteria:
 
 - overview pages do not each invent their own taxon-ordering logic
 
-### `F4` Add reusable binning helpers
+### `F4` Add reusable binning and composition helpers
 
 Goal:
 
-- share the expensive logic for length-bin and heatmap payload shaping
+- share the expensive logic for length-bin and overview payload shaping
 
 Scope:
 
 - length-bin definitions
 - visible bin normalization
-- heatmap payload shaping
+- hex-overview payload shaping
 - small-multiple input shaping where possible
+- composition stack shaping for codon viewers
 
 Exit criteria:
 
-- length and codon viewers reuse one binned-summary layer
+- length and codon viewers reuse one bounded overview layer
 
-### `F5` Add the codon numeric data contract
+### `F5` Promote merged codon usage to a first-class downstream artifact
 
 Goal:
 
-- make codon viewers queryable without repeated text casting
+- make codon viewers depend on real composition rows instead of ad hoc parsing
+  or scalar fallbacks
 
 Scope:
 
-- schema additions
-- import and canonical-sync population
-- fixture updates
-- unit tests for blank and invalid values
+- pipeline merge step for canonical `publish/calls/codon_usage.tsv`
+- manifest/runtime-artifact updates
+- import and canonical-sync support for codon-usage rows
+- fixture and unit-test updates
 
 Exit criteria:
 
-- codon viewer queries can use a numeric field directly
+- codon viewers query normalized codon usage directly
 
 ### `F6` Keep discoverability consistent
 
