@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from math import ceil, floor
 
+from .bins import build_length_bin_definition
+
 
 def build_length_summary(lengths):
     return _build_numeric_summary(
@@ -34,6 +36,41 @@ def summarize_ranked_codon_ratio_groups(group_rows, grouped_codon_ratio_values):
         grouped_codon_ratio_values,
         summary_builder=build_codon_ratio_summary,
     )
+
+
+def summarize_codon_heatmap_groups(group_rows, grouped_length_codon_ratio_values):
+    values_by_taxon_bin = defaultdict(list)
+    bin_starts_by_taxon = defaultdict(set)
+    length_bins_by_start = {}
+
+    for display_taxon_id, length, codon_ratio_value in grouped_length_codon_ratio_values:
+        length_bin = build_length_bin_definition(length)
+        values_by_taxon_bin[(display_taxon_id, length_bin.start)].append(codon_ratio_value)
+        bin_starts_by_taxon[display_taxon_id].add(length_bin.start)
+        length_bins_by_start[length_bin.start] = length_bin
+
+    summary_rows = []
+    for row in group_rows:
+        for bin_start in sorted(bin_starts_by_taxon[row["display_taxon_id"]]):
+            summary = build_codon_ratio_summary(values_by_taxon_bin[(row["display_taxon_id"], bin_start)])
+            if summary is None:
+                continue
+            length_bin = length_bins_by_start[bin_start]
+            summary_rows.append(
+                {
+                    "taxon_id": row["display_taxon_id"],
+                    "taxon_name": row["display_taxon_name"],
+                    "rank": row["display_taxon_rank"],
+                    "taxon_observation_count": row["observation_count"],
+                    "length_bin_start": length_bin.start,
+                    "length_bin_end": length_bin.end,
+                    "length_bin_key": length_bin.key,
+                    "length_bin_label": length_bin.label,
+                    "observation_count": len(values_by_taxon_bin[(row["display_taxon_id"], bin_start)]),
+                    **summary,
+                }
+            )
+    return summary_rows
 
 
 def _summarize_ranked_numeric_groups(group_rows, grouped_values, *, summary_builder):

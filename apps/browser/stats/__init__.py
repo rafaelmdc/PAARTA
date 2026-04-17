@@ -1,8 +1,14 @@
 from .filters import StatsFilterState, apply_stats_filter_context, build_stats_filter_state
-from .payloads import build_ranked_codon_chart_payload, build_ranked_length_chart_payload
+from .payloads import (
+    build_codon_heatmap_payload,
+    build_ranked_codon_chart_payload,
+    build_ranked_length_chart_payload,
+)
 from .queries import (
     build_available_codon_metric_names,
+    build_codon_heatmap_summary_bundle,
     build_filtered_repeat_call_queryset,
+    build_group_codon_heatmap_values_queryset,
     build_group_codon_ratio_values_queryset,
     build_group_length_values_queryset,
     build_ranked_codon_summary_bundle,
@@ -14,6 +20,7 @@ from .summaries import (
     build_codon_ratio_summary,
     build_length_summary,
     normalize_length_summary_value,
+    summarize_codon_heatmap_groups,
     summarize_ranked_codon_ratio_groups,
     summarize_ranked_length_groups,
 )
@@ -22,8 +29,11 @@ __all__ = [
     "StatsFilterState",
     "apply_stats_filter_context",
     "build_available_codon_metric_names",
+    "build_codon_heatmap_payload",
+    "build_codon_heatmap_summary_bundle",
     "build_codon_ratio_summary",
     "build_filtered_repeat_call_queryset",
+    "build_group_codon_heatmap_values_queryset",
     "build_group_codon_ratio_values_queryset",
     "build_group_length_values_queryset",
     "build_length_summary",
@@ -35,6 +45,7 @@ __all__ = [
     "build_ranked_taxon_group_queryset",
     "build_stats_filter_state",
     "normalize_length_summary_value",
+    "summarize_codon_heatmap_groups",
     "summarize_ranked_codon_ratio_groups",
     "summarize_ranked_length_groups",
 ]

@@ -8,9 +8,11 @@ from django.db.models import Count, F, Max, Min, Q
 from ..models import CanonicalRepeatCall
 from .aggregates import PercentileCont
 from .filters import StatsFilterState
+from .ordering import order_taxon_rows_by_lineage
 from .summaries import (
     normalize_length_summary_value,
     normalize_numeric_summary_value,
+    summarize_codon_heatmap_groups,
     summarize_ranked_codon_ratio_groups,
     summarize_ranked_length_groups,
 )
@@ -92,6 +94,50 @@ def build_ranked_codon_summary_bundle(filter_state: StatsFilterState) -> dict[st
         "summary_rows": summary_rows,
         "total_taxa_count": total_taxa_count,
         "visible_taxa_count": len(summary_rows),
+    }
+    cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
+    return bundle
+
+
+def build_codon_heatmap_summary_bundle(filter_state: StatsFilterState) -> dict[str, object]:
+    cache_key = f"browser:stats:codon-heatmap:{filter_state.cache_key()}"
+    cached_bundle = cache.get(cache_key)
+    if cached_bundle is not None:
+        return cached_bundle
+
+    matching_repeat_calls_count = build_filtered_repeat_call_queryset(
+        filter_state,
+        require_codon_ratio=True,
+    ).count()
+    total_taxa_count = build_ranked_taxon_group_count(
+        filter_state,
+        require_codon_ratio=True,
+    )
+    group_rows = list(
+        build_ranked_taxon_group_queryset(
+            filter_state,
+            require_codon_ratio=True,
+        )
+    )
+    ordered_group_rows = order_taxon_rows_by_lineage(group_rows)
+    display_taxon_ids = [row["display_taxon_id"] for row in ordered_group_rows]
+    grouped_length_codon_ratio_values = (
+        list(
+            build_group_codon_heatmap_values_queryset(
+                filter_state,
+                display_taxon_ids=display_taxon_ids,
+            )
+        )
+        if display_taxon_ids
+        else []
+    )
+    summary_rows = summarize_codon_heatmap_groups(ordered_group_rows, grouped_length_codon_ratio_values)
+
+    bundle = {
+        "matching_repeat_calls_count": matching_repeat_calls_count,
+        "summary_rows": summary_rows,
+        "total_taxa_count": total_taxa_count,
+        "visible_taxa_count": len(ordered_group_rows),
     }
     cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
     return bundle
@@ -192,6 +238,21 @@ def build_group_codon_ratio_values_queryset(filter_state: StatsFilterState, *, d
         .filter(display_taxon_id__in=display_taxon_ids)
         .values_list("display_taxon_id", "codon_ratio_value")
         .order_by("display_taxon_id", "codon_ratio_value")
+    )
+
+
+def build_group_codon_heatmap_values_queryset(filter_state: StatsFilterState, *, display_taxon_ids):
+    return (
+        _with_display_taxon_annotations(
+            build_filtered_repeat_call_queryset(
+                filter_state,
+                require_codon_ratio=True,
+            ),
+            rank=filter_state.rank,
+        )
+        .filter(display_taxon_id__in=display_taxon_ids)
+        .values_list("display_taxon_id", "length", "codon_ratio_value")
+        .order_by("display_taxon_id", "length", "codon_ratio_value")
     )
 
 

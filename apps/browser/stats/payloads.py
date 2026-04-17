@@ -1,3 +1,7 @@
+from .bins import build_visible_length_bins
+from .ordering import order_taxon_rows_by_lineage
+
+
 def build_ranked_length_chart_payload(summary_rows):
     if not summary_rows:
         return {
@@ -79,4 +83,100 @@ def build_ranked_codon_chart_payload(summary_rows):
         "x_min": min(row["min_codon_ratio"] for row in summary_rows),
         "x_max": max(row["max_codon_ratio"] for row in summary_rows),
         "max_observation_count": max(row["observation_count"] for row in summary_rows),
+    }
+
+
+def build_codon_heatmap_payload(summary_rows):
+    if not summary_rows:
+        return {
+            "taxa": [],
+            "bins": [],
+            "cells": [],
+            "seriesData": [],
+            "visibleTaxaCount": 0,
+            "visibleBinCount": 0,
+            "maxObservationCount": 0,
+            "valueMin": 0,
+            "valueMax": 0,
+        }
+
+    taxon_rows = order_taxon_rows_by_lineage(
+        list(
+            {
+                row["taxon_id"]: {
+                    "taxon_id": row["taxon_id"],
+                    "taxon_name": row["taxon_name"],
+                    "rank": row["rank"],
+                    "observation_count": row["taxon_observation_count"],
+                }
+                for row in summary_rows
+            }.values()
+        )
+    )
+    visible_bins = build_visible_length_bins(row["length_bin_start"] for row in summary_rows)
+    taxon_index_by_id = {
+        row["taxon_id"]: index
+        for index, row in enumerate(taxon_rows)
+    }
+    bin_index_by_start = {
+        length_bin.start: index
+        for index, length_bin in enumerate(visible_bins)
+    }
+
+    cells = sorted(
+        [
+            {
+                "taxonId": row["taxon_id"],
+                "taxonName": row["taxon_name"],
+                "rank": row["rank"],
+                "taxonIndex": taxon_index_by_id[row["taxon_id"]],
+                "binKey": row["length_bin_key"],
+                "binLabel": row["length_bin_label"],
+                "binStart": row["length_bin_start"],
+                "binEnd": row["length_bin_end"],
+                "binIndex": bin_index_by_start[row["length_bin_start"]],
+                "observationCount": row["observation_count"],
+                "min": row["min_codon_ratio"],
+                "q1": row["q1"],
+                "median": row["median"],
+                "q3": row["q3"],
+                "max": row["max_codon_ratio"],
+                "value": row["median"],
+            }
+            for row in summary_rows
+        ],
+        key=lambda row: (row["taxonIndex"], row["binIndex"]),
+    )
+
+    return {
+        "taxa": [
+            {
+                "taxonId": row["taxon_id"],
+                "taxonName": row["taxon_name"],
+                "rank": row["rank"],
+                "observationCount": row["observation_count"],
+                "rowIndex": index,
+            }
+            for index, row in enumerate(taxon_rows)
+        ],
+        "bins": [
+            {
+                "key": length_bin.key,
+                "label": length_bin.label,
+                "start": length_bin.start,
+                "end": length_bin.end,
+                "columnIndex": index,
+            }
+            for index, length_bin in enumerate(visible_bins)
+        ],
+        "cells": cells,
+        "seriesData": [
+            [cell["binIndex"], cell["taxonIndex"], cell["value"]]
+            for cell in cells
+        ],
+        "visibleTaxaCount": len(taxon_rows),
+        "visibleBinCount": len(visible_bins),
+        "maxObservationCount": max(cell["observationCount"] for cell in cells),
+        "valueMin": min(cell["value"] for cell in cells),
+        "valueMax": max(cell["value"] for cell in cells),
     }

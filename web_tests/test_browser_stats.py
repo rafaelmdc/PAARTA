@@ -9,6 +9,9 @@ from django.test import RequestFactory, TestCase
 from apps.browser.stats import (
     apply_stats_filter_context,
     build_available_codon_metric_names,
+    build_codon_heatmap_payload,
+    build_codon_heatmap_summary_bundle,
+    build_group_codon_heatmap_values_queryset,
     build_group_codon_ratio_values_queryset,
     build_filtered_repeat_call_queryset,
     build_group_length_values_queryset,
@@ -17,6 +20,7 @@ from apps.browser.stats import (
     build_ranked_length_summary_bundle,
     build_ranked_taxon_group_queryset,
     build_stats_filter_state,
+    summarize_codon_heatmap_groups,
     summarize_ranked_codon_ratio_groups,
     summarize_ranked_length_groups,
 )
@@ -58,10 +62,12 @@ class BrowserStatsTests(TestCase):
         residue,
         codon_metric_name,
         codon_ratio_value,
+        length=11,
+        method=RepeatCall.Method.PURE,
     ):
         repeat_call_values = build_test_repeat_call_values(
             residue=residue,
-            length=11,
+            length=length,
             purity=1.0,
             codon_metric_name=codon_metric_name,
             codon_ratio_value=codon_ratio_value,
@@ -73,14 +79,14 @@ class BrowserStatsTests(TestCase):
             protein=run_data["protein"],
             taxon=run_data["taxon"],
             call_id=f"call_{suffix}",
-            method=RepeatCall.Method.PURE,
+            method=method,
             accession=run_data["genome"].accession,
             gene_symbol=run_data["protein"].gene_symbol or run_data["sequence"].gene_symbol,
             protein_name=run_data["protein"].protein_name,
             protein_length=run_data["protein"].protein_length,
             start=30 + (len(suffix) * 20),
-            end=40 + (len(suffix) * 20),
-            length=11,
+            end=(30 + (len(suffix) * 20)) + length - 1,
+            length=length,
             repeat_residue=residue,
             repeat_count=repeat_call_values["repeat_count"],
             non_repeat_count=repeat_call_values["non_repeat_count"],
@@ -550,5 +556,280 @@ class BrowserStatsTests(TestCase):
                     "q3": 1.25,
                     "max_codon_ratio": 1.25,
                 }
+            ],
+        )
+
+    def test_codon_heatmap_summary_bundle_groups_codon_ratios_by_taxon_and_length_bin(self):
+        self._create_repeat_call(
+            self.beta,
+            suffix="beta_long_ratio",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.8,
+            length=22,
+        )
+
+        filter_state = build_stats_filter_state(
+            self.factory.get(
+                "/browser/codon-ratios/",
+                {
+                    "rank": "species",
+                    "min_count": "1",
+                    "top_n": "10",
+                    "residue": "q",
+                    "codon_metric_name": "codon_ratio",
+                },
+            )
+        )
+
+        bundle = build_codon_heatmap_summary_bundle(filter_state)
+
+        self.assertEqual(bundle["matching_repeat_calls_count"], 3)
+        self.assertEqual(bundle["total_taxa_count"], 2)
+        self.assertEqual(bundle["visible_taxa_count"], 2)
+        self.assertEqual(
+            bundle["summary_rows"],
+            [
+                {
+                    "taxon_id": self.alpha["taxon"].pk,
+                    "taxon_name": "Homo sapiens",
+                    "rank": "species",
+                    "taxon_observation_count": 1,
+                    "length_bin_start": 10,
+                    "length_bin_end": 14,
+                    "length_bin_key": "10-14",
+                    "length_bin_label": "10-14",
+                    "observation_count": 1,
+                    "min_codon_ratio": 1.25,
+                    "q1": 1.25,
+                    "median": 1.25,
+                    "q3": 1.25,
+                    "max_codon_ratio": 1.25,
+                },
+                {
+                    "taxon_id": self.beta["taxon"].pk,
+                    "taxon_name": "Mus musculus",
+                    "rank": "species",
+                    "taxon_observation_count": 2,
+                    "length_bin_start": 10,
+                    "length_bin_end": 14,
+                    "length_bin_key": "10-14",
+                    "length_bin_label": "10-14",
+                    "observation_count": 1,
+                    "min_codon_ratio": 1.25,
+                    "q1": 1.25,
+                    "median": 1.25,
+                    "q3": 1.25,
+                    "max_codon_ratio": 1.25,
+                },
+                {
+                    "taxon_id": self.beta["taxon"].pk,
+                    "taxon_name": "Mus musculus",
+                    "rank": "species",
+                    "taxon_observation_count": 2,
+                    "length_bin_start": 20,
+                    "length_bin_end": 24,
+                    "length_bin_key": "20-24",
+                    "length_bin_label": "20-24",
+                    "observation_count": 1,
+                    "min_codon_ratio": 0.8,
+                    "q1": 0.8,
+                    "median": 0.8,
+                    "q3": 0.8,
+                    "max_codon_ratio": 0.8,
+                },
+            ],
+        )
+
+    def test_codon_heatmap_summary_bundle_respects_branch_scope_and_filters(self):
+        self._create_repeat_call(
+            self.alpha,
+            suffix="alpha_mid_ratio",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.9,
+            length=16,
+        )
+        self._create_repeat_call(
+            self.alpha,
+            suffix="alpha_filtered_out_a",
+            residue="A",
+            codon_metric_name="alanine_ratio",
+            codon_ratio_value=0.7,
+            length=21,
+        )
+
+        filter_state = build_stats_filter_state(
+            self.factory.get(
+                "/browser/codon-ratios/",
+                {
+                    "run": "run-alpha",
+                    "branch": str(self.alpha["taxa"]["primates"].pk),
+                    "rank": "species",
+                    "residue": "q",
+                    "codon_metric_name": "codon_ratio",
+                    "min_count": "1",
+                },
+            )
+        )
+
+        group_rows = list(build_ranked_taxon_group_queryset(filter_state, require_codon_ratio=True))
+        grouped_length_codon_ratio_values = list(
+            build_group_codon_heatmap_values_queryset(
+                filter_state,
+                display_taxon_ids=[group_rows[0]["display_taxon_id"]],
+            )
+        )
+
+        self.assertEqual(
+            grouped_length_codon_ratio_values,
+            [
+                (group_rows[0]["display_taxon_id"], 11, 1.25),
+                (group_rows[0]["display_taxon_id"], 16, 0.9),
+            ],
+        )
+        self.assertEqual(
+            summarize_codon_heatmap_groups(group_rows, grouped_length_codon_ratio_values),
+            [
+                {
+                    "taxon_id": self.alpha["taxon"].pk,
+                    "taxon_name": "Homo sapiens",
+                    "rank": "species",
+                    "taxon_observation_count": 2,
+                    "length_bin_start": 10,
+                    "length_bin_end": 14,
+                    "length_bin_key": "10-14",
+                    "length_bin_label": "10-14",
+                    "observation_count": 1,
+                    "min_codon_ratio": 1.25,
+                    "q1": 1.25,
+                    "median": 1.25,
+                    "q3": 1.25,
+                    "max_codon_ratio": 1.25,
+                },
+                {
+                    "taxon_id": self.alpha["taxon"].pk,
+                    "taxon_name": "Homo sapiens",
+                    "rank": "species",
+                    "taxon_observation_count": 2,
+                    "length_bin_start": 15,
+                    "length_bin_end": 19,
+                    "length_bin_key": "15-19",
+                    "length_bin_label": "15-19",
+                    "observation_count": 1,
+                    "min_codon_ratio": 0.9,
+                    "q1": 0.9,
+                    "median": 0.9,
+                    "q3": 0.9,
+                    "max_codon_ratio": 0.9,
+                },
+            ],
+        )
+
+    def test_codon_heatmap_payload_shapes_lineage_ordered_taxa_and_visible_bins(self):
+        self._create_repeat_call(
+            self.beta,
+            suffix="beta_long_ratio_payload",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.8,
+            length=22,
+        )
+
+        bundle = build_codon_heatmap_summary_bundle(
+            build_stats_filter_state(
+                self.factory.get(
+                    "/browser/codon-ratios/",
+                    {
+                        "rank": "species",
+                        "min_count": "1",
+                        "top_n": "10",
+                        "residue": "q",
+                        "codon_metric_name": "codon_ratio",
+                    },
+                )
+            )
+        )
+
+        payload = build_codon_heatmap_payload(bundle["summary_rows"])
+
+        self.assertEqual(payload["visibleTaxaCount"], 2)
+        self.assertEqual(payload["visibleBinCount"], 3)
+        self.assertEqual(payload["maxObservationCount"], 1)
+        self.assertEqual(payload["valueMin"], 0.8)
+        self.assertEqual(payload["valueMax"], 1.25)
+        self.assertEqual(
+            [taxon["taxonName"] for taxon in payload["taxa"]],
+            ["Homo sapiens", "Mus musculus"],
+        )
+        self.assertEqual(
+            [length_bin["label"] for length_bin in payload["bins"]],
+            ["10-14", "15-19", "20-24"],
+        )
+        self.assertEqual(
+            payload["cells"],
+            [
+                {
+                    "taxonId": self.alpha["taxon"].pk,
+                    "taxonName": "Homo sapiens",
+                    "rank": "species",
+                    "taxonIndex": 0,
+                    "binKey": "10-14",
+                    "binLabel": "10-14",
+                    "binStart": 10,
+                    "binEnd": 14,
+                    "binIndex": 0,
+                    "observationCount": 1,
+                    "min": 1.25,
+                    "q1": 1.25,
+                    "median": 1.25,
+                    "q3": 1.25,
+                    "max": 1.25,
+                    "value": 1.25,
+                },
+                {
+                    "taxonId": self.beta["taxon"].pk,
+                    "taxonName": "Mus musculus",
+                    "rank": "species",
+                    "taxonIndex": 1,
+                    "binKey": "10-14",
+                    "binLabel": "10-14",
+                    "binStart": 10,
+                    "binEnd": 14,
+                    "binIndex": 0,
+                    "observationCount": 1,
+                    "min": 1.25,
+                    "q1": 1.25,
+                    "median": 1.25,
+                    "q3": 1.25,
+                    "max": 1.25,
+                    "value": 1.25,
+                },
+                {
+                    "taxonId": self.beta["taxon"].pk,
+                    "taxonName": "Mus musculus",
+                    "rank": "species",
+                    "taxonIndex": 1,
+                    "binKey": "20-24",
+                    "binLabel": "20-24",
+                    "binStart": 20,
+                    "binEnd": 24,
+                    "binIndex": 2,
+                    "observationCount": 1,
+                    "min": 0.8,
+                    "q1": 0.8,
+                    "median": 0.8,
+                    "q3": 0.8,
+                    "max": 0.8,
+                    "value": 0.8,
+                },
+            ],
+        )
+        self.assertEqual(
+            payload["seriesData"],
+            [
+                [0, 0, 1.25],
+                [0, 1, 1.25],
+                [2, 1, 0.8],
             ],
         )
