@@ -124,6 +124,11 @@ class TaxonDetailView(DetailView):
             run=current_run.run_id if current_run else None,
             branch=taxon.pk,
         )
+        context["codon_ratio_branch_url"] = _url_with_query(
+            reverse("browser:codon-ratios"),
+            run=current_run.run_id if current_run else None,
+            branch=taxon.pk,
+        )
         context["protein_branch_url"] = _url_with_query(
             reverse("browser:protein-list"),
             run=current_run.run_id if current_run else None,

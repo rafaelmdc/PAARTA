@@ -224,6 +224,20 @@ class RepeatCallDetailView(TemplateView):
             method=repeat_call.method,
             residue=repeat_call.repeat_residue,
         )
+        context["codon_ratio_explorer_url"] = _url_with_query(
+            reverse("browser:codon-ratios"),
+            run=repeat_call.latest_pipeline_run.run_id,
+            branch=repeat_call.taxon.pk,
+            q=(
+                repeat_call.gene_symbol
+                or repeat_call.protein.protein_id
+                or repeat_call.protein_name
+                or repeat_call.accession
+            ),
+            method=repeat_call.method,
+            residue=repeat_call.repeat_residue,
+            codon_metric_name=repeat_call.codon_metric_name,
+        )
         context["repeatcall_list_url"] = _url_with_query(
             reverse("browser:repeatcall-list"),
             run=repeat_call.latest_pipeline_run.run_id,

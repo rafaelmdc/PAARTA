@@ -208,6 +208,12 @@ class ProteinDetailView(TemplateView):
             branch=protein.taxon.pk,
             q=protein.gene_symbol or protein.protein_id or protein.protein_name or protein.accession,
         )
+        context["codon_ratio_explorer_url"] = _url_with_query(
+            reverse("browser:codon-ratios"),
+            run=protein.latest_pipeline_run.run_id,
+            branch=protein.taxon.pk,
+            q=protein.gene_symbol or protein.protein_id or protein.protein_name or protein.accession,
+        )
         context["sequence_detail_url"] = reverse("browser:sequence-detail", args=[latest_source_protein.sequence_id])
         context["protein_list_url"] = _url_with_query(
             reverse("browser:protein-list"),
