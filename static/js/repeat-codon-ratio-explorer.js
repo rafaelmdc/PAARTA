@@ -2,8 +2,13 @@
   const GRID_COLOR = "rgba(23, 36, 44, 0.1)";
   const TEXT_COLOR = "#17242c";
   const MUTED_TEXT_COLOR = "#63727a";
+  const DEFAULT_VISIBLE_ROWS = 12;
+  const MAX_CHART_HEIGHT = 980;
+  const MAX_VISIBLE_ROWS_WITH_TAXON_LABELS = 24;
   const PENDING_SCROLL_KEY = "repeat-codon-composition-explorer:pending-scroll";
   const PENDING_SCROLL_MAX_AGE_MS = 15000;
+  const ROW_HEIGHT = 38;
+  const CHART_PADDING = 120;
   const PALETTE = [
     "#0f5964",
     "#d06e37",
@@ -33,8 +38,119 @@
     return value.toFixed(3).replace(/\.?0+$/, "");
   }
 
-  function chartHeight(rowCount, minimumHeight) {
-    return Math.max(minimumHeight, (rowCount * 40) + 140);
+  function clamp(number, minimum, maximum) {
+    return Math.min(Math.max(number, minimum), maximum);
+  }
+
+  function numericValue(value, fallbackValue) {
+    if (Array.isArray(value)) {
+      return numericValue(value[0], fallbackValue);
+    }
+    return typeof value === "number" && Number.isFinite(value) ? value : fallbackValue;
+  }
+
+  function chartHeightForRowCount(rowCount, minimumHeight) {
+    if (rowCount <= 0) {
+      return minimumHeight;
+    }
+    return clamp((rowCount * ROW_HEIGHT) + CHART_PADDING, minimumHeight, MAX_CHART_HEIGHT);
+  }
+
+  function defaultZoomState(rowCount) {
+    return {
+      startValue: 0,
+      endValue: Math.max(0, Math.min(rowCount - 1, DEFAULT_VISIBLE_ROWS - 1)),
+    };
+  }
+
+  function normalizeZoomState(rowCount, zoomState) {
+    if (rowCount <= DEFAULT_VISIBLE_ROWS) {
+      return null;
+    }
+
+    const fallback = defaultZoomState(rowCount);
+    const startValue = clamp(
+      Math.round(numericValue(zoomState ? zoomState.startValue : undefined, fallback.startValue)),
+      0,
+      rowCount - 1,
+    );
+    const endValue = clamp(
+      Math.round(numericValue(zoomState ? zoomState.endValue : undefined, fallback.endValue)),
+      startValue,
+      rowCount - 1,
+    );
+    return {
+      startValue,
+      endValue,
+    };
+  }
+
+  function visibleRowCountForZoom(rowCount, zoomState) {
+    if (rowCount <= 0) {
+      return 0;
+    }
+    if (!zoomState) {
+      return rowCount;
+    }
+    return (zoomState.endValue - zoomState.startValue) + 1;
+  }
+
+  function shouldShowTaxonLabels(visibleRowCount) {
+    return visibleRowCount <= MAX_VISIBLE_ROWS_WITH_TAXON_LABELS;
+  }
+
+  function buildYAxisZoom(rowCount, zoomState, { right = 8, top = 24, bottom = 64, width = 14 } = {}) {
+    if (!zoomState) {
+      return [];
+    }
+
+    return [
+      {
+        type: "inside",
+        yAxisIndex: 0,
+        zoomOnMouseWheel: false,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: true,
+        startValue: zoomState.startValue,
+        endValue: zoomState.endValue,
+      },
+      {
+        type: "slider",
+        yAxisIndex: 0,
+        filterMode: "empty",
+        right,
+        width,
+        top,
+        bottom,
+        brushSelect: false,
+        startValue: zoomState.startValue,
+        endValue: zoomState.endValue,
+        fillerColor: "rgba(15, 89, 100, 0.16)",
+        borderColor: "rgba(23, 36, 44, 0.08)",
+        handleStyle: {
+          color: "#0f5964",
+          borderColor: "#0f5964",
+        },
+        moveHandleStyle: {
+          color: "#0f5964",
+        },
+        textStyle: {
+          color: MUTED_TEXT_COLOR,
+        },
+      },
+    ];
+  }
+
+  function zoomStateFromChart(chart, rowCount) {
+    const dataZoom = chart.getOption().dataZoom;
+    if (!Array.isArray(dataZoom) || dataZoom.length === 0) {
+      return null;
+    }
+
+    return normalizeZoomState(rowCount, {
+      startValue: numericValue(dataZoom[0].startValue, 0),
+      endValue: numericValue(dataZoom[0].endValue, Math.max(0, rowCount - 1)),
+    });
   }
 
   function savePendingScrollPosition() {
@@ -142,8 +258,10 @@
       return;
     }
 
+    const rowCount = payload.visibleTaxaCount || 0;
+    container.style.height = `${chartHeightForRowCount(rowCount, 320)}px`;
     const chart = window.echarts.init(container);
-    container.style.height = `${chartHeight(payload.visibleTaxaCount || 0, 320)}px`;
+    let currentZoomState = normalizeZoomState(rowCount, null);
 
     if (!Array.isArray(payload.cells) || payload.cells.length === 0) {
       chart.setOption(
@@ -155,86 +273,110 @@
       return;
     }
 
-    chart.setOption({
-      animation: false,
-      grid: {
-        left: 160,
-        right: 56,
-        top: 32,
-        bottom: 48,
-      },
-      tooltip: {
-        trigger: "item",
-        formatter(params) {
-          const cell = payload.cells[params.dataIndex];
-          return [
-            `<strong>${cell.taxonName}</strong>`,
-            `Codon: ${cell.codon}`,
-            `Share: ${formatShare(cell.value)}`,
-            `Calls: ${cell.observationCount}`,
-          ].join("<br>");
+    function renderChart() {
+      const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
+      chart.setOption({
+        animation: false,
+        grid: {
+          left: 160,
+          right: currentZoomState ? 104 : 56,
+          top: 32,
+          bottom: 48,
         },
-      },
-      xAxis: {
-        type: "category",
-        data: payload.codons.map((row) => row.codon),
-        axisLabel: {
-          color: TEXT_COLOR,
-        },
-        axisLine: {
-          lineStyle: {
-            color: GRID_COLOR,
+        tooltip: {
+          trigger: "item",
+          formatter(params) {
+            const cell = payload.cells[params.dataIndex];
+            return [
+              `<strong>${cell.taxonName}</strong>`,
+              `Codon: ${cell.codon}`,
+              `Share: ${formatShare(cell.value)}`,
+              `Calls: ${cell.observationCount}`,
+            ].join("<br>");
           },
         },
-      },
-      yAxis: {
-        type: "category",
-        data: payload.taxa.map((row) => row.taxonName),
-        axisLabel: {
-          color: TEXT_COLOR,
-        },
-        axisLine: {
-          lineStyle: {
-            color: GRID_COLOR,
-          },
-        },
-      },
-      visualMap: {
-        min: payload.valueMin,
-        max: payload.valueMax,
-        calculable: false,
-        orient: "vertical",
-        right: 0,
-        top: "middle",
-        text: ["High", "Low"],
-        textStyle: {
-          color: MUTED_TEXT_COLOR,
-        },
-        inRange: {
-          color: ["#f2efe6", "#cddfd8", "#0f5964"],
-        },
-      },
-      series: [
-        {
-          type: "heatmap",
-          data: payload.seriesData,
-          label: {
-            show: true,
-            formatter(params) {
-              return formatShare(params.data[2]);
-            },
+        xAxis: {
+          type: "category",
+          data: payload.codons.map((row) => row.codon),
+          axisLabel: {
             color: TEXT_COLOR,
-            fontSize: 11,
           },
-          emphasis: {
-            itemStyle: {
-              shadowBlur: 10,
-              shadowColor: "rgba(0, 0, 0, 0.18)",
+          axisLine: {
+            lineStyle: {
+              color: GRID_COLOR,
             },
           },
         },
-      ],
+        yAxis: {
+          type: "category",
+          data: payload.taxa.map((row) => row.taxonName),
+          axisLabel: {
+            show: shouldShowTaxonLabels(visibleRowCount),
+            interval: 0,
+            color: TEXT_COLOR,
+          },
+          axisLine: {
+            lineStyle: {
+              color: GRID_COLOR,
+            },
+          },
+        },
+        visualMap: {
+          min: payload.valueMin,
+          max: payload.valueMax,
+          calculable: false,
+          orient: "vertical",
+          right: 0,
+          top: "middle",
+          text: ["High", "Low"],
+          textStyle: {
+            color: MUTED_TEXT_COLOR,
+          },
+          inRange: {
+            color: ["#f2efe6", "#cddfd8", "#0f5964"],
+          },
+        },
+        dataZoom: buildYAxisZoom(rowCount, currentZoomState, {
+          right: 44,
+          top: 28,
+          bottom: 56,
+          width: 12,
+        }),
+        series: [
+          {
+            type: "heatmap",
+            data: payload.seriesData,
+            label: {
+              show: true,
+              formatter(params) {
+                return formatShare(params.data[2]);
+              },
+              color: TEXT_COLOR,
+              fontSize: 11,
+            },
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 10,
+                shadowColor: "rgba(0, 0, 0, 0.18)",
+              },
+            },
+          },
+        ],
+      }, { notMerge: true });
+    }
+
+    chart.off("datazoom");
+    chart.on("datazoom", () => {
+      const nextZoomState = zoomStateFromChart(chart, rowCount);
+      const previousVisibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
+      const nextVisibleRowCount = visibleRowCountForZoom(rowCount, nextZoomState);
+      currentZoomState = nextZoomState;
+      if (shouldShowTaxonLabels(previousVisibleRowCount) !== shouldShowTaxonLabels(nextVisibleRowCount)) {
+        renderChart();
+      }
     });
+
+    renderChart();
 
     window.addEventListener("resize", () => chart.resize());
   }
@@ -246,8 +388,10 @@
       return;
     }
 
+    const rowCount = payload.visibleTaxaCount || 0;
+    container.style.height = `${chartHeightForRowCount(rowCount, 380)}px`;
     const chart = window.echarts.init(container);
-    container.style.height = `${chartHeight(payload.visibleTaxaCount || 0, 380)}px`;
+    let currentZoomState = normalizeZoomState(rowCount, null);
 
     if (!Array.isArray(payload.rows) || payload.rows.length === 0 || !Array.isArray(payload.visibleCodons) || payload.visibleCodons.length === 0) {
       chart.setOption(
@@ -276,59 +420,82 @@
       })),
     }));
 
-    chart.setOption({
-      animation: false,
-      grid: {
-        left: 180,
-        right: 24,
-        top: 72,
-        bottom: 48,
-      },
-      legend: {
-        top: 16,
-        textStyle: {
-          color: TEXT_COLOR,
+    function renderChart() {
+      const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
+      chart.setOption({
+        animation: false,
+        grid: {
+          left: 180,
+          right: currentZoomState ? 56 : 24,
+          top: 72,
+          bottom: 48,
         },
-      },
-      tooltip: {
-        trigger: "axis",
-        axisPointer: {
-          type: "shadow",
-        },
-        formatter(params) {
-          if (!Array.isArray(params) || params.length === 0) {
-            return "";
-          }
-          const lines = [`<strong>${params[0].data.taxonName}</strong>`];
-          params.forEach((entry) => {
-            lines.push(`${entry.seriesName}: ${formatShare(entry.data.value)}`);
-          });
-          return lines.join("<br>");
-        },
-      },
-      xAxis: {
-        type: "value",
-        min: 0,
-        max: 1,
-        axisLabel: {
-          color: TEXT_COLOR,
-          formatter: (value) => formatShare(value),
-        },
-        splitLine: {
-          lineStyle: {
-            color: GRID_COLOR,
+        legend: {
+          top: 16,
+          textStyle: {
+            color: TEXT_COLOR,
           },
         },
-      },
-      yAxis: {
-        type: "category",
-        data: taxonNames,
-        axisLabel: {
-          color: TEXT_COLOR,
+        tooltip: {
+          trigger: "axis",
+          axisPointer: {
+            type: "shadow",
+          },
+          formatter(params) {
+            if (!Array.isArray(params) || params.length === 0) {
+              return "";
+            }
+            const lines = [`<strong>${params[0].data.taxonName}</strong>`];
+            params.forEach((entry) => {
+              lines.push(`${entry.seriesName}: ${formatShare(entry.data.value)}`);
+            });
+            return lines.join("<br>");
+          },
         },
-      },
-      series,
+        xAxis: {
+          type: "value",
+          min: 0,
+          max: 1,
+          axisLabel: {
+            color: TEXT_COLOR,
+            formatter: (value) => formatShare(value),
+          },
+          splitLine: {
+            lineStyle: {
+              color: GRID_COLOR,
+            },
+          },
+        },
+        yAxis: {
+          type: "category",
+          data: taxonNames,
+          axisLabel: {
+            show: shouldShowTaxonLabels(visibleRowCount),
+            interval: 0,
+            color: TEXT_COLOR,
+          },
+        },
+        dataZoom: buildYAxisZoom(rowCount, currentZoomState, {
+          right: 8,
+          top: 72,
+          bottom: 48,
+        }),
+        series,
+      }, { notMerge: true });
+    }
+
+    chart.off("datazoom");
+    chart.on("datazoom", () => {
+      const nextZoomState = zoomStateFromChart(chart, rowCount);
+      const previousVisibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
+      const nextVisibleRowCount = visibleRowCountForZoom(rowCount, nextZoomState);
+      currentZoomState = nextZoomState;
+      if (shouldShowTaxonLabels(previousVisibleRowCount) !== shouldShowTaxonLabels(nextVisibleRowCount)) {
+        renderChart();
+      }
     });
+
+    renderChart();
 
     chart.on("click", (params) => {
       if (params && params.data && params.data.branchExplorerUrl) {
@@ -346,8 +513,8 @@
       return;
     }
 
-    const chart = window.echarts.init(container);
     container.style.height = "320px";
+    const chart = window.echarts.init(container);
 
     if (!Array.isArray(payload.codonShares) || payload.codonShares.length === 0) {
       chart.setOption(
