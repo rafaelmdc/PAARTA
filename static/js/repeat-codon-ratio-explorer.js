@@ -50,6 +50,14 @@
     return api.reservedWidth(payload, options);
   }
 
+  function taxonomyGutterPanel(payload, options = {}) {
+    const api = taxonomyGutterApi();
+    if (!api || !api.hasPayload(payload) || typeof api.buildPanel !== "function") {
+      return null;
+    }
+    return api.buildPanel(payload, options);
+  }
+
   function formatShare(value) {
     if (typeof value !== "number" || Number.isNaN(value)) {
       return "-";
@@ -118,7 +126,13 @@
     return visibleRowCount <= MAX_VISIBLE_ROWS_WITH_TAXON_LABELS;
   }
 
-  function buildYAxisZoom(rowCount, zoomState, { right = 8, top = 24, bottom = 64, width = 14 } = {}) {
+  function buildYAxisZoom(rowCount, zoomState, {
+    yAxisIndex = 0,
+    right = 8,
+    top = 24,
+    bottom = 64,
+    width = 14,
+  } = {}) {
     if (!zoomState) {
       return [];
     }
@@ -126,7 +140,7 @@
     return [
       {
         type: "inside",
-        yAxisIndex: 0,
+        yAxisIndex,
         zoomOnMouseWheel: false,
         moveOnMouseMove: true,
         moveOnMouseWheel: true,
@@ -135,7 +149,7 @@
       },
       {
         type: "slider",
-        yAxisIndex: 0,
+        yAxisIndex,
         filterMode: "empty",
         right,
         width,
@@ -160,16 +174,89 @@
     ];
   }
 
+  function zoomPercentageToIndex(rowCount, percentage, fallbackIndex, roundingMethod) {
+    if (rowCount <= 1) {
+      return 0;
+    }
+    const normalizedPercentage = clamp(
+      numericValue(percentage, Number.NaN),
+      0,
+      100,
+    );
+    if (!Number.isFinite(normalizedPercentage)) {
+      return fallbackIndex;
+    }
+    return clamp(
+      Math[roundingMethod]((normalizedPercentage / 100) * (rowCount - 1)),
+      0,
+      rowCount - 1,
+    );
+  }
+
+  function zoomStateFromEventParams(params, rowCount) {
+    if (!params) {
+      return null;
+    }
+
+    const payload = Array.isArray(params.batch) && params.batch.length > 0
+      ? params.batch[0]
+      : params;
+    if (!payload) {
+      return null;
+    }
+
+    if (payload.startValue != null || payload.endValue != null) {
+      return normalizeZoomState(rowCount, {
+        startValue: payload.startValue,
+        endValue: payload.endValue,
+      });
+    }
+
+    if (payload.start != null || payload.end != null) {
+      return normalizeZoomState(rowCount, {
+        startValue: zoomPercentageToIndex(rowCount, payload.start, 0, "floor"),
+        endValue: zoomPercentageToIndex(rowCount, payload.end, Math.max(0, rowCount - 1), "ceil"),
+      });
+    }
+
+    return null;
+  }
+
   function zoomStateFromChart(chart, rowCount) {
     const dataZoom = chart.getOption().dataZoom;
     if (!Array.isArray(dataZoom) || dataZoom.length === 0) {
       return null;
     }
 
-    return normalizeZoomState(rowCount, {
-      startValue: numericValue(dataZoom[0].startValue, 0),
-      endValue: numericValue(dataZoom[0].endValue, Math.max(0, rowCount - 1)),
-    });
+    const zoomComponent = dataZoom.find((entry) => entry && (
+      entry.startValue != null
+      || entry.endValue != null
+      || entry.start != null
+      || entry.end != null
+    ));
+    if (!zoomComponent) {
+      return null;
+    }
+
+    if (zoomComponent.startValue != null || zoomComponent.endValue != null) {
+      return normalizeZoomState(rowCount, {
+        startValue: numericValue(zoomComponent.startValue, 0),
+        endValue: numericValue(zoomComponent.endValue, Math.max(0, rowCount - 1)),
+      });
+    }
+
+    if (zoomComponent.start != null || zoomComponent.end != null) {
+      return normalizeZoomState(rowCount, {
+        startValue: zoomPercentageToIndex(rowCount, zoomComponent.start, 0, "floor"),
+        endValue: zoomPercentageToIndex(rowCount, zoomComponent.end, Math.max(0, rowCount - 1), "ceil"),
+      });
+    }
+
+    return null;
+  }
+
+  function resolveZoomState(chart, rowCount, params) {
+    return zoomStateFromEventParams(params, rowCount) || zoomStateFromChart(chart, rowCount);
   }
 
   function savePendingScrollPosition() {
@@ -281,12 +368,8 @@
     const rowCount = payload.visibleTaxaCount || 0;
     container.style.height = `${chartHeightForRowCount(rowCount, 320)}px`;
     const chart = window.echarts.init(container);
-    const taxonomyGutter = hasTaxonomyGutterPayload(taxonomyGutterPayload)
-      ? taxonomyGutterApi().attach(chart, { payload: taxonomyGutterPayload })
-      : null;
+    const hasTaxonomyGutter = hasTaxonomyGutterPayload(taxonomyGutterPayload);
     let currentZoomState = normalizeZoomState(rowCount, null);
-    let pendingGutterOptions = null;
-    let gutterSyncPending = false;
     const taxonAxisValues = payload.taxa.map((row) => String(row.taxonId));
     const taxonLabelByAxisValue = new Map(
       (payload.taxa || []).map((row) => [String(row.taxonId), row.taxonName]),
@@ -311,40 +394,151 @@
       share: cell.value,
     }));
 
-    function scheduleGutterRender(options) {
-      if (!taxonomyGutter) {
-        return;
-      }
-      pendingGutterOptions = options;
-      gutterSyncPending = true;
+    if (hasTaxonomyGutter) {
+      chart.on("click", { seriesName: "codon-overview-taxonomy-gutter", element: "leaf-target" }, (params) => {
+        if (params && params.info && params.info.url) {
+          window.location.href = params.info.url;
+        }
+      });
     }
-
-    chart.off("finished");
-    chart.on("finished", () => {
-      if (!taxonomyGutter || !gutterSyncPending || !pendingGutterOptions) {
-        return;
-      }
-      const nextOptions = pendingGutterOptions;
-      pendingGutterOptions = null;
-      gutterSyncPending = false;
-      taxonomyGutter.render(nextOptions);
-    });
 
     function renderChart() {
       const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
       const showTaxonLabels = shouldShowTaxonLabels(visibleRowCount);
-      const gutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
-        showLabels: showTaxonLabels,
-        visibleLeafCount: visibleRowCount,
-      });
-      chart.setOption({
-        animation: false,
-        grid: {
-          left: gutterWidth > 0 ? gutterWidth + 20 : 160,
+      const panel = hasTaxonomyGutter
+        ? taxonomyGutterPanel(taxonomyGutterPayload, {
+          showLabels: showTaxonLabels,
+          visibleLeafCount: visibleRowCount,
+          zoomState: currentZoomState,
+          gridIndex: 0,
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          seriesName: "codon-overview-taxonomy-gutter",
+          seriesId: "codon-overview-taxonomy-gutter-series",
+          top: 32,
+          bottom: 48,
+        })
+        : null;
+      const grid = panel
+        ? [
+          panel.grid,
+          {
+            left: panel.width + 20,
+            right: currentZoomState ? 104 : 56,
+            top: 32,
+            bottom: 48,
+          },
+        ]
+        : {
+          left: 160,
           right: currentZoomState ? 104 : 56,
           top: 32,
           bottom: 48,
+        };
+      const xAxis = panel
+        ? [
+          panel.xAxis,
+          {
+            type: "category",
+            gridIndex: 1,
+            data: payload.codons.map((row) => row.codon),
+            axisLabel: {
+              color: TEXT_COLOR,
+            },
+            axisLine: {
+              lineStyle: {
+                color: GRID_COLOR,
+              },
+            },
+          },
+        ]
+        : {
+          type: "category",
+          data: payload.codons.map((row) => row.codon),
+          axisLabel: {
+            color: TEXT_COLOR,
+          },
+          axisLine: {
+            lineStyle: {
+              color: GRID_COLOR,
+            },
+          },
+        };
+      const yAxis = panel
+        ? [
+          panel.yAxis,
+          {
+            type: "category",
+            gridIndex: 1,
+            inverse: true,
+            data: taxonAxisValues,
+            axisLabel: {
+              show: false,
+              interval: 0,
+              color: TEXT_COLOR,
+              formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
+            },
+            axisLine: {
+              lineStyle: {
+                color: GRID_COLOR,
+              },
+            },
+          },
+        ]
+        : {
+          type: "category",
+          inverse: true,
+          data: taxonAxisValues,
+          axisLabel: {
+            show: !hasTaxonomyGutter && shouldShowTaxonLabels(visibleRowCount),
+            interval: 0,
+            color: TEXT_COLOR,
+            formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
+          },
+          axisLine: {
+            lineStyle: {
+              color: GRID_COLOR,
+            },
+          },
+        };
+      const series = [];
+      if (panel) {
+        series.push(panel.series);
+      }
+      series.push(
+        {
+          type: "heatmap",
+          xAxisIndex: panel ? 1 : 0,
+          yAxisIndex: panel ? 1 : 0,
+          data: heatmapData,
+          encode: {
+            x: 0,
+            y: 1,
+            value: 2,
+          },
+          label: {
+            show: true,
+            formatter(params) {
+              return formatShare(
+                params.data && typeof params.data.share === "number"
+                  ? params.data.share
+                  : undefined,
+              );
+            },
+            color: TEXT_COLOR,
+            fontSize: 11,
+          },
+          emphasis: {
+            itemStyle: {
+              shadowBlur: 10,
+              shadowColor: "rgba(0, 0, 0, 0.18)",
+            },
+          },
         },
+      );
+      chart.setOption({
+        animation: false,
+        grid,
         tooltip: {
           trigger: "item",
           formatter(params) {
@@ -357,34 +551,8 @@
             ].join("<br>");
           },
         },
-        xAxis: {
-          type: "category",
-          data: payload.codons.map((row) => row.codon),
-          axisLabel: {
-            color: TEXT_COLOR,
-          },
-          axisLine: {
-            lineStyle: {
-              color: GRID_COLOR,
-            },
-          },
-        },
-        yAxis: {
-          type: "category",
-          inverse: true,
-          data: taxonAxisValues,
-          axisLabel: {
-            show: !taxonomyGutter && shouldShowTaxonLabels(visibleRowCount),
-            interval: 0,
-            color: TEXT_COLOR,
-            formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
-          },
-          axisLine: {
-            lineStyle: {
-              color: GRID_COLOR,
-            },
-          },
-        },
+        xAxis,
+        yAxis,
         visualMap: {
           min: payload.valueMin,
           max: payload.valueMax,
@@ -401,51 +569,19 @@
           },
         },
         dataZoom: buildYAxisZoom(rowCount, currentZoomState, {
+          yAxisIndex: panel ? [0, 1] : 0,
           right: 44,
           top: 28,
           bottom: 56,
           width: 12,
         }),
-        series: [
-          {
-            type: "heatmap",
-            data: heatmapData,
-            encode: {
-              x: 0,
-              y: 1,
-              value: 2,
-            },
-            label: {
-              show: true,
-              formatter(params) {
-                return formatShare(
-                  params.data && typeof params.data.share === "number"
-                    ? params.data.share
-                    : undefined,
-                );
-              },
-              color: TEXT_COLOR,
-              fontSize: 11,
-            },
-            emphasis: {
-              itemStyle: {
-                shadowBlur: 10,
-                shadowColor: "rgba(0, 0, 0, 0.18)",
-              },
-            },
-          },
-        ],
+        series,
       }, { notMerge: true });
-      scheduleGutterRender({
-        showLabels: showTaxonLabels,
-        visibleLeafCount: visibleRowCount,
-        zoomState: currentZoomState,
-      });
     }
 
     chart.off("datazoom");
-    chart.on("datazoom", () => {
-      const nextZoomState = zoomStateFromChart(chart, rowCount);
+    chart.on("datazoom", (params) => {
+      const nextZoomState = resolveZoomState(chart, rowCount, params);
       const previousVisibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
       const nextVisibleRowCount = visibleRowCountForZoom(rowCount, nextZoomState);
       const previousShowTaxonLabels = shouldShowTaxonLabels(previousVisibleRowCount);
@@ -461,26 +597,12 @@
       currentZoomState = nextZoomState;
       if (previousGutterWidth !== nextGutterWidth) {
         renderChart();
-        return;
       }
-      scheduleGutterRender({
-        showLabels: nextShowTaxonLabels,
-        visibleLeafCount: nextVisibleRowCount,
-        zoomState: nextZoomState,
-      });
     });
 
     renderChart();
 
-    window.addEventListener("resize", () => {
-      chart.resize();
-      const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
-      scheduleGutterRender({
-        showLabels: shouldShowTaxonLabels(visibleRowCount),
-        visibleLeafCount: visibleRowCount,
-        zoomState: currentZoomState,
-      });
-    });
+    window.addEventListener("resize", () => chart.resize());
   }
 
   function renderBrowseChart() {
@@ -494,12 +616,8 @@
     const rowCount = payload.visibleTaxaCount || 0;
     container.style.height = `${chartHeightForRowCount(rowCount, 380)}px`;
     const chart = window.echarts.init(container);
-    const taxonomyGutter = hasTaxonomyGutterPayload(taxonomyGutterPayload)
-      ? taxonomyGutterApi().attach(chart, { payload: taxonomyGutterPayload })
-      : null;
+    const hasTaxonomyGutter = hasTaxonomyGutterPayload(taxonomyGutterPayload);
     let currentZoomState = normalizeZoomState(rowCount, null);
-    let pendingGutterOptions = null;
-    let gutterSyncPending = false;
     const taxonLabelByAxisValue = new Map(
       (payload.rows || []).map((row) => [String(row.taxonId), row.taxonName]),
     );
@@ -531,40 +649,120 @@
       })),
     }));
 
-    function scheduleGutterRender(options) {
-      if (!taxonomyGutter) {
-        return;
-      }
-      pendingGutterOptions = options;
-      gutterSyncPending = true;
+    if (hasTaxonomyGutter) {
+      chart.on("click", { seriesName: "codon-browse-taxonomy-gutter", element: "leaf-target" }, (params) => {
+        if (params && params.info && params.info.url) {
+          window.location.href = params.info.url;
+        }
+      });
     }
-
-    chart.off("finished");
-    chart.on("finished", () => {
-      if (!taxonomyGutter || !gutterSyncPending || !pendingGutterOptions) {
-        return;
-      }
-      const nextOptions = pendingGutterOptions;
-      pendingGutterOptions = null;
-      gutterSyncPending = false;
-      taxonomyGutter.render(nextOptions);
-    });
 
     function renderChart() {
       const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
       const showTaxonLabels = shouldShowTaxonLabels(visibleRowCount);
-      const gutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
-        showLabels: showTaxonLabels,
-        visibleLeafCount: visibleRowCount,
-      });
-      chart.setOption({
-        animation: false,
-        grid: {
-          left: gutterWidth > 0 ? gutterWidth + 20 : 180,
+      const panel = hasTaxonomyGutter
+        ? taxonomyGutterPanel(taxonomyGutterPayload, {
+          showLabels: showTaxonLabels,
+          visibleLeafCount: visibleRowCount,
+          zoomState: currentZoomState,
+          gridIndex: 0,
+          xAxisIndex: 0,
+          yAxisIndex: 0,
+          seriesName: "codon-browse-taxonomy-gutter",
+          seriesId: "codon-browse-taxonomy-gutter-series",
+          top: 72,
+          bottom: 48,
+        })
+        : null;
+      const grid = panel
+        ? [
+          panel.grid,
+          {
+            left: panel.width + 20,
+            right: currentZoomState ? 56 : 24,
+            top: 72,
+            bottom: 48,
+          },
+        ]
+        : {
+          left: 180,
           right: currentZoomState ? 56 : 24,
           top: 72,
           bottom: 48,
-        },
+        };
+      const xAxis = panel
+        ? [
+          panel.xAxis,
+          {
+            type: "value",
+            gridIndex: 1,
+            min: 0,
+            max: 1,
+            axisLabel: {
+              color: TEXT_COLOR,
+              formatter: (value) => formatShare(value),
+            },
+            splitLine: {
+              lineStyle: {
+                color: GRID_COLOR,
+              },
+            },
+          },
+        ]
+        : {
+          type: "value",
+          min: 0,
+          max: 1,
+          axisLabel: {
+            color: TEXT_COLOR,
+            formatter: (value) => formatShare(value),
+          },
+          splitLine: {
+            lineStyle: {
+              color: GRID_COLOR,
+            },
+          },
+        };
+      const yAxis = panel
+        ? [
+          panel.yAxis,
+          {
+            type: "category",
+            gridIndex: 1,
+            inverse: true,
+            data: taxonAxisValues,
+            axisLabel: {
+              show: false,
+              interval: 0,
+              color: TEXT_COLOR,
+              formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
+            },
+          },
+        ]
+        : {
+          type: "category",
+          inverse: true,
+          data: taxonAxisValues,
+          axisLabel: {
+            show: !hasTaxonomyGutter && shouldShowTaxonLabels(visibleRowCount),
+            interval: 0,
+            color: TEXT_COLOR,
+            formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
+          },
+        };
+      const chartSeries = panel
+        ? [
+          panel.series,
+          ...series.map((entry) => ({
+            ...entry,
+            xAxisIndex: 1,
+            yAxisIndex: 1,
+          })),
+        ]
+        : series;
+      chart.setOption({
+        animation: false,
+        grid,
         legend: {
           top: 16,
           textStyle: {
@@ -587,48 +785,21 @@
             return lines.join("<br>");
           },
         },
-        xAxis: {
-          type: "value",
-          min: 0,
-          max: 1,
-          axisLabel: {
-            color: TEXT_COLOR,
-            formatter: (value) => formatShare(value),
-          },
-          splitLine: {
-            lineStyle: {
-              color: GRID_COLOR,
-            },
-          },
-        },
-        yAxis: {
-          type: "category",
-          inverse: true,
-          data: taxonAxisValues,
-          axisLabel: {
-            show: !taxonomyGutter && shouldShowTaxonLabels(visibleRowCount),
-            interval: 0,
-            color: TEXT_COLOR,
-            formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
-          },
-        },
+        xAxis,
+        yAxis,
         dataZoom: buildYAxisZoom(rowCount, currentZoomState, {
+          yAxisIndex: panel ? [0, 1] : 0,
           right: 8,
           top: 72,
           bottom: 48,
         }),
-        series,
+        series: chartSeries,
       }, { notMerge: true });
-      scheduleGutterRender({
-        showLabels: showTaxonLabels,
-        visibleLeafCount: visibleRowCount,
-        zoomState: currentZoomState,
-      });
     }
 
     chart.off("datazoom");
-    chart.on("datazoom", () => {
-      const nextZoomState = zoomStateFromChart(chart, rowCount);
+    chart.on("datazoom", (params) => {
+      const nextZoomState = resolveZoomState(chart, rowCount, params);
       const previousVisibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
       const nextVisibleRowCount = visibleRowCountForZoom(rowCount, nextZoomState);
       const previousShowTaxonLabels = shouldShowTaxonLabels(previousVisibleRowCount);
@@ -644,13 +815,7 @@
       currentZoomState = nextZoomState;
       if (previousGutterWidth !== nextGutterWidth) {
         renderChart();
-        return;
       }
-      scheduleGutterRender({
-        showLabels: nextShowTaxonLabels,
-        visibleLeafCount: nextVisibleRowCount,
-        zoomState: nextZoomState,
-      });
     });
 
     renderChart();
@@ -661,15 +826,7 @@
       }
     });
 
-    window.addEventListener("resize", () => {
-      chart.resize();
-      const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
-      scheduleGutterRender({
-        showLabels: shouldShowTaxonLabels(visibleRowCount),
-        visibleLeafCount: visibleRowCount,
-        zoomState: currentZoomState,
-      });
-    });
+    window.addEventListener("resize", () => chart.resize());
   }
 
   function renderInspectChart() {

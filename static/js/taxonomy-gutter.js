@@ -168,6 +168,416 @@
     return layoutWidths(payload, options).total;
   }
 
+  function visibleLeafRangeFromOptions(payload, options = {}) {
+    const leafCount = payload.leaves.length;
+    if (leafCount < 1) {
+      return null;
+    }
+
+    const explicitZoomState = options.zoomState || null;
+    if (!explicitZoomState) {
+      return {
+        start: 0,
+        end: leafCount - 1,
+      };
+    }
+
+    const start = clamp(
+      Math.round(numericValue(explicitZoomState.startValue, 0)),
+      0,
+      leafCount - 1,
+    );
+    const end = clamp(
+      Math.round(numericValue(explicitZoomState.endValue, leafCount - 1)),
+      start,
+      leafCount - 1,
+    );
+    return { start, end };
+  }
+
+  function panelLayout(payload, options = {}) {
+    const widths = layoutWidths(payload, options);
+    const rootX = LEFT_PADDING + widths.internalLabelWidth;
+    const leafLabelX = rootX + widths.treeWidth + (widths.showLabels ? LEAF_LABEL_GAP : MIN_LEAF_SECTION_WIDTH);
+    const leafLineEndX = widths.showLabels ? leafLabelX - 6 : leafLabelX - 2;
+    const braceMarkX = leafLabelX + widths.leafLabelWidth + BRACE_GAP;
+    const braceLabelX = braceMarkX + BRACE_MARK_WIDTH + BRACE_LABEL_GAP;
+
+    return {
+      widths,
+      rootX,
+      leafLabelX,
+      leafLineEndX,
+      braceMarkX,
+      braceLabelX,
+      totalWidth: widths.total,
+    };
+  }
+
+  function buildPanelState(payload, options, params, api) {
+    const coordSys = params && params.coordSys ? params.coordSys : null;
+    const range = visibleLeafRangeFromOptions(payload, options);
+    if (!coordSys || !range) {
+      return null;
+    }
+
+    const layout = panelLayout(payload, options);
+    const visibleLeaves = [];
+    const rowYByIndex = new Map();
+    const leafByNodeId = new Map();
+
+    payload.leaves.forEach((leaf) => {
+      if (leaf.rowIndex < range.start || leaf.rowIndex > range.end) {
+        return;
+      }
+      const pixel = api.coord([0, leaf.axisValue]);
+      const y = Array.isArray(pixel) ? pixel[1] : null;
+      if (typeof y !== "number" || !Number.isFinite(y)) {
+        return;
+      }
+      visibleLeaves.push({ ...leaf, y });
+      rowYByIndex.set(leaf.rowIndex, y);
+      leafByNodeId.set(leaf.nodeId, { ...leaf, y });
+    });
+
+    if (visibleLeaves.length === 0) {
+      return null;
+    }
+
+    const visibleNodesById = new Map();
+    payload.nodes.forEach((node) => {
+      const clippedStart = Math.max(node.rowStart, range.start);
+      const clippedEnd = Math.min(node.rowEnd, range.end);
+      if (clippedStart > clippedEnd) {
+        return;
+      }
+      const topY = rowYByIndex.get(clippedStart);
+      const bottomY = rowYByIndex.get(clippedEnd);
+      if (typeof topY !== "number" || typeof bottomY !== "number") {
+        return;
+      }
+      const normalizedTopY = Math.min(topY, bottomY);
+      const normalizedBottomY = Math.max(topY, bottomY);
+      visibleNodesById.set(node.nodeId, {
+        ...node,
+        x: coordSys.x + layout.rootX + (node.depth * DEPTH_STEP),
+        y: (normalizedTopY + normalizedBottomY) / 2,
+        topY: normalizedTopY,
+        bottomY: normalizedBottomY,
+      });
+    });
+
+    const childrenByParentId = new Map();
+    payload.edges.forEach((edge) => {
+      if (!visibleNodesById.has(edge.parentNodeId) || !visibleNodesById.has(edge.childNodeId)) {
+        return;
+      }
+      const children = childrenByParentId.get(edge.parentNodeId) || [];
+      children.push(edge.childNodeId);
+      childrenByParentId.set(edge.parentNodeId, children);
+    });
+    childrenByParentId.forEach((childNodeIds, parentNodeId) => {
+      childNodeIds.sort((leftNodeId, rightNodeId) => {
+        return visibleNodesById.get(leftNodeId).y - visibleNodesById.get(rightNodeId).y;
+      });
+      childrenByParentId.set(parentNodeId, childNodeIds);
+    });
+
+    return {
+      widths: layout.widths,
+      rootX: coordSys.x + layout.rootX,
+      leafLabelX: coordSys.x + layout.leafLabelX,
+      leafLineEndX: coordSys.x + layout.leafLineEndX,
+      braceMarkX: coordSys.x + layout.braceMarkX,
+      braceLabelX: coordSys.x + layout.braceLabelX,
+      visibleLeaves,
+      visibleNodesById,
+      childrenByParentId,
+      leafByNodeId,
+    };
+  }
+
+  function panelLineElement(shape) {
+    return {
+      type: "line",
+      silent: true,
+      shape,
+      style: {
+        stroke: LINE_COLOR,
+        lineWidth: LINE_WIDTH,
+      },
+      z: 2,
+    };
+  }
+
+  function panelNodeMarkerElement(node) {
+    return {
+      type: "circle",
+      silent: true,
+      shape: {
+        cx: node.x,
+        cy: node.y,
+        r: nodeMarkerRadius(node),
+      },
+      style: nodeMarkerStyle(node),
+      z: 5,
+    };
+  }
+
+  function panelLeafHitAreaElement(state, leaf, node) {
+    const braceLabelWidth = leaf.showBrace && leaf.braceLabel
+      ? measureTextWidth(leaf.braceLabel, BRACE_FONT, MAX_BRACE_LABEL_WIDTH)
+      : 0;
+    const hitAreaRight = leaf.showBrace && leaf.braceLabel
+      ? state.braceLabelX + braceLabelWidth + 8
+      : state.leafLineEndX + 8;
+
+    return {
+      type: "rect",
+      name: "leaf-target",
+      info: {
+        url: leaf.branchExplorerUrl || "",
+      },
+      cursor: leaf.branchExplorerUrl ? "pointer" : "default",
+      silent: false,
+      shape: {
+        x: node.x - 2,
+        y: leaf.y - 10,
+        width: Math.max(12, hitAreaRight - node.x + 2),
+        height: 20,
+      },
+      style: {
+        fill: "rgba(0, 0, 0, 0)",
+      },
+      z: 1,
+    };
+  }
+
+  function buildPanelChildren(payload, state) {
+    const children = [];
+    const { widths, visibleNodesById, childrenByParentId, leafByNodeId } = state;
+
+    visibleNodesById.forEach((node) => {
+      const childNodeIds = childrenByParentId.get(node.nodeId) || [];
+      if (childNodeIds.length >= 2) {
+        const firstChild = visibleNodesById.get(childNodeIds[0]);
+        const lastChild = visibleNodesById.get(childNodeIds[childNodeIds.length - 1]);
+        children.push(
+          panelLineElement({
+            x1: node.x,
+            y1: firstChild.y,
+            x2: node.x,
+            y2: lastChild.y,
+          }),
+        );
+      }
+
+      childNodeIds.forEach((childNodeId) => {
+        const childNode = visibleNodesById.get(childNodeId);
+        children.push(
+          panelLineElement({
+            x1: node.x,
+            y1: childNode.y,
+            x2: childNode.x,
+            y2: childNode.y,
+          }),
+        );
+      });
+    });
+
+    visibleNodesById.forEach((node) => {
+      const childNodeIds = childrenByParentId.get(node.nodeId) || [];
+      if (node.isLeaf || childNodeIds.length === 0) {
+        return;
+      }
+      children.push(panelNodeMarkerElement(node));
+    });
+
+    state.visibleLeaves.forEach((leaf) => {
+      const node = visibleNodesById.get(leaf.nodeId);
+      if (!node) {
+        return;
+      }
+
+      children.push(panelLeafHitAreaElement(state, leaf, node));
+      children.push(
+        panelLineElement({
+          x1: node.x,
+          y1: leaf.y,
+          x2: state.leafLineEndX,
+          y2: leaf.y,
+        }),
+      );
+
+      if (widths.showLabels) {
+        children.push(
+          {
+            type: "text",
+            x: state.leafLabelX,
+            y: leaf.y,
+            silent: true,
+            style: {
+              text: leaf.taxonName,
+              fill: LEAF_TEXT_COLOR,
+              font: LEAF_FONT,
+              textAlign: "left",
+              verticalAlign: "middle",
+            },
+            z: 4,
+          },
+        );
+      }
+
+      if (leaf.showBrace && leaf.braceLabel) {
+        children.push(
+          {
+            type: "text",
+            x: state.braceMarkX,
+            y: leaf.y,
+            silent: true,
+            style: {
+              text: "{",
+              fill: INTERNAL_TEXT_COLOR,
+              font: BRACE_MARK_FONT,
+              textAlign: "left",
+              verticalAlign: "middle",
+            },
+            z: 4,
+          },
+        );
+        children.push(
+          {
+            type: "text",
+            x: state.braceLabelX,
+            y: leaf.y,
+            silent: true,
+            style: {
+              text: leaf.braceLabel,
+              fill: INTERNAL_TEXT_COLOR,
+              font: BRACE_FONT,
+              textAlign: "left",
+              verticalAlign: "middle",
+            },
+            z: 4,
+          },
+        );
+      }
+    });
+
+    if (widths.showSplitLabels) {
+      visibleNodesById.forEach((node) => {
+        if (!node.isPreservedSplit || node.isLeaf || node.rank === "no rank") {
+          return;
+        }
+        if ((node.bottomY - node.topY) < 24) {
+          return;
+        }
+        if (leafByNodeId.has(node.nodeId)) {
+          return;
+        }
+        children.push(
+          {
+            type: "text",
+            x: node.x - 8,
+            y: node.y,
+            silent: true,
+            style: {
+              text: node.taxonName,
+              fill: INTERNAL_TEXT_COLOR,
+              font: INTERNAL_FONT,
+              textAlign: "right",
+              verticalAlign: "middle",
+            },
+            z: 3,
+          },
+        );
+      });
+    }
+
+    return children;
+  }
+
+  function buildPanel(payload, options = {}) {
+    if (!hasPayload(payload)) {
+      return null;
+    }
+
+    const layout = panelLayout(payload, options);
+    const gridIndex = numericValue(options.gridIndex, 0);
+    const xAxisIndex = numericValue(options.xAxisIndex, gridIndex);
+    const yAxisIndex = numericValue(options.yAxisIndex, gridIndex);
+    const seriesName = typeof options.seriesName === "string" && options.seriesName
+      ? options.seriesName
+      : "taxonomy-gutter";
+    const seriesId = typeof options.seriesId === "string" && options.seriesId
+      ? options.seriesId
+      : `${seriesName}-series`;
+
+    return {
+      width: layout.totalWidth,
+      seriesName,
+      seriesId,
+      grid: {
+        left: numericValue(options.left, 0),
+        width: layout.totalWidth,
+        top: numericValue(options.top, 0),
+        bottom: numericValue(options.bottom, 0),
+        containLabel: false,
+      },
+      xAxis: {
+        type: "value",
+        min: 0,
+        max: layout.totalWidth,
+        show: false,
+        gridIndex,
+      },
+      yAxis: {
+        type: "category",
+        inverse: true,
+        data: payload.leaves.map((leaf) => leaf.axisValue),
+        show: false,
+        axisLine: {
+          show: false,
+        },
+        axisTick: {
+          show: false,
+        },
+        axisLabel: {
+          show: false,
+        },
+        gridIndex,
+      },
+      series: {
+        id: seriesId,
+        name: seriesName,
+        type: "custom",
+        coordinateSystem: "cartesian2d",
+        xAxisIndex,
+        yAxisIndex,
+        animation: false,
+        silent: false,
+        clip: true,
+        tooltip: {
+          show: false,
+        },
+        data: [0],
+        renderItem(params, api) {
+          const state = buildPanelState(payload, options, params, api);
+          if (!state) {
+            return {
+              type: "group",
+              children: [],
+            };
+          }
+          return {
+            type: "group",
+            children: buildPanelChildren(payload, state),
+          };
+        },
+      },
+    };
+  }
+
   function gridLeft(chart) {
     const option = chart.getOption();
     const grid = Array.isArray(option.grid) ? option.grid[0] : option.grid;
@@ -192,6 +602,27 @@
     } catch (error) {
       return null;
     }
+  }
+
+  function yAxisIsInverse(chart) {
+    const option = chart.getOption();
+    const yAxis = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis;
+    return Boolean(yAxis && yAxis.inverse);
+  }
+
+  function extractYPixel(pixelValue) {
+    if (Array.isArray(pixelValue)) {
+      return typeof pixelValue[1] === "number" && Number.isFinite(pixelValue[1]) ? pixelValue[1] : null;
+    }
+    return typeof pixelValue === "number" && Number.isFinite(pixelValue) ? pixelValue : null;
+  }
+
+  function axisLeafCenterY(chart, leaf) {
+    const axisPixel = extractYPixel(chart.convertToPixel({ yAxisIndex: 0 }, leaf.axisValue));
+    if (axisPixel !== null) {
+      return axisPixel;
+    }
+    return extractYPixel(chart.convertToPixel("grid", [0, leaf.axisValue]));
   }
 
   function ensureTooltip(chart) {
@@ -310,6 +741,28 @@
     window.location.href = url;
   }
 
+  function leafCenterY(chart, leaf, range, currentGridRect) {
+    const axisPixel = axisLeafCenterY(chart, leaf);
+    if (axisPixel !== null) {
+      return axisPixel;
+    }
+
+    const visibleRowCount = (range.end - range.start) + 1;
+    if (!currentGridRect || visibleRowCount < 1) {
+      return null;
+    }
+
+    const bandHeight = currentGridRect.height / visibleRowCount;
+    if (!Number.isFinite(bandHeight) || bandHeight <= 0) {
+      return null;
+    }
+
+    const topOrdinal = yAxisIsInverse(chart)
+      ? leaf.rowIndex - range.start
+      : range.end - leaf.rowIndex;
+    return currentGridRect.y + ((topOrdinal + 0.5) * bandHeight);
+  }
+
   function buildVisibleState(chart, payload, options) {
     const range = visibleLeafRange(chart, payload, options);
     if (!range) {
@@ -317,10 +770,6 @@
     }
 
     const currentGridRect = gridRect(chart);
-    const visibleLeafCount = (range.end - range.start) + 1;
-    const rowBandHeight = currentGridRect && visibleLeafCount > 0
-      ? currentGridRect.height / visibleLeafCount
-      : null;
     const visibleLeaves = [];
     const rowYByIndex = new Map();
     const leafByNodeId = new Map();
@@ -328,9 +777,7 @@
       if (leaf.rowIndex < range.start || leaf.rowIndex > range.end) {
         return;
       }
-      const y = currentGridRect && rowBandHeight
-        ? currentGridRect.y + (((leaf.rowIndex - range.start) + 0.5) * rowBandHeight)
-        : chart.convertToPixel({ yAxisIndex: 0 }, leaf.axisValue);
+      const y = leafCenterY(chart, leaf, range, currentGridRect);
       if (typeof y !== "number" || !Number.isFinite(y)) {
         return;
       }
@@ -754,6 +1201,7 @@
 
   window.HomorepeatTaxonomyGutter = {
     attach,
+    buildPanel,
     hasPayload,
     reservedWidth,
   };
