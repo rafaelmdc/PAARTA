@@ -56,3 +56,45 @@
 - Add a "root" node, instead of just making a line at the pylum level for readibility.
 - Add node behavior, when hovering a node/intersection show the label of it, so it's easier to browse.
 - Browser level is not aligned, regardless of zoomout.
+
+---
+
+## Taxonomy Gutter Follow-up
+
+**Date:** 2026-04-18
+
+## Objective
+- Fix the remaining codon taxonomy-gutter alignment bugs, specifically scroll and scale behavior in the separated left cladogram panel used by overview and browse.
+
+## What happened
+- Reviewed the codon composition and taxonomy gutter docs plus ECharts custom-series and `dataZoom` behavior to narrow the failure mode.
+- Kept the separated left-panel approach and avoided reverting back to the older overlay path.
+- Fixed the gutter disappearing-on-scroll bug by marking the custom gutter series as non-axis-encoded, so its dummy datum no longer falls out of the zoom window during pan.
+- Kept the rescale behavior that correctly rebuilds the gutter when the visible row count changes.
+- Attempted a viewport-clipping fix so internal nodes that become unary after scroll are collapsed before drawing.
+- The remaining bug is still present: after scroll and scale/rescale interactions, cladogram nodes and some connector lines can shift or drift horizontally/structurally when they should stay stable.
+
+## Files touched
+- `static/js/taxonomy-gutter.js`
+  Added the custom-series `encode` fix for scroll visibility and adjusted viewport node-clipping/collapse logic for the separated cladogram panel.
+- `static/js/repeat-codon-ratio-explorer.js`
+  Kept the separated panel wiring and the rescale-aware rebuild behavior used by the codon overview and browse charts.
+
+## Validation
+- `node --check static/js/taxonomy-gutter.js`
+- `node --check static/js/repeat-codon-ratio-explorer.js`
+- `python manage.py test web_tests.test_browser_codon_ratios`
+- All listed checks passed after the latest gutter changes.
+
+## Current status
+- In progress.
+- Scroll disappearance is fixed.
+- Scale/rescale generally works.
+- The scroll/scale bug where cladogram nodes and lines move around when they are not supposed to is still unresolved.
+
+## Open issues
+- After scrolling, especially following scale/rescale changes, some internal node markers and branch elbows do not line up with the expected visible tree structure.
+- The remaining problem appears to be in how the visible subtree is clipped/reprojected during viewport changes, not in basic chart height or initial row alignment.
+
+## Next step
+- Instrument and simplify the visible-subtree projection in `static/js/taxonomy-gutter.js` so the gutter draws from one stable clipped tree model during scroll, instead of mixing full-tree depth with partially visible descendants.
