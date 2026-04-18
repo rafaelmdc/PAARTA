@@ -64,6 +64,9 @@ Every viewer page should follow the same base contract:
   to biological order
 - reuse the same lineage ordering helper across all viewers so adjacent rows
   remain biologically coherent
+- when a chart needs a visible taxonomy axis, reuse the shared taxonomy gutter
+  contract in `taxonomy_gutter_plan.md` rather than building a viewer-local
+  tree widget
 
 ### 5. Shared `Tier 1 - Overview` shell
 
@@ -251,3 +254,25 @@ Scope:
 Exit criteria:
 
 - viewer entry points are consistent across the first-wave family
+
+### `F7` Add a shared taxonomy gutter for cartesian charts
+
+Goal:
+
+- make taxonomy-grouped rows readable across chart views without replacing the
+  shared chart shell
+
+Scope:
+
+- shared backend payload shaping for lineage connectors and terminal braces
+- one reusable frontend overlay helper for ECharts cartesian charts
+- scope-aware collapsed-descendant counts driven by the current stats filters
+
+Reference:
+
+- `taxonomy_gutter_plan.md`
+
+Exit criteria:
+
+- taxonomy-first charts can reuse one gutter/tree overlay contract across
+  codon, length, and later taxon-based views

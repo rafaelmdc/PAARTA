@@ -71,6 +71,9 @@ rules as the current page.
   too
 - reuse the current filters, table behavior, branch handoff semantics, and
   chart payload patterns
+- reuse the shared taxonomy gutter contract from
+  `docs/general views/taxonomy_gutter_plan.md` when length charts need an
+  explicit lineage axis
 - add overview and inspect layers around the implemented browse layer rather
   than replacing it
 - adopt the shared taxonomy-first overview shell instead of inventing a

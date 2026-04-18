@@ -17,6 +17,7 @@ from apps.browser.stats import (
     build_ranked_length_summary_bundle,
     build_ranked_taxon_group_queryset,
     build_stats_filter_state,
+    build_taxonomy_gutter_payload,
     summarize_ranked_codon_composition_groups,
     summarize_ranked_length_groups,
 )
@@ -479,6 +480,299 @@ class BrowserStatsTests(TestCase):
                 {"codon": "CAG", "share": 0.25},
             ],
         )
+
+    def test_taxonomy_gutter_payload_builds_rooted_visible_tree_and_scope_aware_braces(self):
+        gamma = create_imported_run_fixture(
+            run_id="run-gamma",
+            genome_id="genome_gamma",
+            sequence_id="seq_gamma",
+            protein_id="prot_gamma",
+            call_id="call_gamma",
+            accession="GCF_GAMMA",
+            taxon_key="fruit_fly",
+            genome_name="Fruit fly reference genome",
+        )
+        delta = create_imported_run_fixture(
+            run_id="run-delta",
+            genome_id="genome_delta",
+            sequence_id="seq_delta",
+            protein_id="prot_delta",
+            call_id="call_delta",
+            accession="GCF_DELTA",
+            taxon_key="house_spider",
+            genome_name="Spider reference genome",
+        )
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            gamma,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            delta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+
+        filter_state = build_stats_filter_state(
+            self.factory.get(
+                "/browser/codon-ratios/",
+                {
+                    "rank": "class",
+                    "min_count": "1",
+                    "top_n": "10",
+                    "residue": "q",
+                },
+            )
+        )
+
+        bundle = build_ranked_codon_composition_summary_bundle(filter_state)
+        payload = build_taxonomy_gutter_payload(
+            bundle["summary_rows"],
+            filter_state=filter_state,
+            collapse_rank=filter_state.rank,
+        )
+
+        self.assertEqual(payload["collapseRank"], "class")
+        self.assertEqual(payload["collapsedChildRank"], "order")
+        self.assertEqual(
+            payload["root"],
+            {
+                "nodeId": f"taxon-{self.alpha['taxa']['root'].pk}",
+                "taxonId": self.alpha["taxa"]["root"].pk,
+                "taxonName": "root",
+                "rank": "no rank",
+                "depth": 0,
+            },
+        )
+        self.assertEqual(payload["maxDepth"], 2)
+        self.assertEqual(
+            [node["taxonName"] for node in payload["nodes"]],
+            ["root", "Arthropoda", "Arachnida", "Insecta", "Chordata", "Mammalia"],
+        )
+        self.assertEqual(
+            [node["depth"] for node in payload["nodes"]],
+            [0, 1, 2, 2, 1, 2],
+        )
+        self.assertEqual(
+            [leaf["taxonName"] for leaf in payload["leaves"]],
+            ["Arachnida", "Insecta", "Mammalia"],
+        )
+        self.assertEqual(
+            [leaf["braceLabel"] for leaf in payload["leaves"]],
+            ["1 order", "1 order", "1 order"],
+        )
+        self.assertEqual(
+            payload["edges"],
+            [
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['root'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['arthropoda'].pk}",
+                },
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['arthropoda'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['arachnida'].pk}",
+                },
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['arthropoda'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['insecta'].pk}",
+                },
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['root'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['chordata'].pk}",
+                },
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['chordata'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['mammalia'].pk}",
+                },
+            ],
+        )
+        self.assertNotIn("columns", payload)
+        self.assertNotIn("segments", payload)
+        self.assertNotIn("rows", payload)
+        self.assertNotIn("terminals", payload)
+
+    def test_taxonomy_gutter_payload_uses_visible_lca_for_single_phylum_subset(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+
+        filter_state = build_stats_filter_state(
+            self.factory.get(
+                "/browser/codon-ratios/",
+                {
+                    "rank": "species",
+                    "min_count": "1",
+                    "top_n": "10",
+                    "residue": "q",
+                },
+            )
+        )
+
+        bundle = build_ranked_codon_composition_summary_bundle(filter_state)
+        payload = build_taxonomy_gutter_payload(
+            bundle["summary_rows"],
+            filter_state=filter_state,
+            collapse_rank=filter_state.rank,
+        )
+
+        self.assertEqual(
+            payload["root"],
+            {
+                "nodeId": f"taxon-{self.alpha['taxa']['mammalia'].pk}",
+                "taxonId": self.alpha["taxa"]["mammalia"].pk,
+                "taxonName": "Mammalia",
+                "rank": "class",
+                "depth": 0,
+            },
+        )
+        self.assertEqual(
+            [node["taxonName"] for node in payload["nodes"]],
+            ["Mammalia", "Primates", "Homo sapiens", "Mus musculus"],
+        )
+        self.assertEqual(
+            payload["edges"],
+            [
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['mammalia'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['primates'].pk}",
+                },
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['primates'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['human'].pk}",
+                },
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['mammalia'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['mouse'].pk}",
+                },
+            ],
+        )
+        self.assertEqual([leaf["braceLabel"] for leaf in payload["leaves"]], ["", ""])
+
+    def test_taxonomy_gutter_payload_projects_tree_to_browser_ranks_only(self):
+        from apps.browser.models import Taxon, TaxonClosure
+
+        theria = Taxon.objects.create(
+            taxon_id=32525,
+            taxon_name="Theria",
+            rank="clade",
+            parent_taxon=self.alpha["taxa"]["mammalia"],
+        )
+        primates = self.alpha["taxa"]["primates"]
+        primates.parent_taxon = theria
+        primates.save()
+
+        def rebuild_closure(taxon):
+            TaxonClosure.objects.filter(descendant=taxon).delete()
+            ancestor = taxon
+            depth = 0
+            while ancestor is not None:
+                TaxonClosure.objects.create(
+                    ancestor=ancestor,
+                    descendant=taxon,
+                    depth=depth,
+                )
+                ancestor = ancestor.parent_taxon
+                depth += 1
+
+        rebuild_closure(primates)
+        rebuild_closure(self.alpha["taxa"]["human"])
+
+        filter_state = build_stats_filter_state(
+            self.factory.get(
+                "/browser/codon-ratios/",
+                {
+                    "rank": "species",
+                    "min_count": "1",
+                    "residue": "q",
+                },
+            )
+        )
+
+        payload = build_taxonomy_gutter_payload(
+            [
+                {
+                    "taxon_id": self.alpha["taxa"]["human"].pk,
+                    "taxon_name": "Homo sapiens",
+                    "rank": "species",
+                },
+                {
+                    "taxon_id": self.alpha["taxa"]["mouse"].pk,
+                    "taxon_name": "Mus musculus",
+                    "rank": "species",
+                },
+            ],
+            filter_state=filter_state,
+            collapse_rank=filter_state.rank,
+        )
+
+        self.assertEqual(
+            [node["taxonName"] for node in payload["nodes"]],
+            ["Mammalia", "Primates", "Homo sapiens", "Mus musculus"],
+        )
+        self.assertNotIn("Theria", [node["taxonName"] for node in payload["nodes"]])
+        self.assertNotIn("clade", [node["rank"] for node in payload["nodes"]])
+
+    def test_taxonomy_gutter_payload_uses_cache_for_same_visible_scope(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+
+        filter_state = build_stats_filter_state(
+            self.factory.get(
+                "/browser/codon-ratios/",
+                {
+                    "rank": "class",
+                    "min_count": "1",
+                    "top_n": "10",
+                    "residue": "q",
+                },
+            )
+        )
+        summary_rows = build_ranked_codon_composition_summary_bundle(filter_state)["summary_rows"]
+
+        first_payload = build_taxonomy_gutter_payload(
+            summary_rows,
+            filter_state=filter_state,
+            collapse_rank=filter_state.rank,
+        )
+
+        with patch(
+            "apps.browser.stats.taxonomy_gutter._build_scope_descendant_counts_by_taxon",
+            side_effect=AssertionError("expected cached taxonomy gutter payload"),
+        ):
+            second_payload = build_taxonomy_gutter_payload(
+                summary_rows,
+                filter_state=filter_state,
+                collapse_rank=filter_state.rank,
+            )
+
+        self.assertEqual(second_payload, first_payload)
 
     def test_ranked_codon_composition_summary_bundle_respects_run_branch_method_and_residue_filters(self):
         alpha_alanine = self._create_repeat_call(

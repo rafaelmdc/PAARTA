@@ -10,6 +10,7 @@ from apps.browser.stats import (
     build_filtered_repeat_call_queryset,
     build_ranked_codon_composition_chart_payload,
     build_ranked_codon_composition_summary_bundle,
+    build_taxonomy_gutter_payload,
     build_stats_filter_state,
 )
 from apps.browser.stats.params import ALLOWED_STATS_RANKS, next_lower_rank
@@ -175,12 +176,24 @@ class CodonRatioExplorerView(TemplateView):
         )
         context["overview_payload_id"] = "codon-composition-overview-payload"
         context["overview_container_id"] = "codon-composition-overview"
+        context["overview_taxonomy_gutter_payload"] = build_taxonomy_gutter_payload(
+            summary_rows,
+            filter_state=filter_state,
+            collapse_rank=filter_state.rank,
+        )
+        context["overview_taxonomy_gutter_payload_id"] = "codon-composition-overview-taxonomy-gutter-payload"
         context["chart_payload"] = build_ranked_codon_composition_chart_payload(
             summary_rows,
             visible_codons=visible_codons,
         )
         context["chart_payload_id"] = "codon-composition-chart-payload"
         context["chart_container_id"] = "codon-composition-chart"
+        context["chart_taxonomy_gutter_payload"] = build_taxonomy_gutter_payload(
+            summary_rows,
+            filter_state=filter_state,
+            collapse_rank=filter_state.rank,
+        )
+        context["chart_taxonomy_gutter_payload_id"] = "codon-composition-chart-taxonomy-gutter-payload"
         context["run_choices"] = PipelineRun.objects.order_by("-imported_at", "run_id")
         context["rank_choices"] = [
             {"value": rank, "label": rank}

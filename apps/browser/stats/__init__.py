@@ -21,6 +21,7 @@ from .summaries import (
     summarize_ranked_codon_composition_groups,
     summarize_ranked_length_groups,
 )
+from .taxonomy_gutter import build_taxonomy_gutter_payload
 
 __all__ = [
     "StatsFilterState",
@@ -39,6 +40,7 @@ __all__ = [
     "build_ranked_length_summary_bundle",
     "build_ranked_taxon_group_queryset",
     "build_stats_filter_state",
+    "build_taxonomy_gutter_payload",
     "normalize_length_summary_value",
     "summarize_ranked_codon_composition_groups",
     "summarize_ranked_length_groups",

@@ -8,6 +8,7 @@ from django.db.models import Count, F, Max, Min, Q, Sum
 from ..models import CanonicalRepeatCall, CanonicalRepeatCallCodonUsage
 from .aggregates import PercentileCont
 from .filters import StatsFilterState
+from .ordering import order_taxon_rows_by_lineage
 from .summaries import (
     normalize_length_summary_value,
     normalize_numeric_summary_value,
@@ -90,6 +91,8 @@ def build_ranked_codon_composition_summary_bundle(filter_state: StatsFilterState
         if visible_codons
         else []
     )
+    if summary_rows:
+        summary_rows = order_taxon_rows_by_lineage(summary_rows)
 
     bundle = {
         "matching_repeat_calls_count": matching_repeat_calls_count,

@@ -491,6 +491,23 @@ def ensure_test_taxonomy():
 
     definitions = {
         "root": {"taxon_id": 1, "taxon_name": "root", "rank": "no rank", "parent": None},
+        "arthropoda": {"taxon_id": 6656, "taxon_name": "Arthropoda", "rank": "phylum", "parent": "root"},
+        "arachnida": {"taxon_id": 6854, "taxon_name": "Arachnida", "rank": "class", "parent": "arthropoda"},
+        "araneae": {"taxon_id": 6893, "taxon_name": "Araneae", "rank": "order", "parent": "arachnida"},
+        "house_spider": {
+            "taxon_id": 114398,
+            "taxon_name": "Parasteatoda tepidariorum",
+            "rank": "species",
+            "parent": "araneae",
+        },
+        "insecta": {"taxon_id": 50557, "taxon_name": "Insecta", "rank": "class", "parent": "arthropoda"},
+        "diptera": {"taxon_id": 7147, "taxon_name": "Diptera", "rank": "order", "parent": "insecta"},
+        "fruit_fly": {
+            "taxon_id": 7227,
+            "taxon_name": "Drosophila melanogaster",
+            "rank": "species",
+            "parent": "diptera",
+        },
         "chordata": {"taxon_id": 7711, "taxon_name": "Chordata", "rank": "phylum", "parent": "root"},
         "mammalia": {"taxon_id": 40674, "taxon_name": "Mammalia", "rank": "class", "parent": "chordata"},
         "primates": {"taxon_id": 9443, "taxon_name": "Primates", "rank": "order", "parent": "mammalia"},

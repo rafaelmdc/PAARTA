@@ -94,6 +94,9 @@ Target views:
 - reuse the shared stats page shape from length where it still matches the
   product
 - reuse lineage-aware ordering, branch handoffs, and bounded filter semantics
+- reuse the shared taxonomy gutter contract from
+  `docs/general views/taxonomy_gutter_plan.md` for overview and browse charts
+  that need an explicit taxonomy axis
 - add composition-specific query and payload helpers rather than forcing codon
   mixtures through scalar summary code
 - keep the page meaningful without JavaScript through a grouped composition

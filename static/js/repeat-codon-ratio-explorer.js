@@ -31,6 +31,25 @@
     }
   }
 
+  function taxonomyGutterApi() {
+    return typeof window.HomorepeatTaxonomyGutter !== "undefined"
+      ? window.HomorepeatTaxonomyGutter
+      : null;
+  }
+
+  function hasTaxonomyGutterPayload(payload) {
+    const api = taxonomyGutterApi();
+    return Boolean(api && api.hasPayload(payload));
+  }
+
+  function taxonomyGutterReservedWidth(payload, options = {}) {
+    const api = taxonomyGutterApi();
+    if (!api || !api.hasPayload(payload)) {
+      return 0;
+    }
+    return api.reservedWidth(payload, options);
+  }
+
   function formatShare(value) {
     if (typeof value !== "number" || Number.isNaN(value)) {
       return "-";
@@ -253,6 +272,7 @@
 
   function renderOverview() {
     const payload = parsePayload("codon-composition-overview-payload");
+    const taxonomyGutterPayload = parsePayload("codon-composition-overview-taxonomy-gutter-payload");
     const container = document.getElementById("codon-composition-overview");
     if (!payload || !container || typeof window.echarts === "undefined") {
       return;
@@ -261,7 +281,13 @@
     const rowCount = payload.visibleTaxaCount || 0;
     container.style.height = `${chartHeightForRowCount(rowCount, 320)}px`;
     const chart = window.echarts.init(container);
+    const taxonomyGutter = hasTaxonomyGutterPayload(taxonomyGutterPayload)
+      ? taxonomyGutterApi().attach(chart, { payload: taxonomyGutterPayload })
+      : null;
     let currentZoomState = normalizeZoomState(rowCount, null);
+    const taxonLabelByAxisValue = new Map(
+      (payload.taxa || []).map((row) => [String(row.taxonId), row.taxonName]),
+    );
 
     if (!Array.isArray(payload.cells) || payload.cells.length === 0) {
       chart.setOption(
@@ -275,10 +301,15 @@
 
     function renderChart() {
       const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
+      const showTaxonLabels = shouldShowTaxonLabels(visibleRowCount);
+      const gutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
+        showLabels: showTaxonLabels,
+        visibleLeafCount: visibleRowCount,
+      });
       chart.setOption({
         animation: false,
         grid: {
-          left: 160,
+          left: gutterWidth > 0 ? gutterWidth + 20 : 160,
           right: currentZoomState ? 104 : 56,
           top: 32,
           bottom: 48,
@@ -309,11 +340,12 @@
         },
         yAxis: {
           type: "category",
-          data: payload.taxa.map((row) => row.taxonName),
+          data: payload.taxa.map((row) => String(row.taxonId)),
           axisLabel: {
-            show: shouldShowTaxonLabels(visibleRowCount),
+            show: !taxonomyGutter && shouldShowTaxonLabels(visibleRowCount),
             interval: 0,
             color: TEXT_COLOR,
+            formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
           },
           axisLine: {
             lineStyle: {
@@ -363,6 +395,12 @@
           },
         ],
       }, { notMerge: true });
+      if (taxonomyGutter) {
+        taxonomyGutter.render({
+          showLabels: showTaxonLabels,
+          visibleLeafCount: visibleRowCount,
+        });
+      }
     }
 
     chart.off("datazoom");
@@ -370,19 +408,46 @@
       const nextZoomState = zoomStateFromChart(chart, rowCount);
       const previousVisibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
       const nextVisibleRowCount = visibleRowCountForZoom(rowCount, nextZoomState);
+      const previousShowTaxonLabels = shouldShowTaxonLabels(previousVisibleRowCount);
+      const nextShowTaxonLabels = shouldShowTaxonLabels(nextVisibleRowCount);
+      const previousGutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
+        showLabels: previousShowTaxonLabels,
+        visibleLeafCount: previousVisibleRowCount,
+      });
+      const nextGutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
+        showLabels: nextShowTaxonLabels,
+        visibleLeafCount: nextVisibleRowCount,
+      });
       currentZoomState = nextZoomState;
-      if (shouldShowTaxonLabels(previousVisibleRowCount) !== shouldShowTaxonLabels(nextVisibleRowCount)) {
+      if (previousGutterWidth !== nextGutterWidth) {
         renderChart();
+        return;
+      }
+      if (taxonomyGutter) {
+        taxonomyGutter.render({
+          showLabels: nextShowTaxonLabels,
+          visibleLeafCount: nextVisibleRowCount,
+        });
       }
     });
 
     renderChart();
 
-    window.addEventListener("resize", () => chart.resize());
+    window.addEventListener("resize", () => {
+      chart.resize();
+      if (taxonomyGutter) {
+        const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
+        taxonomyGutter.render({
+          showLabels: shouldShowTaxonLabels(visibleRowCount),
+          visibleLeafCount: visibleRowCount,
+        });
+      }
+    });
   }
 
   function renderBrowseChart() {
     const payload = parsePayload("codon-composition-chart-payload");
+    const taxonomyGutterPayload = parsePayload("codon-composition-chart-taxonomy-gutter-payload");
     const container = document.getElementById("codon-composition-chart");
     if (!payload || !container || typeof window.echarts === "undefined") {
       return;
@@ -391,7 +456,13 @@
     const rowCount = payload.visibleTaxaCount || 0;
     container.style.height = `${chartHeightForRowCount(rowCount, 380)}px`;
     const chart = window.echarts.init(container);
+    const taxonomyGutter = hasTaxonomyGutterPayload(taxonomyGutterPayload)
+      ? taxonomyGutterApi().attach(chart, { payload: taxonomyGutterPayload })
+      : null;
     let currentZoomState = normalizeZoomState(rowCount, null);
+    const taxonLabelByAxisValue = new Map(
+      (payload.rows || []).map((row) => [String(row.taxonId), row.taxonName]),
+    );
 
     if (!Array.isArray(payload.rows) || payload.rows.length === 0 || !Array.isArray(payload.visibleCodons) || payload.visibleCodons.length === 0) {
       chart.setOption(
@@ -403,7 +474,7 @@
       return;
     }
 
-    const taxonNames = payload.rows.map((row) => row.taxonName);
+    const taxonAxisValues = payload.rows.map((row) => String(row.taxonId));
     const series = payload.visibleCodons.map((codon, codonIndex) => ({
       name: codon,
       type: "bar",
@@ -422,10 +493,15 @@
 
     function renderChart() {
       const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
+      const showTaxonLabels = shouldShowTaxonLabels(visibleRowCount);
+      const gutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
+        showLabels: showTaxonLabels,
+        visibleLeafCount: visibleRowCount,
+      });
       chart.setOption({
         animation: false,
         grid: {
-          left: 180,
+          left: gutterWidth > 0 ? gutterWidth + 20 : 180,
           right: currentZoomState ? 56 : 24,
           top: 72,
           bottom: 48,
@@ -468,11 +544,12 @@
         },
         yAxis: {
           type: "category",
-          data: taxonNames,
+          data: taxonAxisValues,
           axisLabel: {
-            show: shouldShowTaxonLabels(visibleRowCount),
+            show: !taxonomyGutter && shouldShowTaxonLabels(visibleRowCount),
             interval: 0,
             color: TEXT_COLOR,
+            formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
           },
         },
         dataZoom: buildYAxisZoom(rowCount, currentZoomState, {
@@ -482,6 +559,12 @@
         }),
         series,
       }, { notMerge: true });
+      if (taxonomyGutter) {
+        taxonomyGutter.render({
+          showLabels: showTaxonLabels,
+          visibleLeafCount: visibleRowCount,
+        });
+      }
     }
 
     chart.off("datazoom");
@@ -489,9 +572,26 @@
       const nextZoomState = zoomStateFromChart(chart, rowCount);
       const previousVisibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
       const nextVisibleRowCount = visibleRowCountForZoom(rowCount, nextZoomState);
+      const previousShowTaxonLabels = shouldShowTaxonLabels(previousVisibleRowCount);
+      const nextShowTaxonLabels = shouldShowTaxonLabels(nextVisibleRowCount);
+      const previousGutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
+        showLabels: previousShowTaxonLabels,
+        visibleLeafCount: previousVisibleRowCount,
+      });
+      const nextGutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
+        showLabels: nextShowTaxonLabels,
+        visibleLeafCount: nextVisibleRowCount,
+      });
       currentZoomState = nextZoomState;
-      if (shouldShowTaxonLabels(previousVisibleRowCount) !== shouldShowTaxonLabels(nextVisibleRowCount)) {
+      if (previousGutterWidth !== nextGutterWidth) {
         renderChart();
+        return;
+      }
+      if (taxonomyGutter) {
+        taxonomyGutter.render({
+          showLabels: nextShowTaxonLabels,
+          visibleLeafCount: nextVisibleRowCount,
+        });
       }
     });
 
@@ -503,7 +603,16 @@
       }
     });
 
-    window.addEventListener("resize", () => chart.resize());
+    window.addEventListener("resize", () => {
+      chart.resize();
+      if (taxonomyGutter) {
+        const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
+        taxonomyGutter.render({
+          showLabels: shouldShowTaxonLabels(visibleRowCount),
+          visibleLeafCount: visibleRowCount,
+        });
+      }
+    });
   }
 
   function renderInspectChart() {

@@ -84,16 +84,25 @@ class BrowserCodonRatioExplorerTests(TestCase):
         self.assertEqual(response.context["overview_payload"]["taxa"], [])
         self.assertEqual(response.context["overview_payload"]["codons"], [])
         self.assertEqual(response.context["chart_payload"]["rows"], [])
+        self.assertIsNone(response.context["overview_taxonomy_gutter_payload"]["root"])
+        self.assertEqual(response.context["overview_taxonomy_gutter_payload"]["nodes"], [])
+        self.assertEqual(response.context["overview_taxonomy_gutter_payload"]["leaves"], [])
+        self.assertIsNone(response.context["chart_taxonomy_gutter_payload"]["root"])
+        self.assertEqual(response.context["chart_taxonomy_gutter_payload"]["nodes"], [])
+        self.assertEqual(response.context["chart_taxonomy_gutter_payload"]["leaves"], [])
         self.assertFalse(response.context["inspect_scope_active"])
         self.assertNotContains(response, 'id="id_codon_metric_name"')
         self.assertNotContains(response, "All numeric metrics")
         self.assertContains(response, 'id="codon-composition-overview-payload"')
+        self.assertContains(response, 'id="codon-composition-overview-taxonomy-gutter-payload"')
         self.assertContains(response, 'id="codon-composition-overview"')
         self.assertContains(response, 'id="codon-composition-chart-payload"')
+        self.assertContains(response, 'id="codon-composition-chart-taxonomy-gutter-payload"')
         self.assertContains(response, 'id="codon-composition-chart"')
         self.assertContains(response, "Taxon x codon overview")
         self.assertContains(response, "Stacked codon composition for the visible taxa")
         self.assertContains(response, "Select a residue to browse codon composition.")
+        self.assertContains(response, "taxonomy-gutter.js")
         self.assertContains(response, "repeat-codon-ratio-explorer.js")
         self.assertContains(response, "echarts.min.js")
 
@@ -147,6 +156,77 @@ class BrowserCodonRatioExplorerTests(TestCase):
             ],
         )
 
+    def test_codon_ratio_explorer_browse_payload_uses_lineage_order_for_visible_taxa(self):
+        gamma = create_imported_run_fixture(
+            run_id="run-gamma",
+            genome_id="genome_gamma",
+            sequence_id="seq_gamma",
+            protein_id="prot_gamma",
+            call_id="call_gamma",
+            accession="GCF_GAMMA",
+            taxon_key="fruit_fly",
+            genome_name="Fruit fly reference genome",
+        )
+        delta = create_imported_run_fixture(
+            run_id="run-delta",
+            genome_id="genome_delta",
+            sequence_id="seq_delta",
+            protein_id="prot_delta",
+            call_id="call_delta",
+            accession="GCF_DELTA",
+            taxon_key="house_spider",
+            genome_name="Spider reference genome",
+        )
+
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            gamma,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            delta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 2, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-ratios"),
+            {
+                "rank": "class",
+                "min_count": "1",
+                "top_n": "10",
+                "residue": "q",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [row["taxon_name"] for row in response.context["summary_rows"]],
+            ["Arachnida", "Insecta", "Mammalia"],
+        )
+        self.assertEqual(
+            [row["observation_count"] for row in response.context["summary_rows"]],
+            [1, 1, 2],
+        )
+        self.assertEqual(
+            [row["taxonName"] for row in response.context["chart_payload"]["rows"]],
+            ["Arachnida", "Insecta", "Mammalia"],
+        )
+
     def test_codon_ratio_explorer_renders_overview_heatmap_payload(self):
         self._set_repeat_call_codon_usages(
             self.alpha,
@@ -193,6 +273,51 @@ class BrowserCodonRatioExplorerTests(TestCase):
                 [1, 1, 1],
             ],
         )
+        gutter_payload = response.context["overview_taxonomy_gutter_payload"]
+        self.assertEqual(
+            gutter_payload["root"],
+            {
+                "nodeId": f"taxon-{self.alpha['taxa']['mammalia'].pk}",
+                "taxonId": self.alpha["taxa"]["mammalia"].pk,
+                "taxonName": "Mammalia",
+                "rank": "class",
+                "depth": 0,
+            },
+        )
+        self.assertEqual(gutter_payload["maxDepth"], 2)
+        self.assertEqual(
+            [node["taxonName"] for node in gutter_payload["nodes"]],
+            ["Mammalia", "Primates", "Homo sapiens", "Mus musculus"],
+        )
+        self.assertEqual(
+            gutter_payload["edges"],
+            [
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['mammalia'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['primates'].pk}",
+                },
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['primates'].pk}",
+                    "childNodeId": f"taxon-{self.alpha['taxa']['human'].pk}",
+                },
+                {
+                    "parentNodeId": f"taxon-{self.alpha['taxa']['mammalia'].pk}",
+                    "childNodeId": f"taxon-{self.beta['taxa']['mouse'].pk}",
+                },
+            ],
+        )
+        self.assertEqual(
+            [leaf["taxonName"] for leaf in gutter_payload["leaves"]],
+            ["Homo sapiens", "Mus musculus"],
+        )
+        self.assertEqual(
+            [leaf["braceLabel"] for leaf in gutter_payload["leaves"]],
+            ["", ""],
+        )
+        self.assertNotIn("columns", gutter_payload)
+        self.assertNotIn("segments", gutter_payload)
+        self.assertNotIn("rows", gutter_payload)
+        self.assertNotIn("terminals", gutter_payload)
 
     def test_codon_ratio_explorer_renders_branch_scoped_inspect_section(self):
         self._set_repeat_call_codon_usages(
