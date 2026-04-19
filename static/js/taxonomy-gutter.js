@@ -27,6 +27,7 @@
   const MAX_LEAF_LABEL_WIDTH = 180;
   const MAX_BRACE_LABEL_WIDTH = 96;
   const MAX_VISIBLE_ROWS_WITH_INTERNAL_LABELS = 14;
+  const BOTTOM_TREE_PADDING = 12;
   const GRAPHIC_ROOT_ID = "taxonomy-gutter-root";
   const TOOLTIP_DATA_KEY = "homorepeatTaxonomyGutterTooltip";
   const OVERLAY_DATA_KEY = "homorepeatTaxonomyGutterOverlay";
@@ -168,6 +169,13 @@
       return 0;
     }
     return layoutWidths(payload, options).total;
+  }
+
+  function reservedHeight(payload) {
+    if (!hasPayload(payload)) {
+      return 0;
+    }
+    return (Math.max(0, numericValue(payload.maxDepth, 0)) * DEPTH_STEP) + (BOTTOM_TREE_PADDING * 2);
   }
 
   function panelLayout(payload, options = {}) {
@@ -710,15 +718,20 @@
   function explicitGridRect(chart, options = {}) {
     const top = numericValue(options.top, Number.NaN);
     const bottom = numericValue(options.bottom, Number.NaN);
+    const left = numericValue(options.left, Number.NaN);
+    const right = numericValue(options.right, 0);
     const gutterWidth = numericValue(options.gutterWidth, Number.NaN);
-    if (!Number.isFinite(top) || !Number.isFinite(bottom) || !Number.isFinite(gutterWidth)) {
+    const resolvedLeft = Number.isFinite(left)
+      ? left
+      : (Number.isFinite(gutterWidth) ? gutterWidth + TREE_TO_GRID_GAP : Number.NaN);
+    if (!Number.isFinite(top) || !Number.isFinite(bottom) || !Number.isFinite(resolvedLeft)) {
       return null;
     }
 
     return {
-      x: gutterWidth + TREE_TO_GRID_GAP,
+      x: resolvedLeft,
       y: top,
-      width: Math.max(0, chart.getWidth() - gutterWidth - TREE_TO_GRID_GAP),
+      width: Math.max(0, chart.getWidth() - resolvedLeft - Math.max(0, right)),
       height: Math.max(0, chart.getHeight() - top - bottom),
     };
   }
@@ -945,6 +958,175 @@
       visibleNodesById,
       childrenByParentId,
       leafByNodeId,
+    };
+  }
+
+  function buildHorizontalVisibleTreeState(payload, columnXByIndex, range, makeY) {
+    if (!payload || !payload.root || !range || typeof makeY !== "function") {
+      return {
+        visibleNodesById: new Map(),
+        childrenByParentId: new Map(),
+      };
+    }
+
+    const rootNodeId = payload.root.nodeId;
+    const fullChildrenByParentId = buildFullChildrenByParentId(payload);
+    const visibleOriginalNodesById = new Map();
+
+    payload.nodes.forEach((node) => {
+      const clippedStart = Math.max(node.rowStart, range.start);
+      const clippedEnd = Math.min(node.rowEnd, range.end);
+      if (clippedStart > clippedEnd) {
+        return;
+      }
+
+      const leftX = columnXByIndex.get(clippedStart);
+      const rightX = columnXByIndex.get(clippedEnd);
+      if (
+        typeof leftX !== "number"
+        || !Number.isFinite(leftX)
+        || typeof rightX !== "number"
+        || !Number.isFinite(rightX)
+      ) {
+        return;
+      }
+
+      const normalizedLeftX = Math.min(leftX, rightX);
+      const normalizedRightX = Math.max(leftX, rightX);
+      visibleOriginalNodesById.set(node.nodeId, {
+        ...node,
+        leftX: normalizedLeftX,
+        rightX: normalizedRightX,
+        x: (normalizedLeftX + normalizedRightX) / 2,
+      });
+    });
+
+    if (!visibleOriginalNodesById.has(rootNodeId)) {
+      return {
+        visibleNodesById: new Map(),
+        childrenByParentId: new Map(),
+      };
+    }
+
+    function projectVisibleSubtree(nodeId) {
+      const node = visibleOriginalNodesById.get(nodeId);
+      if (!node) {
+        return [];
+      }
+
+      const projectedChildren = [];
+      const childNodeIds = fullChildrenByParentId.get(nodeId) || [];
+      childNodeIds.forEach((childNodeId) => {
+        projectedChildren.push(...projectVisibleSubtree(childNodeId));
+      });
+
+      const keepCurrent = nodeId === rootNodeId || node.isLeaf || projectedChildren.length !== 1;
+      if (!keepCurrent) {
+        return projectedChildren;
+      }
+
+      return [
+        {
+          ...node,
+          children: projectedChildren,
+          isPreservedSplit: projectedChildren.length >= 2,
+        },
+      ];
+    }
+
+    const projectedRoot = projectVisibleSubtree(rootNodeId)[0] || null;
+    if (!projectedRoot) {
+      return {
+        visibleNodesById: new Map(),
+        childrenByParentId: new Map(),
+      };
+    }
+
+    const visibleNodesById = new Map();
+    const childrenByParentId = new Map();
+
+    function visitProjectedNode(projectedNode, parentNodeId, depth) {
+      const orderedChildren = projectedNode.children
+        .slice()
+        .sort((leftNode, rightNode) => leftNode.x - rightNode.x);
+
+      visibleNodesById.set(projectedNode.nodeId, {
+        ...projectedNode,
+        parentNodeId,
+        depth,
+        isPreservedSplit: orderedChildren.length >= 2,
+      });
+
+      if (orderedChildren.length > 0) {
+        childrenByParentId.set(
+          projectedNode.nodeId,
+          orderedChildren.map((childNode) => childNode.nodeId),
+        );
+      }
+
+      orderedChildren.forEach((childNode) => {
+        visitProjectedNode(childNode, projectedNode.nodeId, depth + 1);
+      });
+    }
+
+    visitProjectedNode(projectedRoot, null, 0);
+    const projectedMaxDepth = Math.max(
+      0,
+      ...Array.from(visibleNodesById.values()).map((node) => numericValue(node.depth, 0)),
+    );
+    visibleNodesById.forEach((node) => {
+      node.y = makeY(projectedMaxDepth - node.depth);
+    });
+
+    return {
+      visibleNodesById,
+      childrenByParentId,
+    };
+  }
+
+  function buildHorizontalVisibleState(chart, payload, options) {
+    const range = visibleLeafRange(chart, payload, options);
+    if (!range) {
+      return null;
+    }
+
+    const currentGridRect = explicitGridRect(chart, options) || gridRect(chart);
+    const bottomGutterHeight = numericValue(options.bottomGutterHeight, Number.NaN);
+    if (!currentGridRect || !Number.isFinite(bottomGutterHeight) || bottomGutterHeight <= 0) {
+      return null;
+    }
+
+    const visibleLeafCount = (range.end - range.start) + 1;
+    const bandWidth = currentGridRect.width / visibleLeafCount;
+    if (!Number.isFinite(bandWidth) || bandWidth <= 0) {
+      return null;
+    }
+
+    const bottomTop = chart.getHeight() - bottomGutterHeight;
+    const leafXByIndex = new Map();
+    payload.leaves.forEach((leaf) => {
+      if (leaf.rowIndex < range.start || leaf.rowIndex > range.end) {
+        return;
+      }
+      const ordinal = leaf.rowIndex - range.start;
+      leafXByIndex.set(leaf.rowIndex, currentGridRect.x + ((ordinal + 0.5) * bandWidth));
+    });
+
+    const { visibleNodesById, childrenByParentId } = buildHorizontalVisibleTreeState(
+      payload,
+      leafXByIndex,
+      range,
+      (invertedDepth) => bottomTop + BOTTOM_TREE_PADDING + (invertedDepth * DEPTH_STEP),
+    );
+    if (visibleNodesById.size === 0) {
+      return null;
+    }
+
+    return {
+      bottomTop,
+      bottomHeight: bottomGutterHeight,
+      visibleNodesById,
+      childrenByParentId,
     };
   }
 
@@ -1276,7 +1458,11 @@
     });
   }
 
-  function ensureOverlayLayer(chart) {
+  function overlayLayerKey(layerKey = "left") {
+    return layerKey === "left" ? OVERLAY_DATA_KEY : `${OVERLAY_DATA_KEY}-${layerKey}`;
+  }
+
+  function ensureOverlayLayer(chart, layerKey = "left") {
     if (typeof document === "undefined") {
       return null;
     }
@@ -1289,10 +1475,11 @@
       chartDom.style.position = "relative";
     }
 
-    let overlay = chartDom.querySelector(`[data-${OVERLAY_DATA_KEY}]`);
+    const resolvedLayerKey = overlayLayerKey(layerKey);
+    let overlay = chartDom.querySelector(`[data-${resolvedLayerKey}]`);
     if (!overlay) {
       overlay = document.createElement("div");
-      overlay.setAttribute(`data-${OVERLAY_DATA_KEY}`, "true");
+      overlay.setAttribute(`data-${resolvedLayerKey}`, "true");
       Object.assign(overlay.style, {
         position: "absolute",
         left: "0",
@@ -1522,7 +1709,97 @@
     }
   }
 
-  function attach(chart, { payload }) {
+  function renderBottomOverlay(chart, payload, state, tooltip) {
+    const overlay = ensureOverlayLayer(chart, "bottom");
+    if (!overlay) {
+      return;
+    }
+
+    const svg = overlay.querySelector("svg");
+    if (!svg) {
+      return;
+    }
+
+    overlay.style.width = `${chart.getWidth()}px`;
+    overlay.style.height = `${chart.getHeight()}px`;
+    svg.setAttribute("width", String(chart.getWidth()));
+    svg.setAttribute("height", String(chart.getHeight()));
+    svg.setAttribute("viewBox", `0 0 ${chart.getWidth()} ${chart.getHeight()}`);
+    svg.replaceChildren();
+
+    const root = createSvgElement("g");
+    svg.appendChild(root);
+
+    const clipPath = createSvgElement("clipPath", {
+      id: `${GRAPHIC_ROOT_ID}-bottom-clip`,
+    });
+    clipPath.appendChild(
+      createSvgElement("rect", {
+        x: 0,
+        y: state.bottomTop,
+        width: chart.getWidth(),
+        height: state.bottomHeight,
+      }),
+    );
+    svg.appendChild(clipPath);
+    root.setAttribute("clip-path", `url(#${GRAPHIC_ROOT_ID}-bottom-clip)`);
+
+    const { visibleNodesById, childrenByParentId } = state;
+
+    visibleNodesById.forEach((node) => {
+      const childNodeIds = childrenByParentId.get(node.nodeId) || [];
+      if (childNodeIds.length >= 2) {
+        const firstChild = visibleNodesById.get(childNodeIds[0]);
+        const lastChild = visibleNodesById.get(childNodeIds[childNodeIds.length - 1]);
+        root.appendChild(
+          createSvgElement("line", {
+            x1: firstChild.x,
+            y1: node.y,
+            x2: lastChild.x,
+            y2: node.y,
+            stroke: LINE_COLOR,
+            "stroke-width": LINE_WIDTH,
+          }),
+        );
+      }
+
+      childNodeIds.forEach((childNodeId) => {
+        const childNode = visibleNodesById.get(childNodeId);
+        root.appendChild(
+          createSvgElement("line", {
+            x1: childNode.x,
+            y1: node.y,
+            x2: childNode.x,
+            y2: childNode.y,
+            stroke: LINE_COLOR,
+            "stroke-width": LINE_WIDTH,
+          }),
+        );
+      });
+    });
+
+    visibleNodesById.forEach((node) => {
+      const childNodeIds = childrenByParentId.get(node.nodeId) || [];
+      if (node.isLeaf || childNodeIds.length === 0) {
+        return;
+      }
+
+      const style = nodeMarkerStyle(node);
+      const marker = createSvgElement("circle", {
+        cx: node.x,
+        cy: node.y,
+        r: nodeMarkerRadius(node),
+        fill: style.fill,
+        stroke: style.stroke,
+        "stroke-width": style.lineWidth,
+      });
+      marker.style.pointerEvents = "auto";
+      bindHoverEvents(marker, chart, tooltip, nodeTooltipText(node), node.x, node.y);
+      root.appendChild(marker);
+    });
+  }
+
+  function attach(chart, { payload, position = "left" } = {}) {
     const tooltip = ensureTooltip(chart);
     let pendingFrame = null;
     let pendingOptions = {};
@@ -1535,7 +1812,7 @@
       }
       hideTooltip(tooltip);
       if (!overlay) {
-        overlay = ensureOverlayLayer(chart);
+        overlay = ensureOverlayLayer(chart, position);
       }
       clearOverlayLayer(overlay);
     }
@@ -1547,16 +1824,24 @@
       }
 
       hideTooltip(tooltip);
-      const state = buildVisibleState(chart, payload, options);
-      if (!state) {
+      if (!overlay) {
+        overlay = ensureOverlayLayer(chart, position);
+      }
+      if (position === "bottom") {
+        const bottomState = buildHorizontalVisibleState(chart, payload, options);
+        if (!bottomState) {
+          clear();
+          return;
+        }
+        renderBottomOverlay(chart, payload, bottomState, tooltip);
+        return;
+      }
+      const leftState = buildVisibleState(chart, payload, options);
+      if (!leftState) {
         clear();
         return;
       }
-
-      if (!overlay) {
-        overlay = ensureOverlayLayer(chart);
-      }
-      renderOverlay(chart, payload, state, tooltip);
+      renderOverlay(chart, payload, leftState, tooltip);
     }
 
     function render(options = {}) {
@@ -1580,6 +1865,7 @@
     attach,
     buildPanel,
     hasPayload,
+    reservedHeight,
     reservedWidth,
   };
 })();

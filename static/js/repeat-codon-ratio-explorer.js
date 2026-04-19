@@ -52,6 +52,14 @@
     return api.reservedWidth(payload, options);
   }
 
+  function taxonomyGutterReservedHeight(payload, options = {}) {
+    const api = taxonomyGutterApi();
+    if (!api || !api.hasPayload(payload) || typeof api.reservedHeight !== "function") {
+      return 0;
+    }
+    return api.reservedHeight(payload, options);
+  }
+
   function taxonomyGutterPanel(payload, options = {}) {
     const api = taxonomyGutterApi();
     if (!api || !api.hasPayload(payload) || typeof api.buildPanel !== "function") {
@@ -60,12 +68,12 @@
     return api.buildPanel(payload, options);
   }
 
-  function attachTaxonomyGutter(chart, payload) {
+  function attachTaxonomyGutter(chart, payload, options = {}) {
     const api = taxonomyGutterApi();
     if (!api || !api.hasPayload(payload) || typeof api.attach !== "function") {
       return null;
     }
-    return api.attach(chart, { payload });
+    return api.attach(chart, { payload, ...options });
   }
 
   function formatShare(value) {
@@ -414,16 +422,14 @@
     container.style.height = `${chartHeightForRowCount(rowCount, 320)}px`;
     const chart = window.echarts.init(container);
     const hasTaxonomyGutter = hasTaxonomyGutterPayload(taxonomyGutterPayload);
-    const gutterOverlay = hasTaxonomyGutter ? attachTaxonomyGutter(chart, taxonomyGutterPayload) : null;
+    const leftGutterOverlay = hasTaxonomyGutter ? attachTaxonomyGutter(chart, taxonomyGutterPayload) : null;
+    const bottomGutterOverlay = hasTaxonomyGutter
+      ? attachTaxonomyGutter(chart, taxonomyGutterPayload, { position: "bottom" })
+      : null;
     let currentZoomState = normalizeZoomState(rowCount, null);
     const taxonAxisValues = payload.taxa.map((row) => String(row.taxonId));
-    const showMatrixColumnLabels = shouldShowMatrixColumnLabels(rowCount);
     const visualRange = resolvedMatrixVisualRange(payload.valueMin, payload.valueMax);
     const signedPreferenceRange = resolvedSignedPreferenceRange(payload.valueMin, payload.valueMax);
-    const overviewLayout = {
-      top: 32,
-      bottom: showMatrixColumnLabels ? 88 : 48,
-    };
     const taxonLabelByAxisValue = new Map(
       (payload.taxa || []).map((row) => [String(row.taxonId), row.taxonName]),
     );
@@ -436,6 +442,53 @@
         showLabels: shouldShowTaxonLabels(visibleRowCount),
         visibleLeafCount: visibleRowCount,
       });
+    }
+
+    function overviewBottomTreeHeight() {
+      if (!hasTaxonomyGutter) {
+        return 0;
+      }
+      return taxonomyGutterReservedHeight(taxonomyGutterPayload);
+    }
+
+    function currentOverviewLayout(visibleRowCount) {
+      const showMatrixColumnLabels = shouldShowMatrixColumnLabels(visibleRowCount);
+      return {
+        top: 32,
+        bottom: overviewBottomTreeHeight() + (showMatrixColumnLabels ? 92 : 28),
+        showMatrixColumnLabels,
+      };
+    }
+
+    function currentVisibleColumnBounds() {
+      if (!currentZoomState) {
+        return {
+          min: 0,
+          max: Math.max(0, rowCount - 1),
+        };
+      }
+      return {
+        min: currentZoomState.startValue,
+        max: currentZoomState.endValue,
+      };
+    }
+
+    function currentOverviewMargins(gutterWidth) {
+      return {
+        left: hasTaxonomyGutter ? gutterWidth + 20 : 160,
+        right: currentZoomState ? 104 : 56,
+      };
+    }
+
+    function applySquareOverviewHeight(layout, margins) {
+      const availableWidth = Math.max(220, container.clientWidth - margins.left - margins.right);
+      const maximumGridSide = Math.max(220, MAX_CHART_HEIGHT - layout.top - layout.bottom);
+      const gridSide = clamp(availableWidth, 220, maximumGridSide);
+      const targetHeight = Math.round(layout.top + layout.bottom + gridSide);
+      if (Math.abs(container.clientHeight - targetHeight) > 1) {
+        container.style.height = `${targetHeight}px`;
+        chart.resize();
+      }
     }
 
     if (
@@ -456,24 +509,45 @@
     }
 
     function refreshOverviewGutter() {
-      if (!gutterOverlay) {
-        return;
-      }
       const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
-      gutterOverlay.render({
-        showLabels: shouldShowTaxonLabels(visibleRowCount),
-        zoomState: currentZoomState,
-        gutterWidth: overviewGutterWidth(visibleRowCount),
-        top: overviewLayout.top,
-        bottom: overviewLayout.bottom,
-      });
+      const layout = currentOverviewLayout(visibleRowCount);
+      const gutterWidth = overviewGutterWidth(visibleRowCount);
+      const margins = currentOverviewMargins(gutterWidth);
+
+      if (leftGutterOverlay) {
+        leftGutterOverlay.render({
+          showLabels: shouldShowTaxonLabels(visibleRowCount),
+          zoomState: currentZoomState,
+          gutterWidth,
+          top: layout.top,
+          bottom: layout.bottom,
+          left: margins.left,
+          right: margins.right,
+        });
+      }
+
+      if (bottomGutterOverlay) {
+        bottomGutterOverlay.render({
+          zoomState: currentZoomState,
+          gutterWidth,
+          top: layout.top,
+          bottom: layout.bottom,
+          left: margins.left,
+          right: margins.right,
+          bottomGutterHeight: overviewBottomTreeHeight(),
+        });
+      }
     }
 
     function renderChart() {
       const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
       const showTaxonLabels = shouldShowTaxonLabels(visibleRowCount);
-      const showMatrixCellLabels = shouldShowMatrixCellLabels(rowCount);
+      const showMatrixCellLabels = shouldShowMatrixCellLabels(visibleRowCount);
+      const layout = currentOverviewLayout(visibleRowCount);
+      const columnBounds = currentVisibleColumnBounds();
       const gutterWidth = overviewGutterWidth(visibleRowCount);
+      const margins = currentOverviewMargins(gutterWidth);
+      applySquareOverviewHeight(layout, margins);
       if (payload.mode === "signed_preference_map") {
         const preferenceData = payload.cells.map((cell) => ({
           value: [String(cell.columnTaxonId), String(cell.rowTaxonId), cell.signedDifference],
@@ -502,10 +576,10 @@
         chart.setOption({
           animation: false,
           grid: {
-            left: hasTaxonomyGutter ? gutterWidth + 20 : 160,
-            right: currentZoomState ? 104 : 56,
-            top: overviewLayout.top,
-            bottom: overviewLayout.bottom,
+            left: margins.left,
+            right: margins.right,
+            top: layout.top,
+            bottom: layout.bottom,
           },
           tooltip: {
             trigger: "item",
@@ -533,8 +607,10 @@
           xAxis: {
             type: "category",
             data: taxonAxisValues,
+            min: columnBounds.min,
+            max: columnBounds.max,
             axisLabel: {
-              show: showMatrixColumnLabels,
+              show: layout.showMatrixColumnLabels,
               interval: 0,
               color: TEXT_COLOR,
               rotate: 42,
@@ -654,14 +730,14 @@
       chart.setOption({
         animation: false,
         grid: {
-          left: hasTaxonomyGutter ? gutterWidth + 20 : 160,
-          right: currentZoomState ? 104 : 56,
-          top: overviewLayout.top,
-          bottom: overviewLayout.bottom,
+          left: margins.left,
+          right: margins.right,
+          top: layout.top,
+          bottom: layout.bottom,
         },
-        tooltip: {
-          trigger: "item",
-          formatter(params) {
+          tooltip: {
+            trigger: "item",
+            formatter(params) {
             const cell = params.data || {};
             const isSelfComparison = cell.rowTaxonId === cell.columnTaxonId;
             return [
@@ -675,14 +751,16 @@
             ].filter(Boolean).join("<br>");
           },
         },
-        xAxis: {
-          type: "category",
-          data: taxonAxisValues,
-          axisLabel: {
-            show: showMatrixColumnLabels,
-            interval: 0,
-            color: TEXT_COLOR,
-            rotate: 42,
+          xAxis: {
+            type: "category",
+            data: taxonAxisValues,
+            min: columnBounds.min,
+            max: columnBounds.max,
+            axisLabel: {
+              show: layout.showMatrixColumnLabels,
+              interval: 0,
+              color: TEXT_COLOR,
+              rotate: 42,
             hideOverlap: true,
             width: 120,
             overflow: "truncate",
@@ -779,34 +857,15 @@
     chart.off("datazoom");
     chart.on("datazoom", (params) => {
       const nextZoomState = resolveZoomState(chart, rowCount, params);
-      const previousVisibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
-      const nextVisibleRowCount = visibleRowCountForZoom(rowCount, nextZoomState);
-      const previousShowTaxonLabels = shouldShowTaxonLabels(previousVisibleRowCount);
-      const nextShowTaxonLabels = shouldShowTaxonLabels(nextVisibleRowCount);
-      const previousGutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
-        showLabels: previousShowTaxonLabels,
-        visibleLeafCount: previousVisibleRowCount,
-      });
-      const nextGutterWidth = taxonomyGutterReservedWidth(taxonomyGutterPayload, {
-        showLabels: nextShowTaxonLabels,
-        visibleLeafCount: nextVisibleRowCount,
-      });
       currentZoomState = nextZoomState;
-      if (
-        previousVisibleRowCount !== nextVisibleRowCount
-        || previousGutterWidth !== nextGutterWidth
-      ) {
-        renderChart();
-        return;
-      }
-      refreshOverviewGutter();
+      renderChart();
     });
 
     renderChart();
 
     window.addEventListener("resize", () => {
       chart.resize();
-      refreshOverviewGutter();
+      renderChart();
     });
   }
 
