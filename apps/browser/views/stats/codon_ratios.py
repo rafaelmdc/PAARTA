@@ -3,9 +3,9 @@ from django.views.generic import TemplateView
 
 from apps.browser.stats import (
     apply_stats_filter_context,
-    build_codon_composition_heatmap_payload,
     build_codon_composition_inspect_bundle,
     build_codon_composition_inspect_payload,
+    build_codon_overview_payload,
     build_filtered_codon_usage_queryset,
     build_filtered_repeat_call_queryset,
     build_ranked_codon_composition_chart_payload,
@@ -18,6 +18,8 @@ from apps.browser.stats.params import ALLOWED_STATS_RANKS, next_lower_rank
 from ...metadata import resolve_browser_facets
 from ...models import PipelineRun
 from ..navigation import _url_with_query
+
+_MAX_OVERVIEW_MATRIX_TAXA = 48
 
 
 class CodonRatioExplorerView(TemplateView):
@@ -159,6 +161,7 @@ class CodonRatioExplorerView(TemplateView):
         facet_choices = self._get_facet_choices()
         summary_bundle = self._get_summary_bundle()
         summary_rows = summary_bundle["summary_rows"]
+        overview_rows = summary_rows[:_MAX_OVERVIEW_MATRIX_TAXA]
         visible_codons = summary_bundle["visible_codons"]
         matching_repeat_calls_count = self._get_matching_repeat_calls_count()
         matching_repeat_calls_with_codon_usage_count = self._get_matching_repeat_calls_with_codon_usage_count()
@@ -170,14 +173,17 @@ class CodonRatioExplorerView(TemplateView):
         context["visible_codons"] = visible_codons
         context["total_taxa_count"] = summary_bundle["total_taxa_count"]
         context["visible_taxa_count"] = summary_bundle["visible_taxa_count"]
-        context["overview_payload"] = build_codon_composition_heatmap_payload(
-            summary_rows,
+        context["overview_visible_taxa_count"] = len(overview_rows)
+        context["overview_total_visible_taxa_count"] = len(summary_rows)
+        context["overview_is_truncated"] = len(overview_rows) < len(summary_rows)
+        context["overview_payload"] = build_codon_overview_payload(
+            overview_rows,
             visible_codons=visible_codons,
         )
         context["overview_payload_id"] = "codon-composition-overview-payload"
         context["overview_container_id"] = "codon-composition-overview"
         context["overview_taxonomy_gutter_payload"] = build_taxonomy_gutter_payload(
-            summary_rows,
+            overview_rows,
             filter_state=filter_state,
             collapse_rank=filter_state.rank,
         )

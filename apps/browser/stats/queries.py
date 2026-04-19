@@ -71,9 +71,9 @@ def build_ranked_codon_composition_summary_bundle(filter_state: StatsFilterState
     total_taxa_count = build_ranked_taxon_group_count(filter_state)
     group_rows = list(build_ranked_taxon_group_queryset(filter_state))
     display_taxon_ids = [row["display_taxon_id"] for row in group_rows]
-    grouped_codon_fraction_sums = (
+    grouped_species_call_codon_fractions = (
         list(
-            build_group_codon_fraction_sums_queryset(
+            build_group_codon_species_call_fraction_queryset(
                 filter_state,
                 display_taxon_ids=display_taxon_ids,
             )
@@ -81,11 +81,11 @@ def build_ranked_codon_composition_summary_bundle(filter_state: StatsFilterState
         if display_taxon_ids
         else []
     )
-    visible_codons = sorted({codon for _, codon, _ in grouped_codon_fraction_sums})
+    visible_codons = sorted({codon for _, _, _, codon, _ in grouped_species_call_codon_fractions})
     summary_rows = (
         summarize_ranked_codon_composition_groups(
             group_rows,
-            grouped_codon_fraction_sums,
+            grouped_species_call_codon_fractions,
             visible_codons=visible_codons,
         )
         if visible_codons
@@ -215,7 +215,7 @@ def build_group_length_values_queryset(filter_state: StatsFilterState, *, displa
     )
 
 
-def build_group_codon_fraction_sums_queryset(filter_state: StatsFilterState, *, display_taxon_ids):
+def build_group_codon_species_call_fraction_queryset(filter_state: StatsFilterState, *, display_taxon_ids):
     return (
         _with_display_taxon_annotations(
             build_filtered_codon_usage_queryset(filter_state),
@@ -223,10 +223,14 @@ def build_group_codon_fraction_sums_queryset(filter_state: StatsFilterState, *, 
             taxon_field_name="repeat_call__taxon",
         )
         .filter(display_taxon_id__in=display_taxon_ids)
-        .values("display_taxon_id", "codon")
-        .annotate(total_fraction=Sum("codon_fraction"))
-        .order_by("display_taxon_id", "codon")
-        .values_list("display_taxon_id", "codon", "total_fraction")
+        .values_list(
+            "display_taxon_id",
+            "repeat_call__taxon_id",
+            "repeat_call_id",
+            "codon",
+            "codon_fraction",
+        )
+        .order_by("display_taxon_id", "repeat_call__taxon_id", "repeat_call_id", "codon")
     )
 
 
@@ -272,7 +276,10 @@ def build_ranked_taxon_group_base_queryset(filter_state: StatsFilterState):
 
     return (
         queryset.values("display_taxon_id", "display_taxon_name", "display_taxon_rank")
-        .annotate(observation_count=Count("pk"))
+        .annotate(
+            observation_count=Count("pk"),
+            species_count=Count("taxon_id", distinct=True),
+        )
         .filter(observation_count__gte=filter_state.min_count)
     )
 

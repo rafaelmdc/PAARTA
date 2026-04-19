@@ -82,7 +82,7 @@ class BrowserCodonRatioExplorerTests(TestCase):
         self.assertEqual(response.context["summary_rows"], [])
         self.assertEqual(response.context["visible_codons"], [])
         self.assertEqual(response.context["overview_payload"]["taxa"], [])
-        self.assertEqual(response.context["overview_payload"]["codons"], [])
+        self.assertEqual(response.context["overview_payload"]["cells"], [])
         self.assertEqual(response.context["chart_payload"]["rows"], [])
         self.assertIsNone(response.context["overview_taxonomy_gutter_payload"]["root"])
         self.assertEqual(response.context["overview_taxonomy_gutter_payload"]["nodes"], [])
@@ -99,7 +99,7 @@ class BrowserCodonRatioExplorerTests(TestCase):
         self.assertContains(response, 'id="codon-composition-chart-payload"')
         self.assertContains(response, 'id="codon-composition-chart-taxonomy-gutter-payload"')
         self.assertContains(response, 'id="codon-composition-chart"')
-        self.assertContains(response, "Taxon x codon overview")
+        self.assertContains(response, "Pairwise codon similarity map")
         self.assertContains(response, "Stacked codon composition for the visible taxa")
         self.assertContains(response, "Select a residue to browse codon composition.")
         self.assertContains(response, "taxonomy-gutter.js")
@@ -148,6 +148,7 @@ class BrowserCodonRatioExplorerTests(TestCase):
         self.assertEqual(summary_rows[0]["taxon_name"], "Mammalia")
         self.assertEqual(summary_rows[0]["rank"], "class")
         self.assertEqual(summary_rows[0]["observation_count"], 2)
+        self.assertEqual(summary_rows[0]["species_count"], 2)
         self.assertEqual(
             summary_rows[0]["codon_shares"],
             [
@@ -231,7 +232,7 @@ class BrowserCodonRatioExplorerTests(TestCase):
             ["Arachnida", "Insecta", "Mammalia"],
         )
 
-    def test_codon_ratio_explorer_renders_overview_heatmap_payload(self):
+    def test_codon_ratio_explorer_renders_signed_preference_overview_payload_for_two_codon_residue(self):
         self._set_repeat_call_codon_usages(
             self.alpha,
             rows=[
@@ -257,24 +258,67 @@ class BrowserCodonRatioExplorerTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Signed codon preference difference map for Q")
         payload = response.context["overview_payload"]
+        self.assertEqual(payload["mode"], "signed_preference_map")
         self.assertEqual(payload["visibleTaxaCount"], 2)
-        self.assertEqual(payload["visibleCodonCount"], 2)
+        self.assertEqual(payload["visibleCodons"], ["CAA", "CAG"])
+        self.assertEqual(payload["codonOne"], "CAA")
+        self.assertEqual(payload["codonTwo"], "CAG")
+        self.assertEqual(payload["scoreLabel"], "CAG - CAA")
+        self.assertEqual(payload["valueMin"], -1.0)
+        self.assertEqual(payload["valueMax"], 1.0)
         self.assertEqual(
-            [taxon["taxonName"] for taxon in payload["taxa"]],
-            ["Homo sapiens", "Mus musculus"],
-        )
-        self.assertEqual(
-            [codon["codon"] for codon in payload["codons"]],
-            ["CAA", "CAG"],
-        )
-        self.assertEqual(
-            payload["seriesData"],
             [
-                [0, 0, 0.5],
-                [1, 0, 0.5],
-                [0, 1, 0],
-                [1, 1, 1],
+                (taxon["taxonName"], taxon["codonOneShare"], taxon["codonTwoShare"], taxon["score"])
+                for taxon in payload["taxa"]
+            ],
+            [
+                ("Homo sapiens", 0.5, 0.5, 0.0),
+                ("Mus musculus", 0, 1, 1.0),
+            ],
+        )
+        self.assertEqual(
+            [(taxon["taxonName"], taxon["speciesCount"]) for taxon in payload["taxa"]],
+            [("Homo sapiens", 1), ("Mus musculus", 1)],
+        )
+        self.assertEqual(payload["maxSpeciesCount"], 1)
+        self.assertEqual(
+            [
+                (
+                    cell["rowIndex"],
+                    cell["columnIndex"],
+                    cell["rowTaxonName"],
+                    cell["columnTaxonName"],
+                    cell["signedDifference"],
+                    cell["divergence"],
+                )
+                for cell in payload["cells"]
+            ],
+            [
+                (0, 0, "Homo sapiens", "Homo sapiens", 0.0, 0.0),
+                (0, 1, "Homo sapiens", "Mus musculus", -1.0, 0.311278),
+                (1, 0, "Mus musculus", "Homo sapiens", 1.0, 0.311278),
+                (1, 1, "Mus musculus", "Mus musculus", 0.0, 0.0),
+            ],
+        )
+        self.assertEqual(payload["pairwiseJsdMatrix"]["mode"], "pairwise_similarity_matrix")
+        self.assertEqual(payload["pairwiseJsdMatrix"]["displayMetric"], "divergence")
+        self.assertEqual(
+            [
+                (
+                    cell["rowIndex"],
+                    cell["columnIndex"],
+                    cell["similarity"],
+                    cell["divergence"],
+                )
+                for cell in payload["pairwiseJsdMatrix"]["cells"]
+            ],
+            [
+                (0, 0, 1.0, 0.0),
+                (0, 1, 0.688722, 0.311278),
+                (1, 0, 0.688722, 0.311278),
+                (1, 1, 1.0, 0.0),
             ],
         )
         gutter_payload = response.context["overview_taxonomy_gutter_payload"]

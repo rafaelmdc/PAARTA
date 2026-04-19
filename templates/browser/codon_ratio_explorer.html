@@ -115,12 +115,39 @@
   <div class="section-header">
     <div>
       <p class="section-kicker mb-2">Overview layer</p>
-      <h2>Taxon x codon overview for {{ current_residue|default:"the selected residue" }}</h2>
+      {% if overview_payload.mode == "signed_preference_map" %}
+        <h2>Signed codon preference difference map for {{ current_residue|default:"the selected residue" }}</h2>
+      {% else %}
+        <h2>Pairwise codon similarity map for {{ current_residue|default:"the selected residue" }}</h2>
+      {% endif %}
       <p class="text-secondary mb-0">
-        Color encodes equal-weight mean codon fraction for lineage-ordered taxa
-        and the synonymous codons visible in the current residue scope. Showing
-        {{ overview_payload.visibleTaxaCount }} taxon{{ overview_payload.visibleTaxaCount|pluralize }}
-        across {{ overview_payload.visibleCodonCount }} visible codon{{ overview_payload.visibleCodonCount|pluralize }}.
+        {% if overview_payload.mode == "signed_preference_map" %}
+          Color encodes the signed pairwise difference in two-codon balance
+          (<strong>(row {{ overview_payload.codonTwo }} - row {{ overview_payload.codonOne }}) - (column {{ overview_payload.codonTwo }} - column {{ overview_payload.codonOne }})</strong>)
+          for the lineage-ordered visible taxa. Positive values mean the row
+          taxon is more <strong>{{ overview_payload.codonTwo }}</strong>-preferring
+          than the column taxon, negative values mean the row taxon is more
+          <strong>{{ overview_payload.codonOne }}</strong>-preferring, and zero
+          means matched balance. The diverging scale stays centered at zero, and
+          the pairwise Jensen-Shannon divergence matrix remains available as an
+          alternate statistic in the payload and tooltip. Showing
+        {% else %}
+          Color encodes pairwise synonymous codon similarity
+          (<strong>1 - Jensen-Shannon divergence</strong>) for the lineage-ordered
+          visible taxa. <strong>1.0</strong> means identical residue-scoped codon
+          profiles, <strong>0.0</strong> means maximally different, the color scale
+          stretches to the visible matrix range so subtle differences stay
+          readable, and tooltips include the supporting species counts for both
+          taxa. Showing
+        {% endif %}
+        {{ overview_visible_taxa_count }} of {{ overview_total_visible_taxa_count }}
+        visible taxon{{ overview_total_visible_taxa_count|pluralize }} across
+        {{ visible_codons|length }} synonymous codon{{ visible_codons|length|pluralize }}.
+        {% if overview_is_truncated %}
+          The overview is capped to the first {{ overview_visible_taxa_count }}
+          lineage-ordered taxa; the browse layer below still uses the full
+          visible set.
+        {% endif %}
       </p>
     </div>
   </div>
@@ -184,7 +211,7 @@
       <h2>{{ visible_taxa_count }} visible taxon{{ visible_taxa_count|pluralize }} at rank {{ current_rank }}</h2>
       <p class="text-secondary mb-0">
         Showing {{ visible_taxa_count }} of {{ total_taxa_count }} taxa at rank
-        {{ current_rank }}. Shares below stay residue-scoped and equal-call-weighted.
+        {{ current_rank }}. Shares below stay residue-scoped and equal-species-weighted.
       </p>
     </div>
   </div>

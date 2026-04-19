@@ -1,3 +1,6 @@
+from math import log2
+
+
 def build_ranked_length_chart_payload(summary_rows):
     if not summary_rows:
         return {
@@ -55,6 +58,7 @@ def build_ranked_codon_composition_chart_payload(summary_rows, *, visible_codons
                 "taxonName": row["taxon_name"],
                 "rank": row["rank"],
                 "observationCount": row["observation_count"],
+                "speciesCount": row.get("species_count", row["observation_count"]),
                 "codonShares": [share_row["share"] for share_row in row["codon_shares"]],
                 **(
                     {"taxonDetailUrl": row["taxon_detail_url"]}
@@ -75,18 +79,28 @@ def build_ranked_codon_composition_chart_payload(summary_rows, *, visible_codons
     }
 
 
-def build_codon_composition_heatmap_payload(summary_rows, *, visible_codons):
-    if not summary_rows or not visible_codons:
+def build_codon_overview_payload(summary_rows, *, visible_codons):
+    if len(visible_codons) == 2:
+        return build_two_codon_preference_map_payload(
+            summary_rows,
+            visible_codons=visible_codons,
+        )
+    return build_codon_similarity_matrix_payload(summary_rows, visible_codons=visible_codons)
+
+
+def build_codon_similarity_matrix_payload(summary_rows, *, visible_codons=None, display_metric="similarity"):
+    if not summary_rows:
         return {
+            "mode": "pairwise_similarity_matrix",
+            "displayMetric": display_metric,
+            "visibleCodons": list(visible_codons or []),
             "taxa": [],
-            "codons": [],
             "cells": [],
-            "seriesData": [],
             "visibleTaxaCount": 0,
-            "visibleCodonCount": 0,
             "maxObservationCount": 0,
+            "maxSpeciesCount": 0,
             "valueMin": 0,
-            "valueMax": 0,
+            "valueMax": 1,
         }
 
     taxon_rows = [
@@ -95,65 +109,182 @@ def build_codon_composition_heatmap_payload(summary_rows, *, visible_codons):
             "taxon_name": row["taxon_name"],
             "rank": row["rank"],
             "observation_count": row["observation_count"],
+            "species_count": row.get("species_count", row["observation_count"]),
             "codon_shares": row["codon_shares"],
         }
         for row in summary_rows
     ]
-    taxon_index_by_id = {
-        row["taxon_id"]: index
-        for index, row in enumerate(taxon_rows)
-    }
-    codon_index_by_value = {
-        codon: index
-        for index, codon in enumerate(visible_codons)
-    }
-
-    cells = sorted(
-        [
-            {
-                "taxonId": row["taxon_id"],
-                "taxonName": row["taxon_name"],
-                "rank": row["rank"],
-                "taxonIndex": taxon_index_by_id[row["taxon_id"]],
-                "codon": share_row["codon"],
-                "codonIndex": codon_index_by_value[share_row["codon"]],
-                "observationCount": row["observation_count"],
-                "value": share_row["share"],
-            }
-            for row in taxon_rows
-            for share_row in row["codon_shares"]
-        ],
-        key=lambda row: (row["taxonIndex"], row["codonIndex"]),
-    )
+    cells = []
+    for row_index, row in enumerate(taxon_rows):
+        row_vector = [share_row["share"] for share_row in row["codon_shares"]]
+        for column_index, other_row in enumerate(taxon_rows):
+            column_vector = [share_row["share"] for share_row in other_row["codon_shares"]]
+            divergence = _jensen_shannon_divergence(row_vector, column_vector)
+            similarity = max(0.0, 1.0 - divergence)
+            display_value = divergence if display_metric == "divergence" else similarity
+            cells.append(
+                {
+                    "rowTaxonId": row["taxon_id"],
+                    "rowTaxonName": row["taxon_name"],
+                    "rowRank": row["rank"],
+                    "rowIndex": row_index,
+                    "rowObservationCount": row["observation_count"],
+                    "rowSpeciesCount": row["species_count"],
+                    "columnTaxonId": other_row["taxon_id"],
+                    "columnTaxonName": other_row["taxon_name"],
+                    "columnRank": other_row["rank"],
+                    "columnIndex": column_index,
+                    "columnObservationCount": other_row["observation_count"],
+                    "columnSpeciesCount": other_row["species_count"],
+                    "similarity": round(similarity, 6),
+                    "divergence": round(divergence, 6),
+                    "displayValue": round(display_value, 6),
+                    "reliability": min(row["species_count"], other_row["species_count"]),
+                }
+            )
 
     return {
+        "mode": "pairwise_similarity_matrix",
+        "displayMetric": display_metric,
+        "visibleCodons": list(visible_codons or []),
         "taxa": [
             {
                 "taxonId": row["taxon_id"],
                 "taxonName": row["taxon_name"],
                 "rank": row["rank"],
                 "observationCount": row["observation_count"],
+                "speciesCount": row["species_count"],
+                "rowIndex": index,
+                "columnIndex": index,
+            }
+            for index, row in enumerate(taxon_rows)
+        ],
+        "cells": cells,
+        "visibleTaxaCount": len(taxon_rows),
+        "maxObservationCount": max(row["observation_count"] for row in taxon_rows),
+        "maxSpeciesCount": max(row["species_count"] for row in taxon_rows),
+        "valueMin": min(cell["displayValue"] for cell in cells),
+        "valueMax": max(cell["displayValue"] for cell in cells),
+    }
+
+
+def build_two_codon_preference_map_payload(summary_rows, *, visible_codons):
+    codon_one, codon_two = visible_codons
+    if not summary_rows:
+        return {
+            "mode": "signed_preference_map",
+            "visibleCodons": list(visible_codons),
+            "codonOne": codon_one,
+            "codonTwo": codon_two,
+            "scoreLabel": f"{codon_two} - {codon_one}",
+            "taxa": [],
+            "cells": [],
+            "visibleTaxaCount": 0,
+            "maxObservationCount": 0,
+            "maxSpeciesCount": 0,
+            "valueMin": -1,
+            "valueMax": 1,
+            "pairwiseJsdMatrix": build_codon_similarity_matrix_payload(
+                summary_rows,
+                visible_codons=visible_codons,
+                display_metric="divergence",
+            ),
+        }
+
+    taxon_rows = []
+    for row in summary_rows:
+        shares_by_codon = {
+            share_row["codon"]: share_row["share"]
+            for share_row in row["codon_shares"]
+        }
+        codon_one_share = shares_by_codon.get(codon_one, 0)
+        codon_two_share = shares_by_codon.get(codon_two, 0)
+        score = round(codon_two_share - codon_one_share, 6)
+        taxon_rows.append(
+            {
+                "taxonId": row["taxon_id"],
+                "taxonName": row["taxon_name"],
+                "rank": row["rank"],
+                "observationCount": row["observation_count"],
+                "speciesCount": row.get("species_count", row["observation_count"]),
+                "codonOne": codon_one,
+                "codonOneShare": codon_one_share,
+                "codonTwo": codon_two,
+                "codonTwoShare": codon_two_share,
+                "score": score,
+            }
+        )
+
+    pairwise_jsd_payload = build_codon_similarity_matrix_payload(
+        summary_rows,
+        visible_codons=visible_codons,
+        display_metric="divergence",
+    )
+    pairwise_divergence_by_index = {
+        (cell["rowIndex"], cell["columnIndex"]): cell["divergence"]
+        for cell in pairwise_jsd_payload["cells"]
+    }
+    cells = []
+    max_abs_difference = 0
+    for row_index, row in enumerate(taxon_rows):
+        for column_index, column in enumerate(taxon_rows):
+            signed_difference = round(row["score"] - column["score"], 6)
+            max_abs_difference = max(max_abs_difference, abs(signed_difference))
+            cells.append(
+                {
+                    "rowTaxonId": row["taxonId"],
+                    "rowTaxonName": row["taxonName"],
+                    "rowRank": row["rank"],
+                    "rowIndex": row_index,
+                    "rowObservationCount": row["observationCount"],
+                    "rowSpeciesCount": row["speciesCount"],
+                    "rowCodonOneShare": row["codonOneShare"],
+                    "rowCodonTwoShare": row["codonTwoShare"],
+                    "rowScore": row["score"],
+                    "columnTaxonId": column["taxonId"],
+                    "columnTaxonName": column["taxonName"],
+                    "columnRank": column["rank"],
+                    "columnIndex": column_index,
+                    "columnObservationCount": column["observationCount"],
+                    "columnSpeciesCount": column["speciesCount"],
+                    "columnCodonOneShare": column["codonOneShare"],
+                    "columnCodonTwoShare": column["codonTwoShare"],
+                    "columnScore": column["score"],
+                    "signedDifference": signed_difference,
+                    "divergence": pairwise_divergence_by_index[(row_index, column_index)],
+                    "reliability": min(row["speciesCount"], column["speciesCount"]),
+                }
+            )
+
+    bounded_max_abs_score = max(max_abs_difference, 0.05)
+    return {
+        "mode": "signed_preference_map",
+        "visibleCodons": list(visible_codons),
+        "codonOne": codon_one,
+        "codonTwo": codon_two,
+        "scoreLabel": f"{codon_two} - {codon_one}",
+        "displayMetric": "signed_difference",
+        "taxa": [
+            {
+                "taxonId": row["taxonId"],
+                "taxonName": row["taxonName"],
+                "rank": row["rank"],
+                "observationCount": row["observationCount"],
+                "speciesCount": row["speciesCount"],
+                "score": row["score"],
+                "codonOneShare": row["codonOneShare"],
+                "codonTwoShare": row["codonTwoShare"],
                 "rowIndex": index,
             }
             for index, row in enumerate(taxon_rows)
         ],
-        "codons": [
-            {
-                "codon": codon,
-                "columnIndex": index,
-            }
-            for index, codon in enumerate(visible_codons)
-        ],
         "cells": cells,
-        "seriesData": [
-            [cell["codonIndex"], cell["taxonIndex"], cell["value"]]
-            for cell in cells
-        ],
         "visibleTaxaCount": len(taxon_rows),
-        "visibleCodonCount": len(visible_codons),
-        "maxObservationCount": max(cell["observationCount"] for cell in cells),
-        "valueMin": min(cell["value"] for cell in cells),
-        "valueMax": max(cell["value"] for cell in cells),
+        "maxObservationCount": max(row["observationCount"] for row in taxon_rows),
+        "maxSpeciesCount": max(row["speciesCount"] for row in taxon_rows),
+        "valueMin": -bounded_max_abs_score,
+        "valueMax": bounded_max_abs_score,
+        "pairwiseJsdMatrix": pairwise_jsd_payload,
     }
 
 
@@ -175,3 +306,26 @@ def build_codon_composition_inspect_payload(bundle, *, scope_label: str):
         ],
         "maxShare": max((row["share"] for row in codon_shares), default=0),
     }
+
+
+def _jensen_shannon_divergence(left_vector, right_vector):
+    midpoint = [
+        (left_value + right_value) / 2
+        for left_value, right_value in zip(left_vector, right_vector, strict=False)
+    ]
+    return round(
+        (
+            (_kullback_leibler_divergence(left_vector, midpoint) / 2)
+            + (_kullback_leibler_divergence(right_vector, midpoint) / 2)
+        ),
+        6,
+    )
+
+
+def _kullback_leibler_divergence(left_vector, right_vector):
+    divergence = 0.0
+    for left_value, right_value in zip(left_vector, right_vector, strict=False):
+        if left_value <= 0 or right_value <= 0:
+            continue
+        divergence += left_value * log2(left_value / right_value)
+    return divergence

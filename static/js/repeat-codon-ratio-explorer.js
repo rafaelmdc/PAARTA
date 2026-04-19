@@ -5,6 +5,8 @@
   const DEFAULT_VISIBLE_ROWS = 12;
   const MAX_CHART_HEIGHT = 980;
   const MAX_VISIBLE_ROWS_WITH_TAXON_LABELS = 24;
+  const MAX_MATRIX_CELL_LABELS = 16;
+  const MAX_MATRIX_COLUMN_LABELS = 18;
   const PENDING_SCROLL_KEY = "repeat-codon-composition-explorer:pending-scroll";
   const PENDING_SCROLL_MAX_AGE_MS = 15000;
   const ROW_HEIGHT = 38;
@@ -132,6 +134,40 @@
 
   function shouldShowTaxonLabels(visibleRowCount) {
     return visibleRowCount <= MAX_VISIBLE_ROWS_WITH_TAXON_LABELS;
+  }
+
+  function shouldShowMatrixCellLabels(taxonCount) {
+    return taxonCount > 0 && taxonCount <= MAX_MATRIX_CELL_LABELS;
+  }
+
+  function shouldShowMatrixColumnLabels(taxonCount) {
+    return taxonCount > 0 && taxonCount <= MAX_MATRIX_COLUMN_LABELS;
+  }
+
+  function resolvedMatrixVisualRange(minimumValue, maximumValue) {
+    const safeMinimum = clamp(numericValue(minimumValue, 0), 0, 1);
+    const safeMaximum = clamp(numericValue(maximumValue, 1), 0, 1);
+    if (safeMaximum <= safeMinimum) {
+      const midpoint = safeMaximum;
+      return {
+        min: clamp(midpoint - 0.02, 0, 1),
+        max: clamp(midpoint + 0.02, 0, 1),
+      };
+    }
+    return {
+      min: safeMinimum,
+      max: safeMaximum,
+    };
+  }
+
+  function resolvedSignedPreferenceRange(minimumValue, maximumValue) {
+    const safeMinimum = numericValue(minimumValue, -1);
+    const safeMaximum = numericValue(maximumValue, 1);
+    const absoluteBound = Math.max(Math.abs(safeMinimum), Math.abs(safeMaximum), 0.05);
+    return {
+      min: -absoluteBound,
+      max: absoluteBound,
+    };
   }
 
   function buildYAxisZoom(rowCount, zoomState, {
@@ -381,6 +417,13 @@
     const gutterOverlay = hasTaxonomyGutter ? attachTaxonomyGutter(chart, taxonomyGutterPayload) : null;
     let currentZoomState = normalizeZoomState(rowCount, null);
     const taxonAxisValues = payload.taxa.map((row) => String(row.taxonId));
+    const showMatrixColumnLabels = shouldShowMatrixColumnLabels(rowCount);
+    const visualRange = resolvedMatrixVisualRange(payload.valueMin, payload.valueMax);
+    const signedPreferenceRange = resolvedSignedPreferenceRange(payload.valueMin, payload.valueMax);
+    const overviewLayout = {
+      top: 32,
+      bottom: showMatrixColumnLabels ? 88 : 48,
+    };
     const taxonLabelByAxisValue = new Map(
       (payload.taxa || []).map((row) => [String(row.taxonId), row.taxonName]),
     );
@@ -395,24 +438,22 @@
       });
     }
 
-    if (!Array.isArray(payload.cells) || payload.cells.length === 0) {
+    if (
+      !Array.isArray(payload.cells)
+      || payload.cells.length === 0
+      || !Array.isArray(payload.taxa)
+      || payload.taxa.length === 0
+    ) {
       chart.setOption(
         buildEmptyOption(
-          "No visible codon composition cells",
+          payload.mode === "signed_preference_map"
+            ? "No visible codon preference cells"
+            : "No visible taxon similarity cells",
           "Adjust the filters or choose a residue to populate the overview.",
         ),
       );
       return;
     }
-
-    const heatmapData = payload.cells.map((cell) => ({
-      value: [cell.codon, String(cell.taxonId), cell.value],
-      taxonId: String(cell.taxonId),
-      taxonName: cell.taxonName,
-      codon: cell.codon,
-      observationCount: cell.observationCount,
-      share: cell.value,
-    }));
 
     function refreshOverviewGutter() {
       if (!gutterOverlay) {
@@ -423,40 +464,229 @@
         showLabels: shouldShowTaxonLabels(visibleRowCount),
         zoomState: currentZoomState,
         gutterWidth: overviewGutterWidth(visibleRowCount),
-        top: 32,
-        bottom: 48,
+        top: overviewLayout.top,
+        bottom: overviewLayout.bottom,
       });
     }
 
     function renderChart() {
       const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
       const showTaxonLabels = shouldShowTaxonLabels(visibleRowCount);
+      const showMatrixCellLabels = shouldShowMatrixCellLabels(rowCount);
       const gutterWidth = overviewGutterWidth(visibleRowCount);
+      if (payload.mode === "signed_preference_map") {
+        const preferenceData = payload.cells.map((cell) => ({
+          value: [String(cell.columnTaxonId), String(cell.rowTaxonId), cell.signedDifference],
+          rowTaxonId: String(cell.rowTaxonId),
+          rowTaxonName: cell.rowTaxonName,
+          rowObservationCount: cell.rowObservationCount,
+          rowSpeciesCount: cell.rowSpeciesCount,
+          rowCodonOneShare: cell.rowCodonOneShare,
+          rowCodonTwoShare: cell.rowCodonTwoShare,
+          rowScore: cell.rowScore,
+          columnTaxonId: String(cell.columnTaxonId),
+          columnTaxonName: cell.columnTaxonName,
+          columnObservationCount: cell.columnObservationCount,
+          columnSpeciesCount: cell.columnSpeciesCount,
+          columnCodonOneShare: cell.columnCodonOneShare,
+          columnCodonTwoShare: cell.columnCodonTwoShare,
+          columnScore: cell.columnScore,
+          signedDifference: cell.signedDifference,
+          divergence: cell.divergence,
+          reliability: cell.reliability,
+          itemStyle: {
+            borderColor: "rgba(255, 255, 255, 0.82)",
+            borderWidth: 1,
+          },
+        }));
+        chart.setOption({
+          animation: false,
+          grid: {
+            left: hasTaxonomyGutter ? gutterWidth + 20 : 160,
+            right: currentZoomState ? 104 : 56,
+            top: overviewLayout.top,
+            bottom: overviewLayout.bottom,
+          },
+          tooltip: {
+            trigger: "item",
+            formatter(params) {
+              const cell = params.data || {};
+              const preferredCodon = cell.signedDifference > 0
+                ? payload.codonTwo
+                : (cell.signedDifference < 0 ? payload.codonOne : "Balanced");
+              return [
+                `<strong>${cell.rowTaxonName}</strong> x <strong>${cell.columnTaxonName}</strong>`,
+                `${payload.codonTwo} - ${payload.codonOne}: ${formatShare(cell.signedDifference)}`,
+                `Row balance: ${formatShare(cell.rowScore)}`,
+                `${cell.rowTaxonName} shares: ${payload.codonTwo} ${formatShare(cell.rowCodonTwoShare)}, ${payload.codonOne} ${formatShare(cell.rowCodonOneShare)}`,
+                `Column balance: ${formatShare(cell.columnScore)}`,
+                `${cell.columnTaxonName} shares: ${payload.codonTwo} ${formatShare(cell.columnCodonTwoShare)}, ${payload.codonOne} ${formatShare(cell.columnCodonOneShare)}`,
+                `JSD: ${formatShare(cell.divergence)}`,
+                `Species support: ${cell.rowSpeciesCount} vs ${cell.columnSpeciesCount}`,
+                `Calls: ${cell.rowObservationCount} vs ${cell.columnObservationCount}`,
+                `Interpretation: ${preferredCodon === "Balanced"
+                  ? "matched balance"
+                  : `${cell.rowTaxonName} is more ${preferredCodon}-preferring than ${cell.columnTaxonName}`}`,
+              ].join("<br>");
+            },
+          },
+          xAxis: {
+            type: "category",
+            data: taxonAxisValues,
+            axisLabel: {
+              show: showMatrixColumnLabels,
+              interval: 0,
+              color: TEXT_COLOR,
+              rotate: 42,
+              hideOverlap: true,
+              width: 120,
+              overflow: "truncate",
+              formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
+            },
+            axisLine: {
+              lineStyle: {
+                color: GRID_COLOR,
+              },
+            },
+          },
+          yAxis: {
+            type: "category",
+            inverse: true,
+            data: taxonAxisValues,
+            axisLabel: {
+              show: !hasTaxonomyGutter && showTaxonLabels,
+              interval: 0,
+              color: TEXT_COLOR,
+              formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
+            },
+            axisLine: {
+              lineStyle: {
+                color: GRID_COLOR,
+              },
+            },
+          },
+          visualMap: {
+            min: signedPreferenceRange.min,
+            max: signedPreferenceRange.max,
+            calculable: false,
+            orient: "vertical",
+            right: 0,
+            top: "middle",
+            text: [`Row more ${payload.codonTwo}-preferring`, `Row more ${payload.codonOne}-preferring`],
+            textStyle: {
+              color: MUTED_TEXT_COLOR,
+            },
+            inRange: {
+              color: ["#0f5964", "#f2efe6", "#d06e37"],
+            },
+          },
+          dataZoom: buildYAxisZoom(rowCount, currentZoomState, {
+            yAxisIndex: 0,
+            right: 44,
+            top: 28,
+            bottom: 56,
+            width: 12,
+          }),
+          series: [
+            {
+              type: "heatmap",
+              data: preferenceData,
+              encode: {
+                x: 0,
+                y: 1,
+                value: 2,
+              },
+              label: {
+                show: showMatrixCellLabels,
+                formatter(params) {
+                  return formatShare(
+                    params.data && typeof params.data.signedDifference === "number"
+                      ? params.data.signedDifference
+                      : undefined,
+                  );
+                },
+                color: TEXT_COLOR,
+                fontSize: 11,
+              },
+              itemStyle: {
+                borderColor: "rgba(255, 255, 255, 0.82)",
+                borderWidth: 1,
+              },
+              emphasis: {
+                itemStyle: {
+                  borderColor: TEXT_COLOR,
+                  borderWidth: 1.5,
+                  shadowBlur: 10,
+                  shadowColor: "rgba(0, 0, 0, 0.18)",
+                },
+              },
+            },
+          ],
+        }, { notMerge: true });
+        refreshOverviewGutter();
+        return;
+      }
+
+      const heatmapData = payload.cells.map((cell) => ({
+        value: [
+          String(cell.columnTaxonId),
+          String(cell.rowTaxonId),
+          payload.displayMetric === "divergence" ? cell.divergence : cell.similarity,
+        ],
+        rowTaxonId: String(cell.rowTaxonId),
+        rowTaxonName: cell.rowTaxonName,
+        rowRank: cell.rowRank,
+        rowObservationCount: cell.rowObservationCount,
+        rowSpeciesCount: cell.rowSpeciesCount,
+        columnTaxonId: String(cell.columnTaxonId),
+        columnTaxonName: cell.columnTaxonName,
+        columnRank: cell.columnRank,
+        columnObservationCount: cell.columnObservationCount,
+        columnSpeciesCount: cell.columnSpeciesCount,
+        similarity: cell.similarity,
+        divergence: cell.divergence,
+        reliability: cell.reliability,
+        itemStyle: {
+          borderColor: "rgba(255, 255, 255, 0.82)",
+          borderWidth: 1,
+        },
+      }));
       chart.setOption({
         animation: false,
         grid: {
           left: hasTaxonomyGutter ? gutterWidth + 20 : 160,
           right: currentZoomState ? 104 : 56,
-          top: 32,
-          bottom: 48,
+          top: overviewLayout.top,
+          bottom: overviewLayout.bottom,
         },
         tooltip: {
           trigger: "item",
           formatter(params) {
             const cell = params.data || {};
+            const isSelfComparison = cell.rowTaxonId === cell.columnTaxonId;
             return [
-              `<strong>${cell.taxonName}</strong>`,
-              `Codon: ${cell.codon}`,
-              `Share: ${formatShare(cell.share)}`,
-              `Calls: ${cell.observationCount}`,
-            ].join("<br>");
+              `<strong>${cell.rowTaxonName}</strong> x <strong>${cell.columnTaxonName}</strong>`,
+              `Similarity: ${formatShare(cell.similarity)}`,
+              `JSD: ${formatShare(cell.divergence)}`,
+              `Species support: ${cell.rowSpeciesCount} vs ${cell.columnSpeciesCount}`,
+              `Calls: ${cell.rowObservationCount} vs ${cell.columnObservationCount}`,
+              `Reliability proxy: ${cell.reliability}`,
+              isSelfComparison ? "Self-comparison: identical by definition." : "",
+            ].filter(Boolean).join("<br>");
           },
         },
         xAxis: {
           type: "category",
-          data: payload.codons.map((row) => row.codon),
+          data: taxonAxisValues,
           axisLabel: {
+            show: showMatrixColumnLabels,
+            interval: 0,
             color: TEXT_COLOR,
+            rotate: 42,
+            hideOverlap: true,
+            width: 120,
+            overflow: "truncate",
+            formatter: (value) => taxonLabelByAxisValue.get(String(value)) || String(value),
           },
           axisLine: {
             lineStyle: {
@@ -481,18 +711,20 @@
           },
         },
         visualMap: {
-          min: payload.valueMin,
-          max: payload.valueMax,
+          min: visualRange.min,
+          max: visualRange.max,
           calculable: false,
           orient: "vertical",
           right: 0,
           top: "middle",
-          text: ["High", "Low"],
+          text: payload.displayMetric === "divergence"
+            ? ["More divergent", "Less divergent"]
+            : ["More similar", "More divergent"],
           textStyle: {
             color: MUTED_TEXT_COLOR,
           },
           inRange: {
-            color: ["#f2efe6", "#cddfd8", "#0f5964"],
+            color: ["#d06e37", "#0f5964"],
           },
         },
         dataZoom: buildYAxisZoom(rowCount, currentZoomState, {
@@ -512,19 +744,28 @@
               value: 2,
             },
             label: {
-              show: true,
+              show: showMatrixCellLabels,
               formatter(params) {
+                const pointValue = params.data && Array.isArray(params.data.value)
+                  ? params.data.value[2]
+                  : undefined;
                 return formatShare(
-                  params.data && typeof params.data.share === "number"
-                    ? params.data.share
+                  typeof pointValue === "number"
+                    ? pointValue
                     : undefined,
                 );
               },
               color: TEXT_COLOR,
               fontSize: 11,
             },
+            itemStyle: {
+              borderColor: "rgba(255, 255, 255, 0.82)",
+              borderWidth: 1,
+            },
             emphasis: {
               itemStyle: {
+                borderColor: TEXT_COLOR,
+                borderWidth: 1.5,
                 shadowBlur: 10,
                 shadowColor: "rgba(0, 0, 0, 0.18)",
               },

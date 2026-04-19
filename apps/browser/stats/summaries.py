@@ -20,27 +20,33 @@ def summarize_ranked_length_groups(group_rows, grouped_lengths):
     )
 
 
-def summarize_ranked_codon_composition_groups(group_rows, grouped_codon_fraction_sums, *, visible_codons):
-    fraction_sums_by_taxon = defaultdict(dict)
-    for display_taxon_id, codon, total_fraction in grouped_codon_fraction_sums:
-        fraction_sums_by_taxon[display_taxon_id][codon] = float(total_fraction)
+def summarize_ranked_codon_composition_groups(group_rows, grouped_species_call_codon_fractions, *, visible_codons):
+    call_fractions_by_taxon = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+    for display_taxon_id, species_taxon_id, repeat_call_id, codon, codon_fraction in grouped_species_call_codon_fractions:
+        call_fractions_by_taxon[display_taxon_id][species_taxon_id][repeat_call_id][codon] = float(codon_fraction)
 
     summary_rows = []
     for row in group_rows:
-        observation_count = row["observation_count"]
-        if observation_count <= 0:
+        species_count = row.get("species_count", 0)
+        if species_count <= 0:
             continue
+        species_call_rows = call_fractions_by_taxon[row["display_taxon_id"]]
         summary_rows.append(
             {
                 "taxon_id": row["display_taxon_id"],
                 "taxon_name": row["display_taxon_name"],
                 "rank": row["display_taxon_rank"],
-                "observation_count": observation_count,
+                "observation_count": row["observation_count"],
+                "species_count": species_count,
                 "codon_shares": [
                     {
                         "codon": codon,
                         "share": normalize_numeric_summary_value(
-                            fraction_sums_by_taxon[row["display_taxon_id"]].get(codon, 0.0) / observation_count
+                            sum(
+                                sum(call_rows[repeat_call_id].get(codon, 0.0) for repeat_call_id in call_rows)
+                                / len(call_rows)
+                                for call_rows in species_call_rows.values()
+                            ) / species_count
                         ),
                     }
                     for codon in visible_codons

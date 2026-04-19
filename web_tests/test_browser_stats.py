@@ -9,7 +9,8 @@ from django.test import RequestFactory, TestCase
 from apps.browser.stats import (
     apply_stats_filter_context,
     build_filtered_codon_usage_queryset,
-    build_group_codon_fraction_sums_queryset,
+    build_codon_overview_payload,
+    build_group_codon_species_call_fraction_queryset,
     build_filtered_repeat_call_queryset,
     build_group_length_values_queryset,
     build_ranked_codon_composition_summary_bundle,
@@ -372,6 +373,7 @@ class BrowserStatsTests(TestCase):
                     "taxon_name": "Mammalia",
                     "rank": "class",
                     "observation_count": 2,
+                    "species_count": 2,
                     "codon_shares": [
                         {"codon": "CAA", "share": 0.625},
                         {"codon": "CAG", "share": 0.375},
@@ -435,6 +437,7 @@ class BrowserStatsTests(TestCase):
                     "taxon_name": "Mammalia",
                     "rank": "class",
                     "observation_count": 2,
+                    "species_count": 2,
                     "codon_shares": [
                         {"codon": "GCA", "share": 0.25},
                         {"codon": "GCC", "share": 0.25},
@@ -445,7 +448,14 @@ class BrowserStatsTests(TestCase):
             ],
         )
 
-    def test_ranked_codon_composition_summary_bundle_uses_equal_call_weight(self):
+    def test_ranked_codon_composition_summary_bundle_uses_equal_species_weight(self):
+        alpha_extra = self._create_repeat_call(
+            self.alpha,
+            suffix="alpha_species_weight",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.0,
+        )
         self._set_repeat_call_codon_usages(
             self.alpha,
             rows=[
@@ -453,10 +463,16 @@ class BrowserStatsTests(TestCase):
             ],
         )
         self._set_repeat_call_codon_usages(
+            self.alpha,
+            repeat_call=alpha_extra,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 12, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
             self.beta,
             rows=[
-                {"amino_acid": "Q", "codon": "CAA", "codon_count": 1, "codon_fraction": 0.5},
-                {"amino_acid": "Q", "codon": "CAG", "codon_count": 1, "codon_fraction": 0.5},
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 2, "codon_fraction": 1.0},
             ],
         )
 
@@ -473,13 +489,72 @@ class BrowserStatsTests(TestCase):
 
         bundle = build_ranked_codon_composition_summary_bundle(filter_state)
 
+        self.assertEqual(bundle["summary_rows"][0]["observation_count"], 3)
+        self.assertEqual(bundle["summary_rows"][0]["species_count"], 2)
         self.assertEqual(
             bundle["summary_rows"][0]["codon_shares"],
             [
-                {"codon": "CAA", "share": 0.75},
-                {"codon": "CAG", "share": 0.25},
+                {"codon": "CAA", "share": 0.25},
+                {"codon": "CAG", "share": 0.75},
             ],
         )
+
+    def test_build_codon_overview_payload_uses_signed_preference_mode_for_two_codon_residue(self):
+        payload = build_codon_overview_payload(
+            [
+                {
+                    "taxon_id": 1,
+                    "taxon_name": "Taxon A",
+                    "rank": "class",
+                    "observation_count": 3,
+                    "species_count": 2,
+                    "codon_shares": [
+                        {"codon": "CAA", "share": 0.7},
+                        {"codon": "CAG", "share": 0.3},
+                    ],
+                },
+                {
+                    "taxon_id": 2,
+                    "taxon_name": "Taxon B",
+                    "rank": "class",
+                    "observation_count": 4,
+                    "species_count": 3,
+                    "codon_shares": [
+                        {"codon": "CAA", "share": 0.1},
+                        {"codon": "CAG", "share": 0.9},
+                    ],
+                },
+            ],
+            visible_codons=["CAA", "CAG"],
+        )
+
+        self.assertEqual(payload["mode"], "signed_preference_map")
+        self.assertEqual(payload["scoreLabel"], "CAG - CAA")
+        self.assertEqual(payload["displayMetric"], "signed_difference")
+        self.assertEqual(payload["valueMin"], -1.2)
+        self.assertEqual(payload["valueMax"], 1.2)
+        self.assertEqual(
+            [(taxon["taxonName"], taxon["score"]) for taxon in payload["taxa"]],
+            [("Taxon A", -0.4), ("Taxon B", 0.8)],
+        )
+        self.assertEqual(
+            [
+                (
+                    cell["rowIndex"],
+                    cell["columnIndex"],
+                    cell["signedDifference"],
+                )
+                for cell in payload["cells"]
+            ],
+            [
+                (0, 0, 0.0),
+                (0, 1, -1.2),
+                (1, 0, 1.2),
+                (1, 1, 0.0),
+            ],
+        )
+        self.assertEqual(payload["pairwiseJsdMatrix"]["displayMetric"], "divergence")
+        self.assertEqual(payload["pairwiseJsdMatrix"]["visibleTaxaCount"], 2)
 
     def test_taxonomy_gutter_payload_builds_rooted_visible_tree_and_scope_aware_braces(self):
         gamma = create_imported_run_fixture(
@@ -821,15 +896,15 @@ class BrowserStatsTests(TestCase):
         )
 
         group_rows = list(build_ranked_taxon_group_queryset(filter_state))
-        grouped_codon_fraction_sums = list(
-            build_group_codon_fraction_sums_queryset(
+        grouped_species_call_codon_fractions = list(
+            build_group_codon_species_call_fraction_queryset(
                 filter_state,
                 display_taxon_ids=[group_rows[0]["display_taxon_id"]],
             )
         )
         summary_rows = summarize_ranked_codon_composition_groups(
             group_rows,
-            grouped_codon_fraction_sums,
+            grouped_species_call_codon_fractions,
             visible_codons=["GCA"],
         )
 
@@ -845,6 +920,7 @@ class BrowserStatsTests(TestCase):
                     "taxon_name": "Homo sapiens",
                     "rank": "species",
                     "observation_count": 1,
+                    "species_count": 1,
                     "codon_shares": [
                         {"codon": "GCA", "share": 1},
                     ],
