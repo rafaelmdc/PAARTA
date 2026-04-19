@@ -59,14 +59,18 @@ The helper should:
 
 - expose one small global API used by page-local chart scripts
 - reserve gutter width from payload shape rather than hardcoding per viewer
-- draw connectors, nodes, terminal labels, and braces with ECharts `graphic`
+- draw connectors, nodes, terminal labels, and braces in a DOM `SVG` overlay
+  attached to the chart container
 - redraw on initial render, `datazoom`, and resize
 - keep working with the existing y-axis zoom window
 
 Boundary:
 
-- this is an overlay for cartesian browser charts, not a standalone ECharts
-  `tree` chart
+- this is a non-tree overlay for cartesian browser charts, not a standalone
+  ECharts `tree` chart
+- the chart itself may still be rendered by ECharts, but the taxonomy gutter
+  should not depend on ECharts `graphic` or `custom` series layout to align
+  its rows
 
 ## First implementation target
 

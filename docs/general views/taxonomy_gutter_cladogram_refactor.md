@@ -7,8 +7,9 @@
   - preserve informative internal splits instead of always visually collapsing back to phylum
   - keep leaf rows aligned to the existing chart y-axis and dataZoom
   - continue showing collapsed-descendant braces below the current display rank
-  - stay on the current non-tree ECharts path first
-  - explicitly fall back to ECharts tree series only if the custom/graphic approach fails a defined feasibility gate
+  - stay off ECharts tree series
+  - prefer a deterministic non-tree overlay, even if that overlay is plain DOM
+    `SVG` rather than ECharts `graphic`
 
   This doc should be saved under docs/general views/taxonomy_gutter_cladogram_refactor.md when implementation mode resumes.
 
@@ -131,7 +132,8 @@
 
   - keep static/js/taxonomy-gutter.js as the shared frontend helper
   - replace the current rank-column renderer with a rooted dendrogram renderer based on the new payload
-  - continue using ECharts graphic overlay, not tree series
+  - render the gutter in a DOM `SVG` overlay anchored to the same chart
+    container rather than through ECharts `graphic` or `custom` series
 
   Rendering rules:
 
@@ -156,7 +158,10 @@
 
   - gutter width = tree depth width + widest kept internal label + widest leaf label + widest brace label
   - codon chart grid left margin must reserve that width dynamically
-  - y-axis category values stay as taxon ids so alignment through dataZoom is stable
+  - the gutter overlay must receive the same explicit top/bottom bounds and
+    visible row window as the chart
+  - y alignment should be treated as one visible row = one explicit row center,
+    not inferred from ECharts internals
 
   Interaction:
 
@@ -183,19 +188,20 @@
   - current chart metric payloads
   - current dataZoom behavior
 
-  Feasibility gate for staying off tree series:
+  Feasibility gate for the non-tree overlay:
 
-  - the custom/graphic cladogram approach stays the chosen path only if all of these pass:
+  - the chosen overlay approach stays only if all of these pass:
       - leaf rows remain pixel-aligned during initial render, dataZoom, and resize
       - rooted backbone can connect multiple phyla cleanly
       - preserved split nodes render correctly for one-phylum subsets
-      - no second synchronized chart is needed
       - performance is acceptable for the current bounded row counts
 
   Fallback trigger:
 
-  - if any of those fail after one implementation pass and a short debugging pass, shift to a second plan using a separate synced ECharts tree panel
-  - do not mix both approaches in the same implementation cut
+  - if an ECharts-driven gutter cannot stay aligned after one implementation
+    pass and a short debugging pass, pivot to a DOM `SVG` overlay instead of
+    continuing to fight chart-internal geometry
+  - do not mix multiple rendering models in the same implementation cut
 
   ## Phase 4: Tests, Acceptance, And Docs
 
@@ -250,6 +256,8 @@
       - columns, segments, terminals
   - to:
       - root, nodes, edges, leaves, maxDepth
+  - the current practical rendering path is a DOM `SVG` overlay, not an
+    ECharts `tree`, `graphic`, or `custom` series
 
   No route or query-param changes in this refactor.
 

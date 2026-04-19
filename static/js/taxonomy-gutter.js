@@ -29,6 +29,8 @@
   const MAX_VISIBLE_ROWS_WITH_INTERNAL_LABELS = 14;
   const GRAPHIC_ROOT_ID = "taxonomy-gutter-root";
   const TOOLTIP_DATA_KEY = "homorepeatTaxonomyGutterTooltip";
+  const OVERLAY_DATA_KEY = "homorepeatTaxonomyGutterOverlay";
+  const SVG_NS = "http://www.w3.org/2000/svg";
 
   let measureCanvas = null;
 
@@ -187,6 +189,159 @@
     };
   }
 
+  function buildFullChildrenByParentId(payload) {
+    const childrenByParentId = new Map();
+    payload.edges.forEach((edge) => {
+      const children = childrenByParentId.get(edge.parentNodeId) || [];
+      children.push(edge.childNodeId);
+      childrenByParentId.set(edge.parentNodeId, children);
+    });
+    return childrenByParentId;
+  }
+
+  function buildVisibleTreeState(payload, rowYByIndex, range, makeX) {
+    if (!payload || !payload.root || !range || typeof makeX !== "function") {
+      return {
+        visibleNodesById: new Map(),
+        childrenByParentId: new Map(),
+      };
+    }
+
+    const rootNodeId = payload.root.nodeId;
+    const fullChildrenByParentId = buildFullChildrenByParentId(payload);
+    const visibleOriginalNodesById = new Map();
+
+    payload.nodes.forEach((node) => {
+      const clippedStart = Math.max(node.rowStart, range.start);
+      const clippedEnd = Math.min(node.rowEnd, range.end);
+      if (clippedStart > clippedEnd) {
+        return;
+      }
+
+      const topY = rowYByIndex.get(clippedStart);
+      const bottomY = rowYByIndex.get(clippedEnd);
+      if (
+        typeof topY !== "number"
+        || !Number.isFinite(topY)
+        || typeof bottomY !== "number"
+        || !Number.isFinite(bottomY)
+      ) {
+        return;
+      }
+
+      const normalizedTopY = Math.min(topY, bottomY);
+      const normalizedBottomY = Math.max(topY, bottomY);
+      visibleOriginalNodesById.set(node.nodeId, {
+        ...node,
+        topY: normalizedTopY,
+        bottomY: normalizedBottomY,
+        y: (normalizedTopY + normalizedBottomY) / 2,
+      });
+    });
+
+    if (!visibleOriginalNodesById.has(rootNodeId)) {
+      return {
+        visibleNodesById: new Map(),
+        childrenByParentId: new Map(),
+      };
+    }
+
+    function projectVisibleSubtree(nodeId) {
+      const node = visibleOriginalNodesById.get(nodeId);
+      if (!node) {
+        return [];
+      }
+
+      const projectedChildren = [];
+      const childNodeIds = fullChildrenByParentId.get(nodeId) || [];
+      childNodeIds.forEach((childNodeId) => {
+        projectedChildren.push(...projectVisibleSubtree(childNodeId));
+      });
+
+      const keepCurrent = nodeId === rootNodeId || node.isLeaf || projectedChildren.length !== 1;
+      if (!keepCurrent) {
+        return projectedChildren;
+      }
+
+      return [
+        {
+          ...node,
+          children: projectedChildren,
+          isPreservedSplit: projectedChildren.length >= 2,
+        },
+      ];
+    }
+
+    const projectedRoot = projectVisibleSubtree(rootNodeId)[0] || null;
+    if (!projectedRoot) {
+      return {
+        visibleNodesById: new Map(),
+        childrenByParentId: new Map(),
+      };
+    }
+
+    const visibleNodesById = new Map();
+    const childrenByParentId = new Map();
+
+    function visitProjectedNode(projectedNode, parentNodeId, depth) {
+      const orderedChildren = projectedNode.children
+        .slice()
+        .sort((leftNode, rightNode) => leftNode.y - rightNode.y);
+
+      visibleNodesById.set(projectedNode.nodeId, {
+        ...projectedNode,
+        parentNodeId,
+        depth,
+        x: makeX(depth),
+        isPreservedSplit: orderedChildren.length >= 2,
+      });
+
+      if (orderedChildren.length > 0) {
+        childrenByParentId.set(
+          projectedNode.nodeId,
+          orderedChildren.map((childNode) => childNode.nodeId),
+        );
+      }
+
+      orderedChildren.forEach((childNode) => {
+        visitProjectedNode(childNode, projectedNode.nodeId, depth + 1);
+      });
+    }
+
+    visitProjectedNode(projectedRoot, null, 0);
+    return {
+      visibleNodesById,
+      childrenByParentId,
+    };
+  }
+
+  function explicitLeafRange(payload, options = {}) {
+    const leafCount = payload && Array.isArray(payload.leaves) ? payload.leaves.length : 0;
+    if (leafCount < 1) {
+      return null;
+    }
+
+    const explicitZoomState = options.zoomState || null;
+    if (!explicitZoomState) {
+      return {
+        start: 0,
+        end: leafCount - 1,
+      };
+    }
+
+    const start = clamp(
+      Math.round(numericValue(explicitZoomState.startValue, 0)),
+      0,
+      leafCount - 1,
+    );
+    const end = clamp(
+      Math.round(numericValue(explicitZoomState.endValue, leafCount - 1)),
+      start,
+      leafCount - 1,
+    );
+    return { start, end };
+  }
+
   function buildPanelState(payload, options, params, api) {
     const coordSys = params && params.coordSys ? params.coordSys : null;
     if (!coordSys) {
@@ -194,27 +349,21 @@
     }
 
     const layout = panelLayout(payload, options);
+    const range = explicitLeafRange(payload, options);
+    if (!range) {
+      return null;
+    }
     const visibleLeaves = [];
     const rowYByIndex = new Map();
     const leafByNodeId = new Map();
-    const estimatedVisibleLeafCount = Math.max(
-      1,
-      Math.round(numericValue(options ? options.visibleLeafCount : undefined, payload.leaves.length)),
-    );
-    const estimatedBandHeight = coordSys.height > 0
-      ? coordSys.height / estimatedVisibleLeafCount
-      : 0;
-    const visibilityPadding = Number.isFinite(estimatedBandHeight) && estimatedBandHeight > 0
-      ? estimatedBandHeight / 2
-      : 8;
 
     payload.leaves.forEach((leaf) => {
+      if (leaf.rowIndex < range.start || leaf.rowIndex > range.end) {
+        return;
+      }
       const pixel = api.coord([0, leaf.axisValue]);
       const y = Array.isArray(pixel) ? pixel[1] : null;
       if (typeof y !== "number" || !Number.isFinite(y)) {
-        return;
-      }
-      if (y < (coordSys.y - visibilityPadding) || y > (coordSys.y + coordSys.height + visibilityPadding)) {
         return;
       }
       visibleLeaves.push({ ...leaf, y });
@@ -226,57 +375,12 @@
       return null;
     }
 
-    const visibleRowIndexes = visibleLeaves
-      .map((leaf) => leaf.rowIndex)
-      .sort((left, right) => left - right);
-
-    const visibleNodesById = new Map();
-    payload.nodes.forEach((node) => {
-      let clippedStart = null;
-      let clippedEnd = null;
-      visibleRowIndexes.forEach((rowIndex) => {
-        if (rowIndex < node.rowStart || rowIndex > node.rowEnd) {
-          return;
-        }
-        if (clippedStart === null) {
-          clippedStart = rowIndex;
-        }
-        clippedEnd = rowIndex;
-      });
-      if (clippedStart === null || clippedEnd === null) {
-        return;
-      }
-      const topY = rowYByIndex.get(clippedStart);
-      const bottomY = rowYByIndex.get(clippedEnd);
-      if (typeof topY !== "number" || typeof bottomY !== "number") {
-        return;
-      }
-      const normalizedTopY = Math.min(topY, bottomY);
-      const normalizedBottomY = Math.max(topY, bottomY);
-      visibleNodesById.set(node.nodeId, {
-        ...node,
-        x: coordSys.x + layout.rootX + (node.depth * DEPTH_STEP),
-        y: (normalizedTopY + normalizedBottomY) / 2,
-        topY: normalizedTopY,
-        bottomY: normalizedBottomY,
-      });
-    });
-
-    const childrenByParentId = new Map();
-    payload.edges.forEach((edge) => {
-      if (!visibleNodesById.has(edge.parentNodeId) || !visibleNodesById.has(edge.childNodeId)) {
-        return;
-      }
-      const children = childrenByParentId.get(edge.parentNodeId) || [];
-      children.push(edge.childNodeId);
-      childrenByParentId.set(edge.parentNodeId, children);
-    });
-    childrenByParentId.forEach((childNodeIds, parentNodeId) => {
-      childNodeIds.sort((leftNodeId, rightNodeId) => {
-        return visibleNodesById.get(leftNodeId).y - visibleNodesById.get(rightNodeId).y;
-      });
-      childrenByParentId.set(parentNodeId, childNodeIds);
-    });
+    const { visibleNodesById, childrenByParentId } = buildVisibleTreeState(
+      payload,
+      rowYByIndex,
+      range,
+      (depth) => coordSys.x + layout.rootX + (depth * DEPTH_STEP),
+    );
 
     return {
       widths: layout.widths,
@@ -603,25 +707,47 @@
     }
   }
 
+  function explicitGridRect(chart, options = {}) {
+    const top = numericValue(options.top, Number.NaN);
+    const bottom = numericValue(options.bottom, Number.NaN);
+    const gutterWidth = numericValue(options.gutterWidth, Number.NaN);
+    if (!Number.isFinite(top) || !Number.isFinite(bottom) || !Number.isFinite(gutterWidth)) {
+      return null;
+    }
+
+    return {
+      x: gutterWidth + TREE_TO_GRID_GAP,
+      y: top,
+      width: Math.max(0, chart.getWidth() - gutterWidth - TREE_TO_GRID_GAP),
+      height: Math.max(0, chart.getHeight() - top - bottom),
+    };
+  }
+
   function yAxisIsInverse(chart) {
     const option = chart.getOption();
     const yAxis = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis;
     return Boolean(yAxis && yAxis.inverse);
   }
 
-  function extractYPixel(pixelValue) {
-    if (Array.isArray(pixelValue)) {
-      return typeof pixelValue[1] === "number" && Number.isFinite(pixelValue[1]) ? pixelValue[1] : null;
-    }
-    return typeof pixelValue === "number" && Number.isFinite(pixelValue) ? pixelValue : null;
-  }
-
   function axisLeafCenterY(chart, leaf) {
-    const axisPixel = extractYPixel(chart.convertToPixel({ yAxisIndex: 0 }, leaf.axisValue));
-    if (axisPixel !== null) {
-      return axisPixel;
+    try {
+      const model = chart.getModel ? chart.getModel() : null;
+      const axisComponent = model && model.getComponent ? model.getComponent("yAxis", 0) : null;
+      const axis = axisComponent ? axisComponent.axis : null;
+      if (!axis || typeof axis.dataToCoord !== "function" || typeof axis.toGlobalCoord !== "function") {
+        return null;
+      }
+
+      const localCoord = axis.dataToCoord(leaf.axisValue);
+      if (typeof localCoord !== "number" || !Number.isFinite(localCoord)) {
+        return null;
+      }
+
+      const globalCoord = axis.toGlobalCoord(localCoord);
+      return typeof globalCoord === "number" && Number.isFinite(globalCoord) ? globalCoord : null;
+    } catch (error) {
+      return null;
     }
-    return extractYPixel(chart.convertToPixel("grid", [0, leaf.axisValue]));
   }
 
   function ensureTooltip(chart) {
@@ -768,7 +894,7 @@
       return null;
     }
 
-    const currentGridRect = gridRect(chart);
+    const currentGridRect = explicitGridRect(chart, options) || gridRect(chart);
     const visibleLeaves = [];
     const rowYByIndex = new Map();
     const leafByNodeId = new Map();
@@ -800,44 +926,12 @@
     const braceLabelX = braceMarkX + BRACE_MARK_WIDTH + BRACE_LABEL_GAP;
     const gutterRight = (currentGridRect ? currentGridRect.x : gridLeft(chart)) - TREE_TO_GRID_GAP;
 
-    const visibleNodesById = new Map();
-    payload.nodes.forEach((node) => {
-      const clippedStart = Math.max(node.rowStart, range.start);
-      const clippedEnd = Math.min(node.rowEnd, range.end);
-      if (clippedStart > clippedEnd) {
-        return;
-      }
-      const topY = rowYByIndex.get(clippedStart);
-      const bottomY = rowYByIndex.get(clippedEnd);
-      if (typeof topY !== "number" || typeof bottomY !== "number") {
-        return;
-      }
-      const normalizedTopY = Math.min(topY, bottomY);
-      const normalizedBottomY = Math.max(topY, bottomY);
-      visibleNodesById.set(node.nodeId, {
-        ...node,
-        x: rootX + (node.depth * DEPTH_STEP),
-        y: (normalizedTopY + normalizedBottomY) / 2,
-        topY: normalizedTopY,
-        bottomY: normalizedBottomY,
-      });
-    });
-
-    const childrenByParentId = new Map();
-    payload.edges.forEach((edge) => {
-      if (!visibleNodesById.has(edge.parentNodeId) || !visibleNodesById.has(edge.childNodeId)) {
-        return;
-      }
-      const children = childrenByParentId.get(edge.parentNodeId) || [];
-      children.push(edge.childNodeId);
-      childrenByParentId.set(edge.parentNodeId, children);
-    });
-    childrenByParentId.forEach((childNodeIds, parentNodeId) => {
-      childNodeIds.sort((leftNodeId, rightNodeId) => {
-        return visibleNodesById.get(leftNodeId).y - visibleNodesById.get(rightNodeId).y;
-      });
-      childrenByParentId.set(parentNodeId, childNodeIds);
-    });
+    const { visibleNodesById, childrenByParentId } = buildVisibleTreeState(
+      payload,
+      rowYByIndex,
+      range,
+      (depth) => rootX + (depth * DEPTH_STEP),
+    );
 
     return {
       widths,
@@ -1145,10 +1239,294 @@
     ];
   }
 
+  function createSvgElement(tagName, attributes = {}) {
+    const element = document.createElementNS(SVG_NS, tagName);
+    Object.entries(attributes).forEach(([name, value]) => {
+      if (value == null) {
+        return;
+      }
+      element.setAttribute(name, String(value));
+    });
+    return element;
+  }
+
+  function applySvgTextStyle(element, {
+    fill,
+    font,
+    textAnchor = "start",
+  }) {
+    element.setAttribute("fill", fill);
+    element.setAttribute("text-anchor", textAnchor);
+    element.setAttribute("dominant-baseline", "middle");
+    element.style.font = font;
+  }
+
+  function bindHoverEvents(element, chart, tooltip, text, x, y) {
+    if (!element || !text) {
+      return;
+    }
+    element.addEventListener("mouseenter", () => {
+      showTooltip(chart, tooltip, text, x, y);
+    });
+    element.addEventListener("mousemove", () => {
+      showTooltip(chart, tooltip, text, x, y);
+    });
+    element.addEventListener("mouseleave", () => {
+      hideTooltip(tooltip);
+    });
+  }
+
+  function ensureOverlayLayer(chart) {
+    if (typeof document === "undefined") {
+      return null;
+    }
+
+    const chartDom = chart.getDom();
+    if (!chartDom) {
+      return null;
+    }
+    if (!chartDom.style.position) {
+      chartDom.style.position = "relative";
+    }
+
+    let overlay = chartDom.querySelector(`[data-${OVERLAY_DATA_KEY}]`);
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.setAttribute(`data-${OVERLAY_DATA_KEY}`, "true");
+      Object.assign(overlay.style, {
+        position: "absolute",
+        left: "0",
+        top: "0",
+        overflow: "hidden",
+        pointerEvents: "none",
+        zIndex: "6",
+      });
+
+      const svg = createSvgElement("svg");
+      svg.style.display = "block";
+      svg.style.overflow = "visible";
+      overlay.appendChild(svg);
+      chartDom.appendChild(overlay);
+    }
+
+    return overlay;
+  }
+
+  function clearOverlayLayer(overlay) {
+    if (!overlay) {
+      return;
+    }
+    const svg = overlay.querySelector("svg");
+    if (svg) {
+      svg.replaceChildren();
+    }
+    overlay.style.width = "0px";
+    overlay.style.height = "0px";
+  }
+
+  function renderOverlay(chart, payload, state, tooltip) {
+    const overlay = ensureOverlayLayer(chart);
+    if (!overlay) {
+      return;
+    }
+
+    const svg = overlay.querySelector("svg");
+    if (!svg) {
+      return;
+    }
+
+    overlay.style.width = `${Math.max(0, state.gutterRight)}px`;
+    overlay.style.height = `${chart.getHeight()}px`;
+    svg.setAttribute("width", String(chart.getWidth()));
+    svg.setAttribute("height", String(chart.getHeight()));
+    svg.setAttribute("viewBox", `0 0 ${chart.getWidth()} ${chart.getHeight()}`);
+    svg.replaceChildren();
+
+    const root = createSvgElement("g");
+    svg.appendChild(root);
+
+    const { widths, visibleNodesById, childrenByParentId, leafByNodeId } = state;
+
+    visibleNodesById.forEach((node) => {
+      const childNodeIds = childrenByParentId.get(node.nodeId) || [];
+      if (childNodeIds.length >= 2) {
+        const firstChild = visibleNodesById.get(childNodeIds[0]);
+        const lastChild = visibleNodesById.get(childNodeIds[childNodeIds.length - 1]);
+        root.appendChild(
+          createSvgElement("line", {
+            x1: node.x,
+            y1: firstChild.y,
+            x2: node.x,
+            y2: lastChild.y,
+            stroke: LINE_COLOR,
+            "stroke-width": LINE_WIDTH,
+          }),
+        );
+      }
+
+      childNodeIds.forEach((childNodeId) => {
+        const childNode = visibleNodesById.get(childNodeId);
+        root.appendChild(
+          createSvgElement("line", {
+            x1: node.x,
+            y1: childNode.y,
+            x2: childNode.x,
+            y2: childNode.y,
+            stroke: LINE_COLOR,
+            "stroke-width": LINE_WIDTH,
+          }),
+        );
+      });
+    });
+
+    visibleNodesById.forEach((node) => {
+      const childNodeIds = childrenByParentId.get(node.nodeId) || [];
+      if (node.isLeaf || childNodeIds.length === 0) {
+        return;
+      }
+
+      const style = nodeMarkerStyle(node);
+      const marker = createSvgElement("circle", {
+        cx: node.x,
+        cy: node.y,
+        r: nodeMarkerRadius(node),
+        fill: style.fill,
+        stroke: style.stroke,
+        "stroke-width": style.lineWidth,
+      });
+      marker.style.pointerEvents = "auto";
+      bindHoverEvents(chart ? marker : null, chart, tooltip, nodeTooltipText(node), node.x, node.y);
+      root.appendChild(marker);
+    });
+
+    state.visibleLeaves.forEach((leaf) => {
+      const node = visibleNodesById.get(leaf.nodeId);
+      if (!node) {
+        return;
+      }
+
+      const braceLabelWidth = leaf.showBrace && leaf.braceLabel
+        ? measureTextWidth(leaf.braceLabel, BRACE_FONT, MAX_BRACE_LABEL_WIDTH)
+        : 0;
+      const hitAreaRight = leaf.showBrace && leaf.braceLabel
+        ? state.braceLabelX + braceLabelWidth + 8
+        : state.leafLineEndX + 8;
+      const hoverText = leafHoverText(leaf);
+
+      const hitArea = createSvgElement("rect", {
+        x: node.x - 2,
+        y: leaf.y - 10,
+        width: Math.max(12, hitAreaRight - node.x + 2),
+        height: 20,
+        fill: "transparent",
+      });
+      hitArea.style.pointerEvents = "auto";
+      hitArea.style.cursor = leaf.branchExplorerUrl ? "pointer" : "default";
+      if (leaf.branchExplorerUrl) {
+        hitArea.addEventListener("click", () => navigateTo(leaf.branchExplorerUrl));
+      }
+      bindHoverEvents(hitArea, chart, tooltip, hoverText, hitAreaRight, leaf.y);
+      root.appendChild(hitArea);
+
+      root.appendChild(
+        createSvgElement("line", {
+          x1: node.x,
+          y1: leaf.y,
+          x2: state.leafLineEndX,
+          y2: leaf.y,
+          stroke: LINE_COLOR,
+          "stroke-width": LINE_WIDTH,
+        }),
+      );
+
+      if (widths.showLabels) {
+        const label = createSvgElement("text", {
+          x: state.leafLabelX,
+          y: leaf.y,
+        });
+        label.textContent = leaf.taxonName;
+        applySvgTextStyle(label, {
+          fill: LEAF_TEXT_COLOR,
+          font: LEAF_FONT,
+        });
+        label.style.pointerEvents = "auto";
+        label.style.cursor = leaf.branchExplorerUrl ? "pointer" : "default";
+        if (leaf.branchExplorerUrl) {
+          label.addEventListener("click", () => navigateTo(leaf.branchExplorerUrl));
+        }
+        bindHoverEvents(label, chart, tooltip, hoverText, state.leafLabelX, leaf.y);
+        root.appendChild(label);
+      }
+
+      if (leaf.showBrace && leaf.braceLabel) {
+        const braceMark = createSvgElement("text", {
+          x: state.braceMarkX,
+          y: leaf.y,
+        });
+        braceMark.textContent = "{";
+        applySvgTextStyle(braceMark, {
+          fill: INTERNAL_TEXT_COLOR,
+          font: BRACE_MARK_FONT,
+        });
+        braceMark.style.pointerEvents = "auto";
+        braceMark.style.cursor = leaf.branchExplorerUrl ? "pointer" : "default";
+        if (leaf.branchExplorerUrl) {
+          braceMark.addEventListener("click", () => navigateTo(leaf.branchExplorerUrl));
+        }
+        bindHoverEvents(braceMark, chart, tooltip, hoverText, state.braceMarkX, leaf.y);
+        root.appendChild(braceMark);
+
+        const braceLabel = createSvgElement("text", {
+          x: state.braceLabelX,
+          y: leaf.y,
+        });
+        braceLabel.textContent = leaf.braceLabel;
+        applySvgTextStyle(braceLabel, {
+          fill: INTERNAL_TEXT_COLOR,
+          font: BRACE_FONT,
+        });
+        braceLabel.style.pointerEvents = "auto";
+        braceLabel.style.cursor = leaf.branchExplorerUrl ? "pointer" : "default";
+        if (leaf.branchExplorerUrl) {
+          braceLabel.addEventListener("click", () => navigateTo(leaf.branchExplorerUrl));
+        }
+        bindHoverEvents(braceLabel, chart, tooltip, hoverText, state.braceLabelX, leaf.y);
+        root.appendChild(braceLabel);
+      }
+    });
+
+    if (widths.showSplitLabels) {
+      visibleNodesById.forEach((node) => {
+        if (!node.isPreservedSplit || node.isLeaf || node.rank === "no rank") {
+          return;
+        }
+        if ((node.bottomY - node.topY) < 24) {
+          return;
+        }
+        if (leafByNodeId.has(node.nodeId)) {
+          return;
+        }
+
+        const internalLabel = createSvgElement("text", {
+          x: node.x - 8,
+          y: node.y,
+        });
+        internalLabel.textContent = node.taxonName;
+        applySvgTextStyle(internalLabel, {
+          fill: INTERNAL_TEXT_COLOR,
+          font: INTERNAL_FONT,
+          textAnchor: "end",
+        });
+        root.appendChild(internalLabel);
+      });
+    }
+  }
+
   function attach(chart, { payload }) {
     const tooltip = ensureTooltip(chart);
     let pendingFrame = null;
     let pendingOptions = {};
+    let overlay = null;
 
     function clear() {
       if (pendingFrame !== null) {
@@ -1156,10 +1534,10 @@
         pendingFrame = null;
       }
       hideTooltip(tooltip);
-      chart.setOption(
-        { graphic: [] },
-        { replaceMerge: ["graphic"], lazyUpdate: true },
-      );
+      if (!overlay) {
+        overlay = ensureOverlayLayer(chart);
+      }
+      clearOverlayLayer(overlay);
     }
 
     function renderNow(options = {}) {
@@ -1175,10 +1553,10 @@
         return;
       }
 
-      chart.setOption(
-        { graphic: buildGraphics(chart, payload, state, tooltip) },
-        { replaceMerge: ["graphic"], lazyUpdate: true },
-      );
+      if (!overlay) {
+        overlay = ensureOverlayLayer(chart);
+      }
+      renderOverlay(chart, payload, state, tooltip);
     }
 
     function render(options = {}) {
