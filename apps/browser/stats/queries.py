@@ -47,6 +47,9 @@ def build_ranked_length_summary_bundle(filter_state: StatsFilterState) -> dict[s
         )
         summary_rows = summarize_ranked_length_groups(group_rows, grouped_lengths)
 
+    if summary_rows:
+        summary_rows = order_taxon_rows_by_lineage(summary_rows)
+
     bundle = {
         "matching_repeat_calls_count": matching_repeat_calls_count,
         "summary_rows": summary_rows,
