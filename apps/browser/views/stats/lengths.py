@@ -3,9 +3,12 @@ from django.views.generic import TemplateView
 
 from apps.browser.stats import (
     apply_stats_filter_context,
+    build_length_overview_payload,
+    build_length_profile_vector_bundle,
     build_ranked_length_chart_payload,
     build_ranked_length_summary_bundle,
     build_stats_filter_state,
+    build_taxonomy_gutter_payload,
 )
 from apps.browser.stats.params import ALLOWED_STATS_RANKS, next_lower_rank
 
@@ -21,6 +24,11 @@ class RepeatLengthExplorerView(TemplateView):
         if not hasattr(self, "_filter_state"):
             self._filter_state = build_stats_filter_state(self.request)
         return self._filter_state
+
+    def _get_overview_bundle(self) -> dict[str, object]:
+        if not hasattr(self, "_overview_bundle"):
+            self._overview_bundle = build_length_profile_vector_bundle(self._get_filter_state())
+        return self._overview_bundle
 
     def _get_summary_bundle(self) -> dict[str, object]:
         if not hasattr(self, "_summary_bundle"):
@@ -110,11 +118,24 @@ class RepeatLengthExplorerView(TemplateView):
         summary_bundle = self._get_summary_bundle()
         summary_rows = summary_bundle["summary_rows"]
 
+        overview_bundle = self._get_overview_bundle()
+        overview_rows = overview_bundle["profile_rows"]
+
         apply_stats_filter_context(context, filter_state)
         context["matching_repeat_calls_count"] = summary_bundle["matching_repeat_calls_count"]
         context["summary_rows"] = summary_rows
         context["total_taxa_count"] = summary_bundle["total_taxa_count"]
         context["visible_taxa_count"] = summary_bundle["visible_taxa_count"]
+        context["overview_visible_taxa_count"] = len(overview_rows)
+        context["overview_payload"] = build_length_overview_payload(overview_rows)
+        context["overview_payload_id"] = "length-overview-payload"
+        context["overview_container_id"] = "length-overview"
+        context["overview_taxonomy_gutter_payload"] = build_taxonomy_gutter_payload(
+            overview_rows,
+            filter_state=filter_state,
+            collapse_rank=filter_state.rank,
+        )
+        context["overview_taxonomy_gutter_payload_id"] = "length-overview-taxonomy-gutter-payload"
         context["chart_payload"] = build_ranked_length_chart_payload(summary_rows)
         context["chart_payload_id"] = "repeat-length-chart-payload"
         context["chart_container_id"] = "repeat-length-chart"
