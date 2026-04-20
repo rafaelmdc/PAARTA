@@ -88,6 +88,54 @@ def build_codon_overview_payload(summary_rows, *, visible_codons):
     return build_codon_similarity_matrix_payload(summary_rows, visible_codons=visible_codons)
 
 
+def build_length_overview_payload(profile_rows, *, display_metric="similarity"):
+    if not profile_rows:
+        return _build_pairwise_overview_payload(
+            [],
+            mode="pairwise_similarity_matrix",
+            divergence_matrix=[],
+            value_min=0,
+            value_max=1,
+            display_metric=display_metric,
+            include_display_metric_when_empty=True,
+        )
+
+    taxon_rows = [
+        {
+            "taxon_id": row["taxon_id"],
+            "taxon_name": row["taxon_name"],
+            "rank": row["rank"],
+            "observation_count": row["observation_count"],
+            "species_count": row.get("species_count", row["observation_count"]),
+            "length_profile": row["length_profile"],
+        }
+        for row in profile_rows
+    ]
+    divergence_matrix = _build_pairwise_divergence_matrix(
+        [row["length_profile"] for row in taxon_rows]
+    )
+    value_min, value_max = _matrix_value_range(
+        divergence_matrix,
+        transform=(
+            None
+            if display_metric == "divergence"
+            else lambda value: round(max(0.0, 1.0 - value), 6)
+        ),
+        default_min=0,
+        default_max=1,
+    )
+
+    return _build_pairwise_overview_payload(
+        taxon_rows,
+        mode="pairwise_similarity_matrix",
+        divergence_matrix=divergence_matrix,
+        value_min=value_min,
+        value_max=value_max,
+        display_metric=display_metric,
+        extra_taxon_fields=("columnIndex",),
+    )
+
+
 def build_codon_similarity_matrix_payload(summary_rows, *, visible_codons=None, display_metric="similarity"):
     if not summary_rows:
         return _build_pairwise_overview_payload(
