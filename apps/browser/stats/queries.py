@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
@@ -7,13 +9,16 @@ from django.db.models import Count, Exists, F, Max, Min, OuterRef, Q, Sum
 
 from ..models import (
     CanonicalCodonCompositionSummary,
+    CanonicalCodonCompositionLengthSummary,
     CanonicalRepeatCall,
     CanonicalRepeatCallCodonUsage,
 )
 from .aggregates import PercentileCont
+from .bins import build_visible_length_bins
 from .filters import StatsFilterState
 from .ordering import order_taxon_rows_by_lineage
 from .summaries import (
+    _build_dominance_summary,
     build_length_inspect_summary,
     normalize_length_summary_value,
     normalize_numeric_summary_value,
@@ -199,47 +204,46 @@ def build_codon_length_composition_bundle(filter_state: StatsFilterState) -> dic
     if cached_bundle is not None:
         return cached_bundle
 
-    summary_bundle = build_ranked_codon_composition_summary_bundle(filter_state)
-    summary_rows = summary_bundle["summary_rows"]
-    visible_codons = summary_bundle["visible_codons"]
-    if not summary_rows or not visible_codons:
+    filtered_repeat_call_queryset = build_filtered_repeat_call_queryset(filter_state)
+    matching_repeat_calls_count = filtered_repeat_call_queryset.count()
+    if _can_use_codon_composition_length_summary_rollup(filter_state):
+        rollup_bundle = _build_codon_length_composition_bundle_from_rollup(
+            filter_state,
+            matching_repeat_calls_count=matching_repeat_calls_count,
+        )
+        if rollup_bundle is None:
+            total_taxa_count, visible_codons, visible_bins, matrix_rows = (
+                _build_codon_length_composition_bundle_live(filter_state)
+            )
+        else:
+            total_taxa_count, visible_codons, visible_bins, matrix_rows = rollup_bundle
+    else:
+        total_taxa_count, visible_codons, visible_bins, matrix_rows = (
+            _build_codon_length_composition_bundle_live(filter_state)
+        )
+
+    if matrix_rows:
+        matrix_rows = order_taxon_rows_by_lineage(matrix_rows)
+
+    if not matrix_rows or not visible_codons:
         bundle = {
-            "matching_repeat_calls_count": summary_bundle["matching_repeat_calls_count"],
-            "total_taxa_count": summary_bundle["total_taxa_count"],
+            "matching_repeat_calls_count": matching_repeat_calls_count,
+            "total_taxa_count": total_taxa_count,
             "visible_taxa_count": 0,
             "visible_codons": list(visible_codons),
-            "visible_bins": [],
+            "visible_bins": list(visible_bins),
             "matrix_rows": [],
         }
         cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
         return bundle
 
-    visible_taxon_ids = [row["taxon_id"] for row in summary_rows]
-    grouped_species_length_call_counts = list(
-        build_group_codon_length_species_call_count_queryset(
-            filter_state,
-            display_taxon_ids=visible_taxon_ids,
-        )
-    )
-    grouped_species_length_codon_fraction_sums = list(
-        build_group_codon_length_species_codon_fraction_sum_queryset(
-            filter_state,
-            display_taxon_ids=visible_taxon_ids,
-        )
-    )
-    grouped_summary = summarize_codon_length_composition_rows(
-        summary_rows,
-        grouped_species_length_call_counts,
-        grouped_species_length_codon_fraction_sums,
-        visible_codons=visible_codons,
-    )
     bundle = {
-        "matching_repeat_calls_count": summary_bundle["matching_repeat_calls_count"],
-        "total_taxa_count": summary_bundle["total_taxa_count"],
-        "visible_taxa_count": len(grouped_summary["matrix_rows"]),
+        "matching_repeat_calls_count": matching_repeat_calls_count,
+        "total_taxa_count": total_taxa_count,
+        "visible_taxa_count": len(matrix_rows),
         "visible_codons": list(visible_codons),
-        "visible_bins": grouped_summary["visible_bins"],
-        "matrix_rows": grouped_summary["matrix_rows"],
+        "visible_bins": list(visible_bins),
+        "matrix_rows": matrix_rows,
     }
     cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
     return bundle
@@ -368,6 +372,20 @@ def _can_use_codon_composition_summary_rollup(filter_state: StatsFilterState) ->
     )
 
 
+def _can_use_codon_composition_length_summary_rollup(filter_state: StatsFilterState) -> bool:
+    return (
+        bool(filter_state.residue)
+        and filter_state.current_run is None
+        and not filter_state.branch_scope_active
+        and not filter_state.q
+        and not filter_state.method
+        and filter_state.length_min is None
+        and filter_state.length_max is None
+        and filter_state.purity_min is None
+        and filter_state.purity_max is None
+    )
+
+
 def _build_ranked_codon_composition_summary_bundle_from_rollup(
     filter_state: StatsFilterState,
     *,
@@ -462,6 +480,185 @@ def _build_ranked_codon_composition_summary_bundle_from_rollup(
             for row in summary_rows
         ],
         visible_codons,
+    )
+
+
+def _build_codon_length_composition_bundle_from_rollup(
+    filter_state: StatsFilterState,
+    *,
+    matching_repeat_calls_count: int,
+) -> tuple[int, list[str], list[dict[str, object]], list[dict[str, object]]] | None:
+    if matching_repeat_calls_count <= 0:
+        return 0, [], [], []
+
+    base_queryset = CanonicalCodonCompositionLengthSummary.objects.order_by().filter(
+        repeat_residue=filter_state.residue,
+        display_rank=filter_state.rank,
+    )
+    if not base_queryset.exists():
+        return None
+
+    candidate_taxa_queryset = (
+        base_queryset.filter(observation_count__gte=filter_state.min_count)
+        .values(
+            "display_taxon_id",
+            "display_taxon_name",
+            "observation_count",
+            "species_count",
+        )
+        .distinct()
+    )
+    total_taxa_count = candidate_taxa_queryset.count()
+    visible_taxa = list(
+        candidate_taxa_queryset.order_by(
+            "-observation_count",
+            "display_taxon_name",
+            "display_taxon_id",
+        )[: filter_state.top_n]
+    )
+    if not visible_taxa:
+        return total_taxa_count, [], [], []
+
+    visible_taxon_ids = [row["display_taxon_id"] for row in visible_taxa]
+    visible_codons = list(
+        base_queryset.filter(
+            display_taxon_id__in=visible_taxon_ids,
+            codon_share__gt=0,
+        )
+        .order_by("codon")
+        .values_list("codon", flat=True)
+        .distinct()
+    )
+    if not visible_codons:
+        return total_taxa_count, [], [], []
+
+    visible_bin_starts = list(
+        base_queryset.filter(
+            display_taxon_id__in=visible_taxon_ids,
+        )
+        .order_by("length_bin_start")
+        .values_list("length_bin_start", flat=True)
+        .distinct()
+    )
+    visible_bins = [asdict(length_bin) for length_bin in build_visible_length_bins(visible_bin_starts)]
+
+    matrix_rows_by_taxon_id = {
+        row["display_taxon_id"]: {
+            "taxon_id": row["display_taxon_id"],
+            "taxon_name": row["display_taxon_name"],
+            "rank": filter_state.rank,
+            "observation_count": int(row["observation_count"]),
+            "species_count": int(row["species_count"]),
+            "bin_rows_by_start": {},
+        }
+        for row in visible_taxa
+    }
+    rollup_rows = base_queryset.filter(
+        display_taxon_id__in=visible_taxon_ids,
+        codon__in=visible_codons,
+    ).values_list(
+        "display_taxon_id",
+        "length_bin_start",
+        "observation_count",
+        "species_count",
+        "codon",
+        "codon_share",
+    )
+    for (
+        display_taxon_id,
+        length_bin_start,
+        observation_count,
+        species_count,
+        codon,
+        codon_share,
+    ) in rollup_rows:
+        taxon_row = matrix_rows_by_taxon_id[display_taxon_id]
+        bin_row = taxon_row["bin_rows_by_start"].setdefault(
+            int(length_bin_start),
+            {
+                "bin": next(bin_row for bin_row in visible_bins if bin_row["start"] == int(length_bin_start)),
+                "observation_count": int(observation_count),
+                "species_count": int(species_count),
+                "codon_shares_by_codon": {},
+            },
+        )
+        bin_row["codon_shares_by_codon"][codon] = normalize_numeric_summary_value(float(codon_share))
+
+    matrix_rows = []
+    for visible_taxon in visible_taxa:
+        taxon_row = matrix_rows_by_taxon_id[visible_taxon["display_taxon_id"]]
+        bin_rows = []
+        for visible_bin in visible_bins:
+            bin_row = taxon_row["bin_rows_by_start"].get(visible_bin["start"])
+            if bin_row is None:
+                continue
+            codon_shares = [
+                {
+                    "codon": codon,
+                    "share": bin_row["codon_shares_by_codon"].get(codon, 0),
+                }
+                for codon in visible_codons
+            ]
+            dominant_codon, dominance_margin = _build_dominance_summary(codon_shares)
+            bin_rows.append(
+                {
+                    "bin": bin_row["bin"],
+                    "observation_count": bin_row["observation_count"],
+                    "species_count": bin_row["species_count"],
+                    "codon_shares": codon_shares,
+                    "dominant_codon": dominant_codon,
+                    "dominance_margin": dominance_margin,
+                }
+            )
+        if not bin_rows:
+            continue
+        matrix_rows.append(
+            {
+                "taxon_id": taxon_row["taxon_id"],
+                "taxon_name": taxon_row["taxon_name"],
+                "rank": taxon_row["rank"],
+                "observation_count": taxon_row["observation_count"],
+                "species_count": taxon_row["species_count"],
+                "bin_rows": bin_rows,
+            }
+        )
+
+    return total_taxa_count, visible_codons, visible_bins, matrix_rows
+
+
+def _build_codon_length_composition_bundle_live(
+    filter_state: StatsFilterState,
+) -> tuple[int, list[str], list[dict[str, object]], list[dict[str, object]]]:
+    summary_bundle = build_ranked_codon_composition_summary_bundle(filter_state)
+    summary_rows = summary_bundle["summary_rows"]
+    visible_codons = summary_bundle["visible_codons"]
+    if not summary_rows or not visible_codons:
+        return summary_bundle["total_taxa_count"], list(visible_codons), [], []
+
+    visible_taxon_ids = [row["taxon_id"] for row in summary_rows]
+    grouped_species_length_call_counts = list(
+        build_group_codon_length_species_call_count_queryset(
+            filter_state,
+            display_taxon_ids=visible_taxon_ids,
+        )
+    )
+    grouped_species_length_codon_fraction_sums = list(
+        build_group_codon_length_species_codon_fraction_sum_queryset(
+            filter_state,
+            display_taxon_ids=visible_taxon_ids,
+        )
+    )
+    grouped_summary = summarize_codon_length_composition_rows(
+        summary_rows,
+        grouped_species_length_call_counts,
+        grouped_species_length_codon_fraction_sums,
+        visible_codons=visible_codons,
+    )
+    return (
+        summary_bundle["total_taxa_count"],
+        list(visible_codons),
+        grouped_summary["visible_bins"],
+        grouped_summary["matrix_rows"],
     )
 
 

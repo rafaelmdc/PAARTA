@@ -43,6 +43,7 @@ from apps.browser.stats.summaries import (
 from apps.browser.stats.ordering import order_taxon_rows_by_lineage
 from apps.browser.models import (
     CanonicalCodonCompositionSummary,
+    CanonicalCodonCompositionLengthSummary,
     CanonicalRepeatCall,
     RepeatCall,
     RepeatCallCodonUsage,
@@ -341,6 +342,84 @@ class BrowserStatsTests(TestCase):
                 ("15-19", "CAG", 1, 1),
             ],
         )
+
+    def test_codon_length_composition_bundle_uses_rollup_on_default_scope(self):
+        CanonicalCodonCompositionLengthSummary.objects.bulk_create(
+            [
+                CanonicalCodonCompositionLengthSummary(
+                    repeat_residue="Q",
+                    display_rank="class",
+                    display_taxon_id=self.alpha["taxa"]["mammalia"].pk,
+                    display_taxon_name="Mammalia",
+                    length_bin_start=10,
+                    observation_count=2,
+                    species_count=2,
+                    codon="CAA",
+                    codon_share=0.625,
+                ),
+                CanonicalCodonCompositionLengthSummary(
+                    repeat_residue="Q",
+                    display_rank="class",
+                    display_taxon_id=self.alpha["taxa"]["mammalia"].pk,
+                    display_taxon_name="Mammalia",
+                    length_bin_start=10,
+                    observation_count=2,
+                    species_count=2,
+                    codon="CAG",
+                    codon_share=0.375,
+                ),
+            ]
+        )
+        request = self.factory.get(
+            "/browser/codon-composition-length/",
+            {
+                "rank": "class",
+                "min_count": "1",
+                "top_n": "10",
+                "residue": "q",
+            },
+        )
+
+        with patch(
+            "apps.browser.stats.queries._build_codon_length_composition_bundle_live",
+            side_effect=AssertionError("live path should not run"),
+        ):
+            bundle = build_codon_length_composition_bundle(build_stats_filter_state(request))
+
+        self.assertEqual(bundle["visible_taxa_count"], 1)
+        self.assertEqual(bundle["visible_codons"], ["CAA", "CAG"])
+        self.assertEqual(
+            [
+                (row["bin"]["label"], row["dominant_codon"], row["observation_count"], row["species_count"])
+                for row in bundle["matrix_rows"][0]["bin_rows"]
+            ],
+            [("10-14", "CAA", 2, 2)],
+        )
+
+    def test_codon_length_composition_bundle_skips_rollup_for_filtered_scope(self):
+        request = self.factory.get(
+            "/browser/codon-composition-length/",
+            {
+                "rank": "class",
+                "min_count": "1",
+                "top_n": "10",
+                "residue": "q",
+                "length_max": "12",
+            },
+        )
+
+        with patch(
+            "apps.browser.stats.queries._build_codon_length_composition_bundle_from_rollup",
+            side_effect=AssertionError("rollup path should not run"),
+        ), patch(
+            "apps.browser.stats.queries._build_codon_length_composition_bundle_live",
+            return_value=(0, [], [], []),
+        ) as live_mock:
+            bundle = build_codon_length_composition_bundle(build_stats_filter_state(request))
+
+        self.assertEqual(bundle["matrix_rows"], [])
+        self.assertEqual(bundle["visible_codons"], [])
+        live_mock.assert_called_once()
 
     def test_ranked_taxon_group_query_respects_branch_scope_default_rank(self):
         primates = self.alpha["taxa"]["primates"]
