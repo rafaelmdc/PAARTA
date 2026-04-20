@@ -14,6 +14,7 @@ from apps.browser.stats import (
     build_filtered_codon_usage_queryset,
     build_codon_overview_payload,
     build_group_codon_species_call_fraction_queryset,
+    build_group_length_counts_queryset,
     build_filtered_repeat_call_queryset,
     build_group_length_values_queryset,
     build_length_inspect_bundle,
@@ -237,6 +238,7 @@ class BrowserStatsTests(TestCase):
                     "taxon_name": "Mammalia",
                     "rank": "class",
                     "observation_count": 2,
+                    "species_count": 2,
                     "min_length": 11,
                     "q1": 11,
                     "median": 11,
@@ -248,6 +250,41 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(payload["x_min"], 11)
         self.assertEqual(payload["x_max"], 11)
         self.assertEqual(payload["max_observation_count"], 2)
+
+    def test_group_length_counts_queryset_collapses_duplicate_lengths(self):
+        self._create_repeat_call(
+            self.alpha,
+            suffix="alpha-duplicate-length",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.25,
+            length=11,
+        )
+        request = self.factory.get(
+            "/browser/lengths/",
+            {
+                "rank": "species",
+                "min_count": "1",
+                "top_n": "10",
+            },
+        )
+        filter_state = build_stats_filter_state(request)
+        group_rows = list(build_ranked_taxon_group_queryset(filter_state))
+
+        grouped_length_counts = list(
+            build_group_length_counts_queryset(
+                filter_state,
+                display_taxon_ids=[row["display_taxon_id"] for row in group_rows],
+            )
+        )
+
+        self.assertEqual(
+            grouped_length_counts,
+            [
+                (self.alpha["taxon"].pk, 11, 2),
+                (self.beta["taxon"].pk, 11, 1),
+            ],
+        )
 
     def test_ranked_taxon_group_query_respects_branch_scope_default_rank(self):
         primates = self.alpha["taxa"]["primates"]
@@ -351,6 +388,13 @@ class BrowserStatsTests(TestCase):
             [
                 [1, 1, 0, 0],
                 [1, 0, 0, 1],
+            ],
+        )
+        self.assertEqual(
+            bundle["profile_rows"][0]["length_counts"],
+            [
+                {"length": 11, "count": 1},
+                {"length": 17, "count": 1},
             ],
         )
 

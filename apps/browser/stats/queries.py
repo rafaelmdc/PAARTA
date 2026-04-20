@@ -80,21 +80,20 @@ def build_length_profile_vector_bundle(filter_state: StatsFilterState) -> dict[s
         return bundle
 
     visible_taxon_ids = [row["taxon_id"] for row in summary_rows]
-    grouped_lengths = list(
-        build_group_length_values_queryset(
+    grouped_length_counts = list(
+        build_group_length_counts_queryset(
             filter_state,
             display_taxon_ids=visible_taxon_ids,
         )
     )
-    species_count_by_taxon_id = {
-        row["display_taxon_id"]: int(row["species_count"])
-        for row in build_ranked_taxon_group_queryset(filter_state)
-        if row["display_taxon_id"] in visible_taxon_ids
-    }
     vector_summary = summarize_length_profile_vectors(
         summary_rows,
-        grouped_lengths,
-        species_count_by_taxon_id=species_count_by_taxon_id,
+        grouped_length_counts,
+        species_count_by_taxon_id={
+            row["taxon_id"]: int(row["species_count"])
+            for row in summary_rows
+            if row.get("species_count") is not None
+        },
     )
     bundle = {
         "matching_repeat_calls_count": summary_bundle["matching_repeat_calls_count"],
@@ -652,6 +651,20 @@ def build_group_length_values_queryset(filter_state: StatsFilterState, *, displa
     )
 
 
+def build_group_length_counts_queryset(filter_state: StatsFilterState, *, display_taxon_ids):
+    return (
+        _with_display_taxon_annotations(
+            build_filtered_repeat_call_queryset(filter_state),
+            rank=filter_state.rank,
+        )
+        .filter(display_taxon_id__in=display_taxon_ids)
+        .values("display_taxon_id", "length")
+        .annotate(length_count=Count("pk"))
+        .values_list("display_taxon_id", "length", "length_count")
+        .order_by("display_taxon_id", "length")
+    )
+
+
 def build_group_codon_species_call_fraction_queryset(filter_state: StatsFilterState, *, display_taxon_ids):
     return (
         _with_display_taxon_annotations(
@@ -681,6 +694,7 @@ def build_ranked_length_summary_queryset(filter_state: StatsFilterState):
         queryset.values("display_taxon_id", "display_taxon_name", "display_taxon_rank")
         .annotate(
             observation_count=Count("pk"),
+            species_count=Count("taxon_id", distinct=True),
             min_length=Min("length"),
             q1=PercentileCont(0.25, "length"),
             median=PercentileCont(0.5, "length"),
@@ -697,6 +711,7 @@ def build_ranked_length_summary_queryset(filter_state: StatsFilterState):
             "taxon_name": row["display_taxon_name"],
             "rank": row["display_taxon_rank"],
             "observation_count": row["observation_count"],
+            "species_count": row["species_count"],
             "min_length": row["min_length"],
             "q1": normalize_length_summary_value(row["q1"]),
             "median": normalize_length_summary_value(row["median"]),

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import bisect
 from collections import defaultdict
 from dataclasses import asdict
 from math import ceil, floor
@@ -25,11 +24,19 @@ def summarize_ranked_length_groups(group_rows, grouped_lengths):
 
 
 def summarize_length_profile_vectors(summary_rows, grouped_lengths, *, species_count_by_taxon_id=None):
-    lengths_by_taxon = defaultdict(list)
+    length_counts_by_taxon = defaultdict(lambda: defaultdict(int))
     visible_bin_starts = set()
-    for display_taxon_id, length in grouped_lengths:
+    for grouped_row in grouped_lengths:
+        if len(grouped_row) == 2:
+            display_taxon_id, length = grouped_row
+            length_count = 1
+        else:
+            display_taxon_id, length, length_count = grouped_row
         normalized_length = int(length)
-        lengths_by_taxon[display_taxon_id].append(normalized_length)
+        normalized_length_count = int(length_count)
+        if normalized_length_count <= 0:
+            continue
+        length_counts_by_taxon[display_taxon_id][normalized_length] += normalized_length_count
         visible_bin_starts.add(build_length_bin_definition(normalized_length).start)
 
     visible_bins = build_visible_length_bins(visible_bin_starts)
@@ -48,15 +55,22 @@ def summarize_length_profile_vectors(summary_rows, grouped_lengths, *, species_c
     profile_rows = []
     for row in summary_rows:
         taxon_id = row["taxon_id"]
-        lengths = lengths_by_taxon.get(taxon_id, [])
-        if not lengths:
+        counts_by_length = length_counts_by_taxon.get(taxon_id)
+        if not counts_by_length:
             continue
 
         counts_by_bin_start = defaultdict(int)
-        for length in lengths:
-            counts_by_bin_start[build_length_bin_definition(length).start] += 1
+        for length, length_count in counts_by_length.items():
+            counts_by_bin_start[build_length_bin_definition(length).start] += length_count
 
-        observation_count = max(int(row["observation_count"]), 1)
+        observation_count = max(
+            int(sum(counts_by_length.values()) or row["observation_count"]),
+            1,
+        )
+        sorted_length_counts = [
+            {"length": length, "count": counts_by_length[length]}
+            for length in sorted(counts_by_length)
+        ]
         profile_rows.append(
             {
                 "taxon_id": taxon_id,
@@ -79,7 +93,7 @@ def summarize_length_profile_vectors(summary_rows, grouped_lengths, *, species_c
                     }
                     for bin_start in visible_bin_starts_in_order
                 ],
-                "raw_lengths": sorted(lengths),
+                "length_counts": sorted_length_counts,
             }
         )
 
@@ -141,6 +155,7 @@ def _summarize_ranked_numeric_groups(group_rows, grouped_values, *, summary_buil
                 "taxon_name": row["display_taxon_name"],
                 "rank": row["display_taxon_rank"],
                 "observation_count": row["observation_count"],
+                "species_count": row.get("species_count"),
                 **summary,
             }
         )
@@ -232,32 +247,117 @@ def normalize_length_summary_value(value: float):
     return normalize_numeric_summary_value(value)
 
 
-def _compute_wasserstein1_distance(lengths_a, lengths_b, l_cap=50):
-    if not lengths_a or not lengths_b:
+def _build_length_count_pairs(lengths):
+    if not lengths:
+        return []
+
+    counts_by_length = defaultdict(int)
+    for length in lengths:
+        counts_by_length[int(length)] += 1
+    return [
+        (length, counts_by_length[length])
+        for length in sorted(counts_by_length)
+    ]
+
+
+def _coerce_length_count_pairs(length_source):
+    if not length_source:
+        return []
+
+    first_value = length_source[0]
+    if isinstance(first_value, dict):
+        return [
+            (int(row["length"]), int(row["count"]))
+            for row in length_source
+            if int(row["count"]) > 0
+        ]
+    if isinstance(first_value, (tuple, list)) and len(first_value) == 2:
+        return [
+            (int(length), int(count))
+            for length, count in length_source
+            if int(count) > 0
+        ]
+    return _build_length_count_pairs(length_source)
+
+
+def _clamp_length_count_pairs(length_count_pairs, *, l_cap):
+    clamped_counts = defaultdict(int)
+    for length, count in length_count_pairs:
+        clamped_counts[min(int(length), l_cap)] += int(count)
+    return [
+        (length, clamped_counts[length])
+        for length in sorted(clamped_counts)
+    ]
+
+
+def _value_at_index(length_count_pairs, index):
+    cumulative_count = 0
+    for length, count in length_count_pairs:
+        cumulative_count += count
+        if index < cumulative_count:
+            return float(length)
+    return float(length_count_pairs[-1][0])
+
+
+def _linear_quantile_from_length_count_pairs(length_count_pairs, quantile: float) -> float:
+    total_count = sum(count for _, count in length_count_pairs)
+    if total_count <= 0:
         return 0.0
-    clamped_a = sorted(min(x, l_cap) for x in lengths_a)
-    clamped_b = sorted(min(x, l_cap) for x in lengths_b)
-    n_a = len(clamped_a)
-    n_b = len(clamped_b)
-    all_vals = sorted(set(clamped_a) | set(clamped_b) | {l_cap})
+    if total_count == 1:
+        return float(length_count_pairs[0][0])
+
+    position = (total_count - 1) * quantile
+    lower_index = floor(position)
+    upper_index = ceil(position)
+    if lower_index == upper_index:
+        return _value_at_index(length_count_pairs, lower_index)
+
+    lower_value = _value_at_index(length_count_pairs, lower_index)
+    upper_value = _value_at_index(length_count_pairs, upper_index)
+    fraction = position - lower_index
+    return lower_value + ((upper_value - lower_value) * fraction)
+
+
+def _compute_wasserstein1_distance(lengths_a, lengths_b, l_cap=50):
+    length_count_pairs_a = _coerce_length_count_pairs(lengths_a)
+    length_count_pairs_b = _coerce_length_count_pairs(lengths_b)
+    if not length_count_pairs_a or not length_count_pairs_b:
+        return 0.0
+
+    clamped_a = _clamp_length_count_pairs(length_count_pairs_a, l_cap=l_cap)
+    clamped_b = _clamp_length_count_pairs(length_count_pairs_b, l_cap=l_cap)
+    n_a = sum(count for _, count in clamped_a)
+    n_b = sum(count for _, count in clamped_b)
+    all_vals = sorted({length for length, _ in clamped_a} | {length for length, _ in clamped_b} | {l_cap})
     w1 = 0.0
+    cumulative_a = 0
+    cumulative_b = 0
+    index_a = 0
+    index_b = 0
     for i in range(len(all_vals) - 1):
         x = all_vals[i]
         next_x = all_vals[i + 1]
-        cdf_a = bisect.bisect_right(clamped_a, x) / n_a
-        cdf_b = bisect.bisect_right(clamped_b, x) / n_b
+        while index_a < len(clamped_a) and clamped_a[index_a][0] <= x:
+            cumulative_a += clamped_a[index_a][1]
+            index_a += 1
+        while index_b < len(clamped_b) and clamped_b[index_b][0] <= x:
+            cumulative_b += clamped_b[index_b][1]
+            index_b += 1
+        cdf_a = cumulative_a / n_a
+        cdf_b = cumulative_b / n_b
         w1 += abs(cdf_a - cdf_b) * (next_x - x)
     return round(w1 / l_cap, 6)
 
 
 def _compute_tail_feature_vector(lengths, l_cap=50):
-    n = len(lengths)
-    if n == 0:
+    length_count_pairs = _coerce_length_count_pairs(lengths)
+    n = sum(count for _, count in length_count_pairs)
+    if n <= 0:
         return [0.0, 0.0, 0.0, 0.0]
-    p_gt_20 = sum(1 for l in lengths if l > 20) / n
-    p_gt_30 = sum(1 for l in lengths if l > 30) / n
-    p_gt_50 = sum(1 for l in lengths if l > 50) / n
-    q95 = _linear_quantile(sorted(lengths), 0.95)
+    p_gt_20 = sum(count for length, count in length_count_pairs if length > 20) / n
+    p_gt_30 = sum(count for length, count in length_count_pairs if length > 30) / n
+    p_gt_50 = sum(count for length, count in length_count_pairs if length > 50) / n
+    q95 = _linear_quantile_from_length_count_pairs(length_count_pairs, 0.95)
     q95_norm = min(q95 / l_cap, 1.0)
     return [round(p_gt_20, 6), round(p_gt_30, 6), round(p_gt_50, 6), round(q95_norm, 6)]
 
@@ -269,12 +369,18 @@ def _compute_l1_tail_distance(tail_a, tail_b):
 
 
 def build_wasserstein_pairwise_matrix(profile_rows, l_cap=50):
+    length_count_pairs_by_row = [
+        row.get("length_counts") or _build_length_count_pairs(row.get("raw_lengths", []))
+        for row in profile_rows
+    ]
     n = len(profile_rows)
     matrix = [[0.0] * n for _ in range(n)]
     for i in range(n):
         for j in range(i + 1, n):
             d = _compute_wasserstein1_distance(
-                profile_rows[i]["raw_lengths"], profile_rows[j]["raw_lengths"], l_cap
+                length_count_pairs_by_row[i],
+                length_count_pairs_by_row[j],
+                l_cap,
             )
             matrix[i][j] = d
             matrix[j][i] = d
@@ -282,7 +388,13 @@ def build_wasserstein_pairwise_matrix(profile_rows, l_cap=50):
 
 
 def build_tail_pairwise_matrix(profile_rows, l_cap=50):
-    tail_vectors = [_compute_tail_feature_vector(row["raw_lengths"], l_cap) for row in profile_rows]
+    tail_vectors = [
+        _compute_tail_feature_vector(
+            row.get("length_counts") or row.get("raw_lengths", []),
+            l_cap,
+        )
+        for row in profile_rows
+    ]
     n = len(tail_vectors)
     matrix = [[0.0] * n for _ in range(n)]
     for i in range(n):
