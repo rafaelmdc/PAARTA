@@ -234,4 +234,77 @@
     <button class="btn btn-outline-secondary" type="button" data-summary-pagination-next>Next</button>
   </nav>
 </section>
+
+{% if inspect_scope_active %}
+<section class="surface-card surface-card-wide mb-4">
+  <div class="section-header">
+    <div>
+      <p class="section-kicker mb-2">Inspect layer</p>
+      <h2>Repeat-length distribution for {{ branch_scope_label }}</h2>
+      <p class="text-secondary mb-0">
+        Tail-aware survival curve for the current branch-scoped subset.
+        The chart shows the fraction of repeat calls with length at or above each value.
+      </p>
+    </div>
+  </div>
+
+  {% if inspect_observation_count %}
+    {{ inspect_payload|json_script:inspect_payload_id }}
+    <div class="length-chart-shell mb-4" id="{{ inspect_chart_container_id }}"></div>
+    <div class="row g-4 mb-4">
+      <div class="col-md-6 col-xl-3">
+        <article class="metric-panel h-100">
+          <p class="sheet-label">Calls in scope</p>
+          <p class="mb-0">{{ inspect_observation_count }}</p>
+        </article>
+      </div>
+      <div class="col-md-6 col-xl-3">
+        <article class="metric-panel h-100">
+          <p class="sheet-label">Median length</p>
+          <p class="mb-0">{{ inspect_median }}</p>
+        </article>
+      </div>
+      <div class="col-md-6 col-xl-3">
+        <article class="metric-panel h-100">
+          <p class="sheet-label">90th percentile</p>
+          <p class="mb-0">{{ inspect_q90 }}</p>
+        </article>
+      </div>
+      <div class="col-md-6 col-xl-3">
+        <article class="metric-panel h-100">
+          <p class="sheet-label">95th percentile</p>
+          <p class="mb-0">{{ inspect_q95 }}</p>
+        </article>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0 data-table">
+        <thead>
+          <tr>
+            <th>Calls in scope</th>
+            <th>Median</th>
+            <th>P90</th>
+            <th>P95</th>
+            <th>Max</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{{ inspect_observation_count }}</td>
+            <td>{{ inspect_median }}</td>
+            <td>{{ inspect_q90 }}</td>
+            <td>{{ inspect_q95 }}</td>
+            <td>{{ inspect_max }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <noscript>
+      <p class="surface-note mb-0 mt-3">JavaScript is disabled, so the inspect table remains the active detail view.</p>
+    </noscript>
+  {% else %}
+    <p class="empty-callout mb-0">{{ inspect_empty_reason }}</p>
+  {% endif %}
+</section>
+{% endif %}
 {% endblock %}

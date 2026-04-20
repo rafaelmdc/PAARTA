@@ -736,6 +736,128 @@
     });
   }
 
+  function mountInspectChart() {
+    const container = document.getElementById("length-inspect-chart");
+    const payload = parsePayload("length-inspect-payload");
+    if (!container || !payload || typeof window.echarts === "undefined") {
+      return;
+    }
+
+    container.style.height = "320px";
+    const chart = window.echarts.init(container);
+
+    if (!Array.isArray(payload.ccdfPoints) || payload.ccdfPoints.length === 0) {
+      chart.setOption({
+        animation: false,
+        grid: { left: 16, right: 16, top: 16, bottom: 16 },
+        xAxis: { show: false },
+        yAxis: { show: false },
+        series: [],
+        graphic: [
+          {
+            type: "text",
+            left: "center",
+            top: "42%",
+            style: {
+              text: "No length data in scope",
+              fontSize: 20,
+              fontWeight: 700,
+              fill: TEXT_COLOR,
+              textAlign: "center",
+            },
+          },
+        ],
+      });
+      return;
+    }
+
+    const seriesData = payload.ccdfPoints.map((pt) => [pt.x, pt.y]);
+    const markLines = [];
+    if (payload.median != null) {
+      markLines.push({
+        xAxis: payload.median,
+        name: `Median ${payload.median}`,
+        label: { formatter: `Median\n${payload.median}`, position: "insideEndTop" },
+        lineStyle: { color: MEDIAN_COLOR, type: "dashed", width: 2 },
+      });
+    }
+    if (payload.q90 != null) {
+      markLines.push({
+        xAxis: payload.q90,
+        name: `P90 ${payload.q90}`,
+        label: { formatter: `P90\n${payload.q90}`, position: "insideEndTop" },
+        lineStyle: { color: MUTED_TEXT_COLOR, type: "dotted", width: 1.5 },
+      });
+    }
+    if (payload.q95 != null) {
+      markLines.push({
+        xAxis: payload.q95,
+        name: `P95 ${payload.q95}`,
+        label: { formatter: `P95\n${payload.q95}`, position: "insideEndTop" },
+        lineStyle: { color: MUTED_TEXT_COLOR, type: "dotted", width: 1.5 },
+      });
+    }
+
+    chart.setOption({
+      animation: false,
+      grid: { left: 64, right: 32, top: 24, bottom: 48 },
+      tooltip: {
+        trigger: "axis",
+        formatter(params) {
+          if (!Array.isArray(params) || params.length === 0) return "";
+          const pt = params[0];
+          return [
+            `<strong>${payload.scopeLabel}</strong>`,
+            `Length: ${pt.data[0]}`,
+            `P(length ≥ x): ${formatLengthValue(pt.data[1])}`,
+          ].join("<br>");
+        },
+      },
+      xAxis: {
+        type: "value",
+        name: "Repeat length",
+        nameGap: 22,
+        nameLocation: "middle",
+        nameTextStyle: { color: MUTED_TEXT_COLOR, fontWeight: 700, fontSize: 12 },
+        axisLabel: { color: MUTED_TEXT_COLOR },
+        splitLine: { lineStyle: { color: GRID_COLOR } },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 1,
+        name: "P(length ≥ x)",
+        nameGap: 16,
+        nameLocation: "middle",
+        nameRotate: 90,
+        nameTextStyle: { color: MUTED_TEXT_COLOR, fontWeight: 700, fontSize: 12 },
+        axisLabel: { color: MUTED_TEXT_COLOR, formatter: (v) => formatLengthValue(v) },
+        splitLine: { lineStyle: { color: GRID_COLOR } },
+      },
+      series: [
+        {
+          type: "line",
+          step: "end",
+          data: seriesData,
+          smooth: false,
+          symbol: "none",
+          lineStyle: { color: BOX_BORDER, width: 2 },
+          areaStyle: { color: "rgba(15, 89, 100, 0.08)" },
+          markLine: markLines.length > 0
+            ? {
+                silent: true,
+                symbol: "none",
+                data: markLines,
+                label: { color: MUTED_TEXT_COLOR, fontSize: 11 },
+              }
+            : undefined,
+        },
+      ],
+    });
+
+    window.addEventListener("resize", () => chart.resize());
+  }
+
   function installScrollPreservingLinks() {
     document.querySelectorAll("[data-preserve-scroll-link]").forEach((link) => {
       link.addEventListener("click", (event) => {
@@ -753,6 +875,7 @@
   document.addEventListener("DOMContentLoaded", () => {
     mountLengthOverview();
     mountLengthChart();
+    mountInspectChart();
     installScrollPreservingLinks();
     restorePendingScrollPosition();
   });
