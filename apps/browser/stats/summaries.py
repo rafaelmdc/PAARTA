@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import asdict
 from math import ceil, floor
+
+from .bins import build_length_bin_definition, build_visible_length_bins
 
 
 def build_length_summary(lengths):
@@ -18,6 +21,70 @@ def summarize_ranked_length_groups(group_rows, grouped_lengths):
         grouped_lengths,
         summary_builder=build_length_summary,
     )
+
+
+def summarize_length_profile_vectors(summary_rows, grouped_lengths, *, species_count_by_taxon_id=None):
+    lengths_by_taxon = defaultdict(list)
+    visible_bin_starts = set()
+    for display_taxon_id, length in grouped_lengths:
+        normalized_length = int(length)
+        lengths_by_taxon[display_taxon_id].append(normalized_length)
+        visible_bin_starts.add(build_length_bin_definition(normalized_length).start)
+
+    visible_bins = build_visible_length_bins(visible_bin_starts)
+    if not visible_bins:
+        return {
+            "visible_bins": [],
+            "profile_rows": [],
+        }
+
+    visible_bin_starts_in_order = [length_bin.start for length_bin in visible_bins]
+    visible_bins_by_start = {
+        length_bin.start: length_bin
+        for length_bin in visible_bins
+    }
+
+    profile_rows = []
+    for row in summary_rows:
+        taxon_id = row["taxon_id"]
+        lengths = lengths_by_taxon.get(taxon_id, [])
+        if not lengths:
+            continue
+
+        counts_by_bin_start = defaultdict(int)
+        for length in lengths:
+            counts_by_bin_start[build_length_bin_definition(length).start] += 1
+
+        observation_count = max(int(row["observation_count"]), 1)
+        profile_rows.append(
+            {
+                "taxon_id": taxon_id,
+                "taxon_name": row["taxon_name"],
+                "rank": row["rank"],
+                "observation_count": row["observation_count"],
+                "species_count": (
+                    species_count_by_taxon_id.get(taxon_id, row["observation_count"])
+                    if species_count_by_taxon_id is not None
+                    else row.get("species_count", row["observation_count"])
+                ),
+                "length_profile": [
+                    round(counts_by_bin_start.get(bin_start, 0) / observation_count, 6)
+                    for bin_start in visible_bin_starts_in_order
+                ],
+                "bin_counts": [
+                    {
+                        "bin": asdict(visible_bins_by_start[bin_start]),
+                        "count": counts_by_bin_start.get(bin_start, 0),
+                    }
+                    for bin_start in visible_bin_starts_in_order
+                ],
+            }
+        )
+
+    return {
+        "visible_bins": [asdict(length_bin) for length_bin in visible_bins],
+        "profile_rows": profile_rows,
+    }
 
 
 def summarize_ranked_codon_composition_groups(group_rows, grouped_species_call_codon_fractions, *, visible_codons):

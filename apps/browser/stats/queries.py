@@ -16,6 +16,7 @@ from .ordering import order_taxon_rows_by_lineage
 from .summaries import (
     normalize_length_summary_value,
     normalize_numeric_summary_value,
+    summarize_length_profile_vectors,
     summarize_ranked_codon_composition_groups,
     summarize_ranked_length_groups,
 )
@@ -51,6 +52,51 @@ def build_ranked_length_summary_bundle(filter_state: StatsFilterState) -> dict[s
         "summary_rows": summary_rows,
         "total_taxa_count": total_taxa_count,
         "visible_taxa_count": len(summary_rows),
+    }
+    cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
+    return bundle
+
+
+def build_length_profile_vector_bundle(filter_state: StatsFilterState) -> dict[str, object]:
+    cache_key = f"browser:stats:length-profile-vectors:{filter_state.cache_key()}"
+    cached_bundle = cache.get(cache_key)
+    if cached_bundle is not None:
+        return cached_bundle
+
+    summary_bundle = build_ranked_length_summary_bundle(filter_state)
+    summary_rows = summary_bundle["summary_rows"]
+    if not summary_rows:
+        bundle = {
+            "matching_repeat_calls_count": summary_bundle["matching_repeat_calls_count"],
+            "visible_taxa_count": 0,
+            "visible_bins": [],
+            "profile_rows": [],
+        }
+        cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
+        return bundle
+
+    visible_taxon_ids = [row["taxon_id"] for row in summary_rows]
+    grouped_lengths = list(
+        build_group_length_values_queryset(
+            filter_state,
+            display_taxon_ids=visible_taxon_ids,
+        )
+    )
+    species_count_by_taxon_id = {
+        row["display_taxon_id"]: int(row["species_count"])
+        for row in build_ranked_taxon_group_queryset(filter_state)
+        if row["display_taxon_id"] in visible_taxon_ids
+    }
+    vector_summary = summarize_length_profile_vectors(
+        summary_rows,
+        grouped_lengths,
+        species_count_by_taxon_id=species_count_by_taxon_id,
+    )
+    bundle = {
+        "matching_repeat_calls_count": summary_bundle["matching_repeat_calls_count"],
+        "visible_taxa_count": len(vector_summary["profile_rows"]),
+        "visible_bins": vector_summary["visible_bins"],
+        "profile_rows": vector_summary["profile_rows"],
     }
     cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
     return bundle

@@ -12,6 +12,7 @@ from .queries import (
     build_filtered_repeat_call_queryset,
     build_group_codon_species_call_fraction_queryset,
     build_group_length_values_queryset,
+    build_length_profile_vector_bundle,
     build_matching_repeat_calls_with_codon_usage_count,
     build_ranked_codon_composition_summary_bundle,
     build_ranked_length_summary_bundle,
@@ -20,6 +21,7 @@ from .queries import (
 from .summaries import (
     build_length_summary,
     normalize_length_summary_value,
+    summarize_length_profile_vectors,
     summarize_ranked_codon_composition_groups,
     summarize_ranked_length_groups,
 )
@@ -36,6 +38,7 @@ __all__ = [
     "build_filtered_repeat_call_queryset",
     "build_group_codon_species_call_fraction_queryset",
     "build_group_length_values_queryset",
+    "build_length_profile_vector_bundle",
     "build_matching_repeat_calls_with_codon_usage_count",
     "build_length_summary",
     "build_ranked_codon_composition_chart_payload",
@@ -46,6 +49,7 @@ __all__ = [
     "build_stats_filter_state",
     "build_taxonomy_gutter_payload",
     "normalize_length_summary_value",
+    "summarize_length_profile_vectors",
     "summarize_ranked_codon_composition_groups",
     "summarize_ranked_length_groups",
 ]

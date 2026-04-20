@@ -15,6 +15,7 @@ from apps.browser.stats import (
     build_group_codon_species_call_fraction_queryset,
     build_filtered_repeat_call_queryset,
     build_group_length_values_queryset,
+    build_length_profile_vector_bundle,
     build_matching_repeat_calls_with_codon_usage_count,
     build_ranked_codon_composition_summary_bundle,
     build_ranked_length_chart_payload,
@@ -279,6 +280,67 @@ class BrowserStatsTests(TestCase):
             second_bundle = build_ranked_length_summary_bundle(filter_state)
 
         self.assertEqual(second_bundle, first_bundle)
+
+    def test_length_profile_vector_bundle_reuses_visible_taxa_and_shared_length_bins(self):
+        self._create_repeat_call(
+            self.alpha,
+            suffix="alpha-extra",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.25,
+            length=17,
+        )
+        self._create_repeat_call(
+            self.beta,
+            suffix="beta-extra",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.75,
+            length=27,
+        )
+        request = self.factory.get(
+            "/browser/lengths/",
+            {
+                "rank": "species",
+                "min_count": "1",
+                "top_n": "10",
+            },
+        )
+        filter_state = build_stats_filter_state(request)
+
+        bundle = build_length_profile_vector_bundle(filter_state)
+
+        self.assertEqual(bundle["matching_repeat_calls_count"], 4)
+        self.assertEqual(bundle["visible_taxa_count"], 2)
+        self.assertEqual(
+            [length_bin["label"] for length_bin in bundle["visible_bins"]],
+            ["10-14", "15-19", "20-24", "25-29"],
+        )
+        self.assertEqual(
+            [
+                (
+                    row["taxon_name"],
+                    row["observation_count"],
+                    row["species_count"],
+                    row["length_profile"],
+                )
+                for row in bundle["profile_rows"]
+            ],
+            [
+                ("Homo sapiens", 2, 1, [0.5, 0.5, 0.0, 0.0]),
+                ("Mus musculus", 2, 1, [0.5, 0.0, 0.0, 0.5]),
+            ],
+        )
+        self.assertEqual(
+            [
+                [bin_row["count"] for bin_row in row["bin_counts"]]
+                for row in bundle["profile_rows"]
+            ],
+            [
+                [1, 1, 0, 0],
+                [1, 0, 0, 1],
+            ],
+        )
 
     def test_imported_run_fixture_populates_residue_specific_codon_defaults(self):
         gamma = create_imported_run_fixture(
