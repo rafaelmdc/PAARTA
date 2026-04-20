@@ -105,6 +105,33 @@ Missing for this viewer:
 - inspect table/chart for focused composition-across-length
 - default-path rollup table for fast generation
 
+## Current Status
+
+As of `2026-04-20`:
+
+- `CL3.1` remains implemented and should be kept
+- `CL3.2` was attempted, but then reverted back to the `CL3.1` baseline
+- the live/runtime codon-length overview payload was verified to be correct on
+  the real dataset:
+  - `38` taxa
+  - `287` bins
+  - `910` occupied cells
+  - row indices spanning `0..37`
+
+Current interpretation:
+
+- the failed `CL3.2` attempt was a frontend rendering problem
+- the problem was not in the summarized backend bundle
+- the next `CL3.2` attempt should start from a fresh renderer, not from
+  patching the discarded implementation
+
+Implementation rule for the retry:
+
+- prove plain `row x bin` binding first
+- do not add taxonomy gutter until the minimal matrix is visually correct
+- do not start with custom glyphs or support-opacity tricks
+- only reintroduce gutter and richer encodings after the base matrix is stable
+
 ## Target Internal Contract
 
 The page should be built around one shared summarized bundle.
@@ -386,6 +413,17 @@ Required behavior:
 Exit criteria:
 
 - the page lands on composition, not scalar summaries
+
+Retry note:
+
+- the previous `CL3.2` attempt was reverted
+- the retry should begin with a deliberately simpler matrix than originally
+  described here:
+  - stable `Taxon x Length-bin` binding first
+  - no taxonomy gutter on the first rendering pass
+  - no custom-series cell glyphs on the first rendering pass
+  - add gutter and richer composition encoding only after the base matrix is
+    proven correct
 
 ### Slice `CL3.3`: Implement `Dominant codon` companion mode
 

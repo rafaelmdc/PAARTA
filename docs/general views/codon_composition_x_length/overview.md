@@ -52,6 +52,22 @@ This viewer should not invent new infrastructure. It depends on:
 - shared length-bin helpers
 - the same normalized stats filter state used by the other viewers
 
+## Current Implementation Note
+
+As of `2026-04-20`, the viewer is intentionally reset to the `CL3.1` baseline.
+
+- the shared non-pairwise chart-shell extraction remains valid
+- the first `CL3.2` overview-renderer attempt was reverted
+- the codon-length backend bundle itself looked correct on the real dataset
+- the failure was in frontend chart binding, not in the biological summary
+  contract
+
+This matters for the next attempt:
+
+- the next overview pass should preserve the same biological meaning
+- but it should begin with a much simpler matrix rendering path before
+  reintroducing taxonomy gutter and richer cell encodings
+
 ## Design principles
 
 - composition must remain the default biological unit

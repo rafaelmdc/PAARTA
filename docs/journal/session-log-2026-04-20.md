@@ -288,3 +288,60 @@
 - Treat the length viewer as MVP-complete.
 - Consider writing a freeze/status doc for the length viewer analogous to the
   codon-composition freeze doc.
+---
+
+# Session Log
+
+**Date:** 2026-04-20
+
+## Objective
+- Continue the new `codon_composition_x_length` viewer one slice at a time.
+- Implement the first overview renderer (`CL3.2`) while preserving the biological meaning of codon composition across `Taxon x Length-bin` cells.
+- Keep optimization in mind and reuse the existing stats, taxonomy gutter, and chart-shell infrastructure.
+
+## What happened
+- Implemented the initial `CL3.2` overview path: added a codon-length overview payload builder, wired the overview payload and taxonomy gutter payload through the view, updated the template shell, and added a new JS overview renderer.
+- The backend payload was correct on the real runtime data: `38` taxa, `287` bins, `910` cells, with row indices spanning `0..37`.
+- Multiple frontend rendering strategies were attempted after the first implementation rendered incorrectly:
+  - custom ECharts series with taxon-id placement
+  - custom ECharts series with row-index placement
+  - explicit `encode` usage for custom series
+  - taxonomy gutter axis-value rewrite to row-index values
+  - SVG overlay cells driven by ECharts axes/zoom
+  - simplified heatmap where color = dominant codon and opacity = support/dominance
+  - categorical-axis heatmap coordinates using actual bin labels and row-index strings
+- The visual failure persisted through those attempts. The bug appears to be in the frontend chart/zoom/category-axis contract, not in the codon-length summary bundle.
+- We explicitly decided not to keep digging in this session. The user plans to revert the current viewer changes and retry the slice later from a cleaner state.
+
+## Files touched
+- `apps/browser/stats/payloads.py`
+  Added `build_codon_length_composition_overview_payload(...)` to shape the overview matrix payload.
+- `apps/browser/views/stats/codon_composition_lengths.py`
+  Wired overview payloads into the page context and rewrote the overview taxonomy gutter payload to use row-based axis values.
+- `templates/browser/codon_composition_length_explorer.html`
+  Added the overview container/scripts and later updated the explanatory copy after the simplified heatmap pivot.
+- `static/js/codon-composition-length-explorer.js`
+  New overview renderer. This file went through multiple failed renderer strategies and is the main file to discard/reset before the next attempt.
+- `web_tests/test_browser_codon_composition_lengths.py`
+  Added/updated contract checks for the overview payload, scripts, and populated overview context.
+
+## Validation
+- Repeatedly ran:
+  - `node --check static/js/codon-composition-length-explorer.js`
+  - `python manage.py test web_tests.test_browser_codon_composition_lengths`
+- Ran live runtime inspection in the Docker web container to verify payload shape on the real dataset:
+  - payload contained `38` taxa, `287` bins, `910` cells
+  - the first visible zoom window should already include many populated rows
+- Key result: backend payload and row distribution looked correct; the rendering bug persisted in the frontend.
+
+## Current status
+- Blocked / intentionally abandoned for this session.
+- The current codon-composition-length overview renderer is not trustworthy and should be reverted before resuming.
+
+## Open issues
+- The codon-length overview still does not have a stable frontend rendering path.
+- The taxonomy gutter requirement and zoomable matrix requirement make the ECharts category-axis setup easy to mis-bind.
+- The backend bundle is likely usable; the next attempt should not start by redesigning the backend again.
+
+## Next step
+- Revert the current `CL3.2` frontend/view changes and re-implement the overview from a simpler baseline, preferably starting with a minimal non-gutter matrix that proves row/column binding first, then adding gutter and zoom back in one step at a time.
