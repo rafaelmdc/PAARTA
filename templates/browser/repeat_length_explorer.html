@@ -250,6 +250,18 @@
 
   {% if inspect_observation_count %}
     {{ inspect_payload|json_script:inspect_payload_id }}
+    <div class="d-flex flex-wrap gap-3 mb-3">
+      <div class="mode-switch">
+        <span class="mode-switch-label">Scale</span>
+        <button class="btn btn-brand" type="button" data-inspect-scale-button data-inspect-scale="linear" aria-pressed="true">Linear</button>
+        <button class="btn btn-outline-secondary" type="button" data-inspect-scale-button data-inspect-scale="log" aria-pressed="false">Log</button>
+      </div>
+      <div class="mode-switch">
+        <span class="mode-switch-label">Range</span>
+        <button class="btn btn-brand" type="button" data-inspect-range-button data-inspect-range="focus" aria-pressed="true">Focus</button>
+        <button class="btn btn-outline-secondary" type="button" data-inspect-range-button data-inspect-range="full" aria-pressed="false">Full</button>
+      </div>
+    </div>
     <div class="length-chart-shell mb-4" id="{{ inspect_chart_container_id }}"></div>
     <div class="row g-4 mb-4">
       <div class="col-md-6 col-xl-3">
