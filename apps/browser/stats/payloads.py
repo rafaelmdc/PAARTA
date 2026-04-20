@@ -90,18 +90,16 @@ def build_codon_overview_payload(summary_rows, *, visible_codons):
 
 def build_codon_similarity_matrix_payload(summary_rows, *, visible_codons=None, display_metric="similarity"):
     if not summary_rows:
-        return {
-            "mode": "pairwise_similarity_matrix",
-            "displayMetric": display_metric,
-            "visibleCodons": list(visible_codons or []),
-            "taxa": [],
-            "divergenceMatrix": [],
-            "visibleTaxaCount": 0,
-            "maxObservationCount": 0,
-            "maxSpeciesCount": 0,
-            "valueMin": 0,
-            "valueMax": 1,
-        }
+        return _build_pairwise_overview_payload(
+            [],
+            mode="pairwise_similarity_matrix",
+            divergence_matrix=[],
+            value_min=0,
+            value_max=1,
+            visible_codons=visible_codons,
+            display_metric=display_metric,
+            include_display_metric_when_empty=True,
+        )
 
     taxon_rows = [
         {
@@ -131,29 +129,16 @@ def build_codon_similarity_matrix_payload(summary_rows, *, visible_codons=None, 
         default_max=1,
     )
 
-    return {
-        "mode": "pairwise_similarity_matrix",
-        "displayMetric": display_metric,
-        "visibleCodons": list(visible_codons or []),
-        "taxa": [
-            {
-                "taxonId": row["taxon_id"],
-                "taxonName": row["taxon_name"],
-                "rank": row["rank"],
-                "observationCount": row["observation_count"],
-                "speciesCount": row["species_count"],
-                "rowIndex": index,
-                "columnIndex": index,
-            }
-            for index, row in enumerate(taxon_rows)
-        ],
-        "divergenceMatrix": divergence_matrix,
-        "visibleTaxaCount": len(taxon_rows),
-        "maxObservationCount": max(row["observation_count"] for row in taxon_rows),
-        "maxSpeciesCount": max(row["species_count"] for row in taxon_rows),
-        "valueMin": value_min,
-        "valueMax": value_max,
-    }
+    return _build_pairwise_overview_payload(
+        taxon_rows,
+        mode="pairwise_similarity_matrix",
+        divergence_matrix=divergence_matrix,
+        value_min=value_min,
+        value_max=value_max,
+        visible_codons=visible_codons,
+        display_metric=display_metric,
+        extra_taxon_fields=("columnIndex",),
+    )
 
 
 def build_two_codon_preference_map_payload(summary_rows, *, visible_codons):
@@ -206,34 +191,21 @@ def build_two_codon_preference_map_payload(summary_rows, *, visible_codons):
     )
     scores = [row["score"] for row in taxon_rows]
     bounded_max_abs_score = round(max(max(scores) - min(scores), 0.05), 6)
-    return {
-        "mode": "signed_preference_map",
-        "visibleCodons": list(visible_codons),
-        "codonOne": codon_one,
-        "codonTwo": codon_two,
-        "scoreLabel": f"{codon_two} - {codon_one}",
-        "displayMetric": "signed_difference",
-        "taxa": [
-            {
-                "taxonId": row["taxonId"],
-                "taxonName": row["taxonName"],
-                "rank": row["rank"],
-                "observationCount": row["observationCount"],
-                "speciesCount": row["speciesCount"],
-                "score": row["score"],
-                "codonOneShare": row["codonOneShare"],
-                "codonTwoShare": row["codonTwoShare"],
-                "rowIndex": index,
-            }
-            for index, row in enumerate(taxon_rows)
-        ],
-        "divergenceMatrix": divergence_matrix,
-        "visibleTaxaCount": len(taxon_rows),
-        "maxObservationCount": max(row["observationCount"] for row in taxon_rows),
-        "maxSpeciesCount": max(row["speciesCount"] for row in taxon_rows),
-        "valueMin": -bounded_max_abs_score,
-        "valueMax": bounded_max_abs_score,
-    }
+    return _build_pairwise_overview_payload(
+        taxon_rows,
+        mode="signed_preference_map",
+        divergence_matrix=divergence_matrix,
+        value_min=-bounded_max_abs_score,
+        value_max=bounded_max_abs_score,
+        visible_codons=visible_codons,
+        display_metric="signed_difference",
+        extra_payload={
+            "codonOne": codon_one,
+            "codonTwo": codon_two,
+            "scoreLabel": f"{codon_two} - {codon_one}",
+        },
+        extra_taxon_fields=("score", "codonOneShare", "codonTwoShare"),
+    )
 
 
 def build_codon_composition_inspect_payload(bundle, *, scope_label: str):
@@ -278,6 +250,66 @@ def _build_pairwise_divergence_matrix(vectors):
         ]
         for row_vector in vectors
     ]
+
+
+def _build_pairwise_overview_payload(
+    taxon_rows,
+    *,
+    mode,
+    divergence_matrix,
+    value_min,
+    value_max,
+    visible_codons=None,
+    display_metric=None,
+    include_display_metric_when_empty=False,
+    extra_payload=None,
+    extra_taxon_fields=(),
+):
+    payload = {
+        "mode": mode,
+        "visibleCodons": list(visible_codons or []),
+        "taxa": [],
+        "divergenceMatrix": divergence_matrix,
+        "visibleTaxaCount": len(taxon_rows),
+        "maxObservationCount": 0,
+        "maxSpeciesCount": 0,
+        "valueMin": value_min,
+        "valueMax": value_max,
+        **(extra_payload or {}),
+    }
+    if display_metric is not None and (taxon_rows or include_display_metric_when_empty):
+        payload["displayMetric"] = display_metric
+    if not taxon_rows:
+        return payload
+
+    payload["taxa"] = [
+        {
+            "taxonId": row.get("taxon_id", row.get("taxonId")),
+            "taxonName": row.get("taxon_name", row.get("taxonName")),
+            "rank": row["rank"],
+            "observationCount": row.get("observation_count", row.get("observationCount")),
+            "speciesCount": row.get("species_count", row.get("speciesCount")),
+            "rowIndex": index,
+            **{
+                field_name: (
+                    index
+                    if field_name == "columnIndex"
+                    else row[field_name]
+                )
+                for field_name in extra_taxon_fields
+            },
+        }
+        for index, row in enumerate(taxon_rows)
+    ]
+    payload["maxObservationCount"] = max(
+        row.get("observation_count", row.get("observationCount"))
+        for row in taxon_rows
+    )
+    payload["maxSpeciesCount"] = max(
+        row.get("species_count", row.get("speciesCount"))
+        for row in taxon_rows
+    )
+    return payload
 
 
 def _matrix_value_range(matrix, *, transform=None, default_min=0, default_max=1):

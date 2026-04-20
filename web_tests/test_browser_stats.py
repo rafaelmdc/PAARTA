@@ -759,6 +759,76 @@ class BrowserStatsTests(TestCase):
             ],
         )
 
+    def test_build_codon_overview_payload_uses_similarity_mode_for_multi_codon_residue(self):
+        payload = build_codon_overview_payload(
+            [
+                {
+                    "taxon_id": 1,
+                    "taxon_name": "Taxon A",
+                    "rank": "class",
+                    "observation_count": 3,
+                    "species_count": 2,
+                    "codon_shares": [
+                        {"codon": "AAA", "share": 1.0},
+                        {"codon": "AAG", "share": 0.0},
+                        {"codon": "AAC", "share": 0.0},
+                    ],
+                },
+                {
+                    "taxon_id": 2,
+                    "taxon_name": "Taxon B",
+                    "rank": "class",
+                    "observation_count": 4,
+                    "species_count": 3,
+                    "codon_shares": [
+                        {"codon": "AAA", "share": 0.0},
+                        {"codon": "AAG", "share": 1.0},
+                        {"codon": "AAC", "share": 0.0},
+                    ],
+                },
+            ],
+            visible_codons=["AAA", "AAG", "AAC"],
+        )
+
+        self.assertEqual(payload["mode"], "pairwise_similarity_matrix")
+        self.assertEqual(payload["displayMetric"], "similarity")
+        self.assertEqual(payload["visibleCodons"], ["AAA", "AAG", "AAC"])
+        self.assertEqual(payload["visibleTaxaCount"], 2)
+        self.assertEqual(payload["maxObservationCount"], 4)
+        self.assertEqual(payload["maxSpeciesCount"], 3)
+        self.assertEqual(payload["valueMin"], 0)
+        self.assertEqual(payload["valueMax"], 1)
+        self.assertEqual(
+            payload["taxa"],
+            [
+                {
+                    "taxonId": 1,
+                    "taxonName": "Taxon A",
+                    "rank": "class",
+                    "observationCount": 3,
+                    "speciesCount": 2,
+                    "rowIndex": 0,
+                    "columnIndex": 0,
+                },
+                {
+                    "taxonId": 2,
+                    "taxonName": "Taxon B",
+                    "rank": "class",
+                    "observationCount": 4,
+                    "speciesCount": 3,
+                    "rowIndex": 1,
+                    "columnIndex": 1,
+                },
+            ],
+        )
+        self.assertEqual(
+            payload["divergenceMatrix"],
+            [
+                [0.0, 1.0],
+                [1.0, 0.0],
+            ],
+        )
+
     def test_order_taxon_rows_by_lineage_uses_curated_metazoa_order_for_root_linked_phyla(self):
         ordered_rows = order_taxon_rows_by_lineage(
             [
