@@ -1,254 +1,158 @@
 # Codon Composition Viewer Slices
 
-## Goal
+## Status
 
-Replace the scalar codon-ratio browser direction with a composition-first
-viewer built on normalized codon-usage rows.
+The codon-composition viewer is frozen at its MVP browser behavior.
+
+This document no longer describes the old implementation plan as open work. It
+records what shipped in the MVP and what remains explicitly deferred.
 
 Boundary rule:
 
-- do not modify `homorepeat_pipeline` as part of this plan unless the user
-  explicitly approves that change
-- use the codon-usage data already present in finalized published artifacts and
-  import it correctly
+- do not modify `homorepeat_pipeline` as part of codon browser work unless the
+  user explicitly approves that change
+- keep using the finalized codon-usage artifacts already imported into the
+  browser data model
 
-## Phase 1: Replace the data contract
+## Shipped in the MVP
 
-### `CC1` Discover existing finalized codon-usage artifacts in the import contract
+### `CC1` Composition-first data contract
 
-Goal:
+Shipped behavior:
 
-- make codon browser work depend on normalized composition rows rather than
-  blank compatibility fields
+- the live browser path depends on normalized codon-usage rows
+- codon composition is residue-scoped
+- the old scalar codon-ratio browser contract is no longer the live page model
 
-Scope:
+Closed outcome:
 
-- discover finalized codon-usage TSVs under `publish/calls/finalized/...`
-- preserve method, residue, and batch context while enumerating those files
-- do not introduce a new merged artifact as part of the default plan
+- composition queries use imported codon-usage data directly
 
-Tests:
+### `CC2` Composition-first route replacement
 
-- finalized codon-usage files are discovered across methods, residues, and
-  batches
-- missing codon-usage files stay an explicit import-contract path
+Shipped behavior:
 
-Exit criteria:
+- the existing route remains `/browser/codon-ratios/`
+- route and file naming still say `codon_ratio` for continuity
+- the page behavior is codon composition only
 
-- downstream browser import can enumerate the existing codon-usage sources
+Closed outcome:
 
-### `CC2` Add imported and canonical codon-usage models
+- the legacy route now serves the composition viewer contract
 
-Goal:
+### `CC3` Grouped composition fallback table
 
-- make codon composition first-class in the browser schema
+Shipped behavior:
 
-Scope:
+- the page remains useful without JavaScript
+- grouped taxon rows show residue-scoped codon shares and call counts
+- branch and taxon handoffs remain available from the grouped table
 
-- raw imported codon-usage rows linked to imported repeat calls
-- canonical/current-catalog codon-usage rows linked to canonical repeat calls
-- preserve the normalized fields already emitted by codon usage
+Closed outcome:
 
-Tests:
+- codon composition is browseable through the server-rendered table alone
 
-- schema-level coverage
-- canonical-sync coverage
+### `CC4` Overview layer
 
-Exit criteria:
+Shipped behavior:
 
-- the browser can query codon mixtures without overloading repeat-call scalar
-  fields
+- 2-codon residues use a signed `Taxon x Taxon` preference-difference heatmap
+- residues with more visible codons use a pairwise `Taxon x Taxon` similarity
+  heatmap based on `1 - Jensen-Shannon divergence`
+- both axes use the same lineage-ordered visible taxon set
+- the overview reuses the shared taxonomy gutter
 
-### `CC3` Import and sync codon-usage rows
+Closed outcome:
 
-Goal:
+- the page has a lineage-aware overview for the current visible taxon set
 
-- populate composition data during normal import and canonical sync
+MVP note:
 
-Scope:
+- this is the frozen MVP exception to the original `Taxon x Codon` overview
+  target
 
-- ingest the existing finalized codon-usage TSVs discovered from the published
-  run layout
-- align canonical codon-usage rows with current canonical repeat calls
-- keep missing codon-usage data as an explicit empty-state path
+### `CC5` Browse layer
 
-Tests:
+Shipped behavior:
 
-- successful import into raw and canonical codon-usage tables
-- missing artifact does not break repeat-call import
+- the browse chart is a stacked codon-composition view by visible taxon
+- the chart, grouped table, and taxonomy gutter use the same visible taxon set
+- visible rows are lineage-ordered instead of count-sorted
 
-Exit criteria:
+Closed outcome:
 
-- browser composition queries have real imported data
+- grouped codon composition is visually comparable across many taxa
 
-## Phase 2: Add composition query support
+### `CC6` Inspect layer
 
-### `CC4` Add normalized filter support for composition views
+Shipped behavior:
 
-Goal:
+- inspect activates only when branch scope is active
+- inspect shows one branch-scoped aggregated composition view
+- inspect is not a per-call browser in the MVP
 
-- keep codon composition inside the shared stats page contract
+Closed outcome:
 
-Scope:
+- the composition viewer spans overview, browse, and inspect layers without
+  reintroducing the old scalar model
 
-- residue stays first-class
-- remove scalar codon metric selection from the hot path
-- keep branch, rank, run, `min_count`, and `top_n` semantics aligned with the
-  rest of the viewer family
+### `CC7` Taxonomy ordering and gutter stabilization
 
-Tests:
+Shipped behavior:
 
-- residue-scoped behavior
-- branch- and run-scoped behavior
+- overview and browse use the shared rooted taxonomy gutter
+- visible taxa follow the shared lineage-aware ordering helper
+- high-level Metazoa/root-linked phyla now use a curated sibling order instead
+  of effectively arbitrary root ordering
 
-Exit criteria:
+Closed outcome:
 
-- composition pages use the same normalized stats state shape as length
+- taxon-oriented codon views now preserve a more biologically coherent order
 
-### `CC5` Add grouped codon-composition queries and summaries
+### `CC8` Heatmap performance stabilization
 
-Goal:
+Shipped behavior:
 
-- support grouped taxon composition before chart work
+- the backend emits a compact pairwise matrix payload
+- the frontend renders only the current visible zoom window of the overview
+- large windows disable expensive cell styling
 
-Scope:
+Closed outcome:
 
-- grouped codon shares by display taxon
-- equal call weight aggregation
-- visible codon discovery inside the current residue scope
+- large visible taxon sets are materially faster to render in the browser
 
-Tests:
+## Deferred after the MVP
 
-- 2-codon residue grouping
-- 4-codon residue grouping
-- equal-call-weight behavior
+### `CC9` Replace the overview with `Taxon x Codon`
 
-Exit criteria:
+Deferred work:
 
-- the backend can produce one bounded composition row per visible taxon
+- redesign the overview around lineage-ordered taxa by visible codon
+- make the overview match the original shared-shell target instead of the
+  current pairwise taxon matrix
 
-## Phase 3: Replace the current route with composition browse behavior
+Reason deferred:
 
-### `CC6` Replace the existing codon-ratio page shell
+- this is a product-visible redesign, not a small stabilization patch
 
-Goal:
+### `CC10` Rename the route and implementation surface
 
-- make `/browser/codon-ratios/` represent codon composition rather than a
-  broken scalar contract
+Deferred work:
 
-Scope:
+- rename `/browser/codon-ratios/`
+- rename `codon_ratio` templates, view classes, and frontend assets
 
-- rewrite page copy and scope language around codon composition
-- remove scalar codon metric selection and scalar summary language
-- keep the route for continuity during the redesign
+Reason deferred:
 
-Tests:
 
-- route resolution remains stable
-- new copy and empty states render correctly
+### `CC11` Richer inspect and handoff behavior
 
-Exit criteria:
+Deferred work:
 
-- the existing route no longer implies a single-value codon metric
+- per-call composition previews
+- broader browser-home and detail-page handoffs
+- richer drill-down states beyond branch-scoped aggregate composition
 
-### `CC7` Add the grouped composition fallback table
+Reason deferred:
 
-Goal:
-
-- keep the page useful without JavaScript
-
-Scope:
-
-- grouped HTML table with visible codon shares and call counts
-- explicit empty states for no codon-usage data vs no visible taxa
-- taxon detail and branch drill-down links
-
-Tests:
-
-- grouped table output
-- branch-link preservation
-
-Exit criteria:
-
-- codon composition is browseable without JavaScript
-
-### `CC8` Add the shared `Tier 1 - Overview`
-
-Goal:
-
-- deliver the taxonomy-first overview while preserving codon mixtures
-
-Scope:
-
-- `Taxon x Codon` hex overview for one selected residue
-- lineage-aware taxonomy axis
-- equal-weight codon fraction as the cell value
-
-Tests:
-
-- payload shape
-- empty-state behavior
-- page-local asset loading
-
-Exit criteria:
-
-- codon composition has the shared Tier 1 overview shell
-
-### `CC9` Add the stacked browse chart
-
-Goal:
-
-- make the grouped composition rows visually comparable across many taxa
-
-Scope:
-
-- stacked taxon composition chart
-- same visible set as the server-rendered grouped table
-- branch drill-down and taxon detail handoffs
-
-Tests:
-
-- payload shape
-- chart/table visible-set parity
-
-Exit criteria:
-
-- codon composition has a real Tier 2 browse layer
-
-### `CC10` Add composition inspect views
-
-Goal:
-
-- support detailed analysis for one branch or taxon
-
-Scope:
-
-- selected branch or taxon composition detail
-- optional per-call composition preview where needed
-- no scalar histogram or boxplot as the default inspect model
-
-Tests:
-
-- inspect-state render
-- inspect payload shape
-
-Exit criteria:
-
-- codon composition spans all three tiers
-
-### `CC11` Add discoverability and handoffs
-
-Goal:
-
-- make the composition viewer part of the browser family rather than a legacy
-  compatibility route
-
-Scope:
-
-- browser home entry and copy updates
-- branch handoffs from taxon detail
-- residue-preserving handoffs from protein and repeat-call detail when valid
-
-Exit criteria:
-
-- codon composition is reachable through the same browser pathways as length
+- current inspect behavior is sufficient for the MVP browser contract

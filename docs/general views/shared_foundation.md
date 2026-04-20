@@ -64,6 +64,8 @@ Every viewer page should follow the same base contract:
   to biological order
 - reuse the same lineage ordering helper across all viewers so adjacent rows
   remain biologically coherent
+- for high-level Metazoa branches, reuse the curated sibling order in the
+  shared helper so root-linked phyla do not sort arbitrarily
 - when a chart needs a visible taxonomy axis, reuse the shared taxonomy gutter
   contract in `taxonomy_gutter_plan.md` rather than building a viewer-local
   tree widget
@@ -87,6 +89,12 @@ shared overview structure:
 
 The taxonomy side is not a learned or embedded 2D space. It remains a stable,
 ordered biological axis rendered through one consistent hex-overview shell.
+
+Current codon-composition MVP exception:
+
+- codon composition is currently frozen on a lineage-ordered pairwise
+  `Taxon x Taxon` overview rather than the target `Taxon x Codon` shell
+- that exception is deliberate MVP scope, not the long-term shared target
 
 ## Shared codon contract
 

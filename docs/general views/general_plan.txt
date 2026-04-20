@@ -35,6 +35,8 @@ default to lineage-aware, compact summaries rather than large raw-point views.
 ## Current baseline
 
 - `Length` is technically implemented at `/browser/lengths/`.
+- `Codon Composition` is implemented and frozen at its MVP browser contract on
+  `/browser/codon-ratios/`.
 - The current length explorer already provides the reusable browser stats
   foundation:
   - `apps/browser/views/stats/lengths.py`
@@ -48,6 +50,16 @@ default to lineage-aware, compact summaries rather than large raw-point views.
   foundation where it still fits, but they should not inherit the obsolete
   scalar codon-ratio contract.
 
+Current codon-composition MVP freeze:
+
+- route continuity remains `/browser/codon-ratios/`
+- overview is the current pairwise lineage-ordered `Taxon x Taxon` heatmap
+- browse is stacked taxon composition plus the grouped HTML fallback table
+- inspect is the branch-scoped aggregate composition view
+- the shared taxonomy gutter and lineage-aware ordering are part of the frozen
+  contract
+- the original `Taxon x Codon` overview target is deferred beyond the MVP
+
 ## First-wave priorities
 
 1. keep the current length explorer as the Tier 2 baseline and align it to the
@@ -56,9 +68,10 @@ default to lineage-aware, compact summaries rather than large raw-point views.
 3. replace the scalar codon-ratio assumptions with a codon-composition
    contract built on normalized codon-usage rows
 4. define one shared `Tier 1 - Overview` shell so every viewer starts from a
-   taxonomy-first hex overview
-5. rewrite the codon viewers as composition-first viewers on the same browser
-   family rather than independent statistical pages
+   taxonomy-first hex overview, while allowing the codon-composition MVP
+   exception to remain frozen for now
+5. keep the codon viewers composition-first on the same browser family rather
+   than independent statistical pages
 
 ## Directory map
 
@@ -70,9 +83,10 @@ default to lineage-aware, compact summaries rather than large raw-point views.
 - `length/slices.md`
   - small, commit-sized next slices for the length viewer
 - `codon_composition/overview.md`
-  - product definition and technical contract for the codon-composition viewer
+  - frozen MVP product definition and technical contract for the
+    codon-composition viewer
 - `codon_composition/slices.md`
-  - implementation slices for replacing the scalar codon-ratio direction
+  - shipped MVP slices and explicitly deferred follow-up work
 - `codon_composition_x_length/overview.md`
   - product definition for the flagship composition-first comparison viewer
 - `codon_composition_x_length/slices.md`
@@ -87,7 +101,8 @@ default to lineage-aware, compact summaries rather than large raw-point views.
 - never ship unbounded raw match sets to the browser
 - lineage-aware taxon ordering is mandatory for overview pages
 - every first-wave viewer should present a taxonomy-first `Tier 1 - Overview`
-  shell for continuity
+  shell for continuity, except where the codon-composition MVP explicitly
+  freezes a temporary pairwise-overview exception
 - codon viewers support all residues in the product, but codon composition
   remains residue-specific by default
 - do not change `homorepeat_pipeline` as part of viewer work unless the user
