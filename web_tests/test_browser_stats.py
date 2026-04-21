@@ -10,24 +10,46 @@ from django.test import RequestFactory, TestCase
 
 from apps.browser.stats import (
     apply_stats_filter_context,
+    build_ccdf_points,
+    build_codon_length_composition_bundle,
+    build_codon_length_browse_payload,
+    build_codon_length_dominance_overview_payload,
+    build_codon_length_preference_overview_payload,
+    build_codon_length_shift_overview_payload,
     build_filtered_codon_usage_queryset,
     build_codon_overview_payload,
     build_group_codon_species_call_fraction_queryset,
+    build_group_length_counts_queryset,
     build_filtered_repeat_call_queryset,
     build_group_length_values_queryset,
+    build_length_inspect_bundle,
+    build_length_inspect_payload,
+    build_length_profile_vector_bundle,
     build_matching_repeat_calls_with_codon_usage_count,
     build_ranked_codon_composition_summary_bundle,
     build_ranked_length_chart_payload,
     build_ranked_length_summary_bundle,
     build_ranked_taxon_group_queryset,
     build_stats_filter_state,
+    build_tail_burden_overview_payload,
+    build_tail_pairwise_matrix,
     build_taxonomy_gutter_payload,
+    build_typical_length_overview_payload,
+    build_wasserstein_pairwise_matrix,
+    rebuild_canonical_codon_composition_summaries,
+    rebuild_canonical_codon_composition_length_summaries,
     summarize_ranked_codon_composition_groups,
     summarize_ranked_length_groups,
+)
+from apps.browser.stats.summaries import (
+    _compute_l1_tail_distance,
+    _compute_tail_feature_vector,
+    _compute_wasserstein1_distance,
 )
 from apps.browser.stats.ordering import order_taxon_rows_by_lineage
 from apps.browser.models import (
     CanonicalCodonCompositionSummary,
+    CanonicalCodonCompositionLengthSummary,
     CanonicalRepeatCall,
     RepeatCall,
     RepeatCallCodonUsage,
@@ -224,6 +246,7 @@ class BrowserStatsTests(TestCase):
                     "taxon_name": "Mammalia",
                     "rank": "class",
                     "observation_count": 2,
+                    "species_count": 2,
                     "min_length": 11,
                     "q1": 11,
                     "median": 11,
@@ -235,6 +258,597 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(payload["x_min"], 11)
         self.assertEqual(payload["x_max"], 11)
         self.assertEqual(payload["max_observation_count"], 2)
+
+    def test_group_length_counts_queryset_collapses_duplicate_lengths(self):
+        self._create_repeat_call(
+            self.alpha,
+            suffix="alpha-duplicate-length",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.25,
+            length=11,
+        )
+        request = self.factory.get(
+            "/browser/lengths/",
+            {
+                "rank": "species",
+                "min_count": "1",
+                "top_n": "10",
+            },
+        )
+        filter_state = build_stats_filter_state(request)
+        group_rows = list(build_ranked_taxon_group_queryset(filter_state))
+
+        grouped_length_counts = list(
+            build_group_length_counts_queryset(
+                filter_state,
+                display_taxon_ids=[row["display_taxon_id"] for row in group_rows],
+            )
+        )
+
+        self.assertEqual(
+            grouped_length_counts,
+            [
+                (self.alpha["taxon"].pk, 11, 2),
+                (self.beta["taxon"].pk, 11, 1),
+            ],
+        )
+
+    def test_codon_length_composition_bundle_groups_visible_taxa_by_bin_and_codon(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        beta_long_call = self._create_repeat_call(
+            self.beta,
+            suffix="beta-long-q",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.75,
+            length=17,
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            repeat_call=beta_long_call,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        request = self.factory.get(
+            "/browser/codon-composition-length/",
+            {
+                "rank": "class",
+                "min_count": "1",
+                "top_n": "10",
+                "residue": "q",
+            },
+        )
+
+        bundle = build_codon_length_composition_bundle(build_stats_filter_state(request))
+
+        self.assertEqual(bundle["matching_repeat_calls_count"], 3)
+        self.assertEqual(bundle["total_taxa_count"], 1)
+        self.assertEqual(bundle["visible_taxa_count"], 1)
+        self.assertEqual(bundle["visible_codons"], ["CAA", "CAG"])
+        self.assertEqual(
+            [row["label"] for row in bundle["visible_bins"]],
+            ["10-14", "15-19"],
+        )
+        self.assertEqual(len(bundle["matrix_rows"]), 1)
+        self.assertEqual(bundle["matrix_rows"][0]["taxon_name"], "Mammalia")
+        self.assertEqual(
+            [
+                [share_row["codon"] for share_row in row["codon_shares"]]
+                for row in bundle["matrix_rows"][0]["bin_rows"]
+            ],
+            [
+                ["CAA", "CAG"],
+                ["CAA", "CAG"],
+            ],
+        )
+        self.assertEqual(
+            [
+                [share_row["share"] for share_row in row["codon_shares"]]
+                for row in bundle["matrix_rows"][0]["bin_rows"]
+            ],
+            [
+                [1, 0],
+                [0, 1],
+            ],
+        )
+        self.assertEqual(
+            [
+                (row["bin"]["label"], row["dominant_codon"], row["observation_count"], row["species_count"])
+                for row in bundle["matrix_rows"][0]["bin_rows"]
+            ],
+            [
+                ("10-14", "CAA", 1, 1),
+                ("15-19", "CAG", 1, 1),
+            ],
+        )
+
+    def test_codon_length_composition_bundle_applies_min_count_to_bin_rows(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        alpha_second_call = self._create_repeat_call(
+            self.alpha,
+            suffix="alpha-second-q",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.0,
+            length=12,
+        )
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            repeat_call=alpha_second_call,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        beta_long_call = self._create_repeat_call(
+            self.beta,
+            suffix="beta-low-support-long-q",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=1.0,
+            length=17,
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            repeat_call=beta_long_call,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        request = self.factory.get(
+            "/browser/codon-composition-length/",
+            {
+                "rank": "class",
+                "min_count": "2",
+                "top_n": "10",
+                "residue": "q",
+            },
+        )
+
+        bundle = build_codon_length_composition_bundle(build_stats_filter_state(request))
+
+        self.assertEqual(bundle["visible_taxa_count"], 1)
+        self.assertEqual(
+            [row["label"] for row in bundle["visible_bins"]],
+            ["10-14"],
+        )
+        self.assertEqual(
+            [
+                (row["bin"]["label"], row["observation_count"], row["dominant_codon"])
+                for row in bundle["matrix_rows"][0]["bin_rows"]
+            ],
+            [("10-14", 2, "CAA")],
+        )
+
+    def test_codon_length_composition_bundle_uses_rollup_on_default_scope(self):
+        CanonicalCodonCompositionLengthSummary.objects.bulk_create(
+            [
+                CanonicalCodonCompositionLengthSummary(
+                    repeat_residue="Q",
+                    display_rank="class",
+                    display_taxon_id=self.alpha["taxa"]["mammalia"].pk,
+                    display_taxon_name="Mammalia",
+                    length_bin_start=10,
+                    observation_count=2,
+                    species_count=2,
+                    codon="CAA",
+                    codon_share=0.625,
+                ),
+                CanonicalCodonCompositionLengthSummary(
+                    repeat_residue="Q",
+                    display_rank="class",
+                    display_taxon_id=self.alpha["taxa"]["mammalia"].pk,
+                    display_taxon_name="Mammalia",
+                    length_bin_start=10,
+                    observation_count=2,
+                    species_count=2,
+                    codon="CAG",
+                    codon_share=0.375,
+                ),
+            ]
+        )
+        CanonicalCodonCompositionSummary.objects.bulk_create(
+            [
+                CanonicalCodonCompositionSummary(
+                    repeat_residue="Q",
+                    display_rank="class",
+                    display_taxon_id=self.alpha["taxa"]["mammalia"].pk,
+                    display_taxon_name="Mammalia",
+                    observation_count=2,
+                    species_count=2,
+                    codon="CAA",
+                    codon_share=0.625,
+                ),
+                CanonicalCodonCompositionSummary(
+                    repeat_residue="Q",
+                    display_rank="class",
+                    display_taxon_id=self.alpha["taxa"]["mammalia"].pk,
+                    display_taxon_name="Mammalia",
+                    observation_count=2,
+                    species_count=2,
+                    codon="CAG",
+                    codon_share=0.375,
+                ),
+            ]
+        )
+        request = self.factory.get(
+            "/browser/codon-composition-length/",
+            {
+                "rank": "class",
+                "min_count": "1",
+                "top_n": "10",
+                "residue": "q",
+            },
+        )
+
+        with patch(
+            "apps.browser.stats.queries._build_codon_length_composition_bundle_live",
+            side_effect=AssertionError("live path should not run"),
+        ):
+            bundle = build_codon_length_composition_bundle(build_stats_filter_state(request))
+
+        self.assertEqual(bundle["visible_taxa_count"], 1)
+        self.assertEqual(bundle["visible_codons"], ["CAA", "CAG"])
+        self.assertEqual(
+            [
+                (row["bin"]["label"], row["dominant_codon"], row["observation_count"], row["species_count"])
+                for row in bundle["matrix_rows"][0]["bin_rows"]
+            ],
+            [("10-14", "CAA", 2, 2)],
+        )
+
+    def test_codon_length_preference_overview_payload_derives_from_two_codon_bundle(self):
+        bundle = {
+            "visible_codons": ["CAA", "CAG"],
+            "visible_bins": [
+                {"start": 10, "end": 14, "label": "10-14"},
+                {"start": 15, "end": 19, "label": "15-19"},
+            ],
+            "matrix_rows": [
+                {
+                    "taxon_id": 1,
+                    "taxon_name": "Mammalia",
+                    "rank": "class",
+                    "observation_count": 12,
+                    "species_count": 2,
+                    "bin_rows": [
+                        {
+                            "bin": {"start": 10, "end": 14, "label": "10-14"},
+                            "observation_count": 8,
+                            "species_count": 2,
+                            "codon_shares": [
+                                {"codon": "CAA", "share": 0.75},
+                                {"codon": "CAG", "share": 0.25},
+                            ],
+                            "dominant_codon": "CAA",
+                            "dominance_margin": 0.5,
+                        },
+                        {
+                            "bin": {"start": 15, "end": 19, "label": "15-19"},
+                            "observation_count": 4,
+                            "species_count": 1,
+                            "codon_shares": [
+                                {"codon": "CAA", "share": 0.2},
+                                {"codon": "CAG", "share": 0.8},
+                            ],
+                            "dominant_codon": "CAG",
+                            "dominance_margin": 0.6,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        payload = build_codon_length_preference_overview_payload(bundle)
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["mode"], "preference")
+        self.assertEqual(payload["codonA"], "CAA")
+        self.assertEqual(payload["codonB"], "CAG")
+        self.assertEqual(payload["metricLabel"], "CAA - CAG")
+        self.assertEqual(
+            [
+                (cell["rowIndex"], cell["binIndex"], cell["preference"], cell["supportTier"])
+                for cell in payload["cells"]
+            ],
+            [
+                (0, 0, 0.5, "medium"),
+                (0, 1, -0.6, "low"),
+            ],
+        )
+        self.assertEqual(payload["cells"][0]["codonShares"][0], {"codon": "CAA", "share": 0.75})
+
+    def test_codon_length_dominance_overview_payload_derives_from_three_codon_bundle(self):
+        bundle = {
+            "visible_codons": ["AAA", "AAG", "AAC"],
+            "visible_bins": [{"start": 10, "end": 14, "label": "10-14"}],
+            "matrix_rows": [
+                {
+                    "taxon_id": 1,
+                    "taxon_name": "Mammalia",
+                    "rank": "class",
+                    "observation_count": 24,
+                    "species_count": 3,
+                    "bin_rows": [
+                        {
+                            "bin": {"start": 10, "end": 14, "label": "10-14"},
+                            "observation_count": 24,
+                            "species_count": 3,
+                            "codon_shares": [
+                                {"codon": "AAA", "share": 0.15},
+                                {"codon": "AAG", "share": 0.65},
+                                {"codon": "AAC", "share": 0.2},
+                            ],
+                            "dominant_codon": "AAG",
+                            "dominance_margin": 0.45,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        payload = build_codon_length_dominance_overview_payload(bundle)
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["mode"], "dominance")
+        self.assertEqual(payload["metricLabel"], "Dominance margin")
+        self.assertEqual(payload["valueMax"], 0.45)
+        self.assertEqual(
+            payload["cells"][0],
+            {
+                "rowIndex": 0,
+                "binIndex": 0,
+                "binStart": 10,
+                "binLabel": "10-14",
+                "value": 0.45,
+                "dominantCodon": "AAG",
+                "dominantCodonIndex": 1,
+                "dominanceMargin": 0.45,
+                "codonShares": [
+                    {"codon": "AAA", "share": 0.15},
+                    {"codon": "AAG", "share": 0.65},
+                    {"codon": "AAC", "share": 0.2},
+                ],
+                "observationCount": 24,
+                "speciesCount": 3,
+                "supportTier": "high",
+            },
+        )
+
+    def test_codon_length_shift_overview_payload_skips_missing_adjacent_bins(self):
+        bundle = {
+            "visible_codons": ["AAA", "AAG", "AAC"],
+            "visible_bins": [
+                {"start": 10, "end": 14, "label": "10-14"},
+                {"start": 15, "end": 19, "label": "15-19"},
+                {"start": 20, "end": 24, "label": "20-24"},
+            ],
+            "matrix_rows": [
+                {
+                    "taxon_id": 1,
+                    "taxon_name": "Mammalia",
+                    "rank": "class",
+                    "observation_count": 30,
+                    "species_count": 3,
+                    "bin_rows": [
+                        {
+                            "bin": {"start": 10, "end": 14, "label": "10-14"},
+                            "observation_count": 20,
+                            "species_count": 3,
+                            "codon_shares": [
+                                {"codon": "AAA", "share": 0.5},
+                                {"codon": "AAG", "share": 0.25},
+                                {"codon": "AAC", "share": 0.25},
+                            ],
+                            "dominant_codon": "AAA",
+                            "dominance_margin": 0.25,
+                        },
+                        {
+                            "bin": {"start": 15, "end": 19, "label": "15-19"},
+                            "observation_count": 10,
+                            "species_count": 2,
+                            "codon_shares": [
+                                {"codon": "AAA", "share": 0.2},
+                                {"codon": "AAG", "share": 0.5},
+                                {"codon": "AAC", "share": 0.3},
+                            ],
+                            "dominant_codon": "AAG",
+                            "dominance_margin": 0.2,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        payload = build_codon_length_shift_overview_payload(bundle)
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(
+            [transition["label"] for transition in payload["transitions"]],
+            ["10-14 -> 15-19", "15-19 -> 20-24"],
+        )
+        self.assertEqual(len(payload["cells"]), 1)
+        self.assertEqual(payload["cells"][0]["transitionIndex"], 0)
+        self.assertEqual(payload["cells"][0]["shift"], 0.6)
+        self.assertEqual(payload["cells"][0]["previousSupport"]["supportTier"], "high")
+        self.assertEqual(payload["cells"][0]["nextSupport"]["supportTier"], "medium")
+
+    def test_codon_length_browse_payload_preserves_fixed_bins_and_codon_order(self):
+        bundle = {
+            "visible_codons": ["CAA", "CAG"],
+            "visible_bins": [
+                {"start": 10, "end": 14, "label": "10-14"},
+                {"start": 15, "end": 19, "label": "15-19"},
+            ],
+            "matrix_rows": [
+                {
+                    "taxon_id": 1,
+                    "taxon_name": "Mammalia",
+                    "rank": "class",
+                    "observation_count": 12,
+                    "species_count": 2,
+                    "bin_rows": [
+                        {
+                            "bin": {"start": 10, "end": 14, "label": "10-14"},
+                            "observation_count": 8,
+                            "species_count": 2,
+                            "codon_shares": [
+                                {"codon": "CAA", "share": 0.75},
+                                {"codon": "CAG", "share": 0.25},
+                            ],
+                            "dominant_codon": "CAA",
+                            "dominance_margin": 0.5,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        payload = build_codon_length_browse_payload(bundle)
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["mode"], "two_codon_area")
+        self.assertEqual(payload["visibleCodons"], ["CAA", "CAG"])
+        self.assertEqual(payload["shownTaxaCount"], 1)
+        self.assertEqual(payload["windowSize"], 12)
+        self.assertEqual(
+            [
+                (
+                    bin_row["bin"]["label"],
+                    bin_row["occupied"],
+                    bin_row["codonShares"],
+                    bin_row["supportTier"],
+                )
+                for bin_row in payload["panels"][0]["bins"]
+            ],
+            [
+                (
+                    "10-14",
+                    True,
+                    [{"codon": "CAA", "share": 0.75}, {"codon": "CAG", "share": 0.25}],
+                    "medium",
+                ),
+                (
+                    "15-19",
+                    False,
+                    [{"codon": "CAA", "share": None}, {"codon": "CAG", "share": None}],
+                    "missing",
+                ),
+            ],
+        )
+
+    def test_codon_length_composition_bundle_skips_rollup_for_filtered_scope(self):
+        request = self.factory.get(
+            "/browser/codon-composition-length/",
+            {
+                "rank": "class",
+                "min_count": "1",
+                "top_n": "10",
+                "residue": "q",
+                "length_max": "12",
+            },
+        )
+
+        with patch(
+            "apps.browser.stats.queries._build_codon_length_composition_bundle_from_rollup",
+            side_effect=AssertionError("rollup path should not run"),
+        ), patch(
+            "apps.browser.stats.queries._build_codon_length_composition_bundle_live",
+            return_value=(0, [], [], []),
+        ) as live_mock:
+            bundle = build_codon_length_composition_bundle(build_stats_filter_state(request))
+
+        self.assertEqual(bundle["matrix_rows"], [])
+        self.assertEqual(bundle["visible_codons"], [])
+        live_mock.assert_called_once()
+
+    def test_codon_length_composition_rollup_matches_live_bundle_for_default_scope(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        beta_long_call = self._create_repeat_call(
+            self.beta,
+            suffix="beta-long-q-rollup-parity",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.75,
+            length=17,
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            repeat_call=beta_long_call,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 2, "codon_fraction": 0.25},
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 6, "codon_fraction": 0.75},
+            ],
+        )
+        request = self.factory.get(
+            "/browser/codon-composition-length/",
+            {
+                "rank": "class",
+                "min_count": "1",
+                "top_n": "10",
+                "residue": "q",
+            },
+        )
+        filter_state = build_stats_filter_state(request)
+
+        with patch(
+            "apps.browser.stats.queries._can_use_codon_composition_length_summary_rollup",
+            return_value=False,
+        ):
+            live_bundle = build_codon_length_composition_bundle(filter_state)
+
+        cache.clear()
+        rebuild_canonical_codon_composition_summaries()
+        rebuild_canonical_codon_composition_length_summaries()
+        cache.clear()
+        rollup_bundle = build_codon_length_composition_bundle(filter_state)
+
+        self.assertEqual(rollup_bundle["matching_repeat_calls_count"], live_bundle["matching_repeat_calls_count"])
+        self.assertEqual(rollup_bundle["total_taxa_count"], live_bundle["total_taxa_count"])
+        self.assertEqual(rollup_bundle["visible_taxa_count"], live_bundle["visible_taxa_count"])
+        self.assertEqual(rollup_bundle["visible_codons"], live_bundle["visible_codons"])
+        self.assertEqual(
+            [row["label"] for row in rollup_bundle["visible_bins"]],
+            [row["label"] for row in live_bundle["visible_bins"]],
+        )
+        self.assertEqual(
+            self._flatten_codon_length_bundle(rollup_bundle),
+            self._flatten_codon_length_bundle(live_bundle),
+        )
+
+    def _flatten_codon_length_bundle(self, bundle):
+        return [
+            (
+                matrix_row["taxon_name"],
+                bin_row["bin"]["label"],
+                bin_row["observation_count"],
+                bin_row["species_count"],
+                bin_row["dominant_codon"],
+                bin_row["dominance_margin"],
+                tuple(
+                    (share_row["codon"], share_row["share"])
+                    for share_row in bin_row["codon_shares"]
+                ),
+            )
+            for matrix_row in bundle["matrix_rows"]
+            for bin_row in matrix_row["bin_rows"]
+        ]
 
     def test_ranked_taxon_group_query_respects_branch_scope_default_rank(self):
         primates = self.alpha["taxa"]["primates"]
@@ -279,6 +893,74 @@ class BrowserStatsTests(TestCase):
             second_bundle = build_ranked_length_summary_bundle(filter_state)
 
         self.assertEqual(second_bundle, first_bundle)
+
+    def test_length_profile_vector_bundle_reuses_visible_taxa_and_shared_length_bins(self):
+        self._create_repeat_call(
+            self.alpha,
+            suffix="alpha-extra",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.25,
+            length=17,
+        )
+        self._create_repeat_call(
+            self.beta,
+            suffix="beta-extra",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.75,
+            length=27,
+        )
+        request = self.factory.get(
+            "/browser/lengths/",
+            {
+                "rank": "species",
+                "min_count": "1",
+                "top_n": "10",
+            },
+        )
+        filter_state = build_stats_filter_state(request)
+
+        bundle = build_length_profile_vector_bundle(filter_state)
+
+        self.assertEqual(bundle["matching_repeat_calls_count"], 4)
+        self.assertEqual(bundle["visible_taxa_count"], 2)
+        self.assertEqual(
+            [length_bin["label"] for length_bin in bundle["visible_bins"]],
+            ["10-14", "15-19", "20-24", "25-29"],
+        )
+        self.assertEqual(
+            [
+                (
+                    row["taxon_name"],
+                    row["observation_count"],
+                    row["species_count"],
+                    row["length_profile"],
+                )
+                for row in bundle["profile_rows"]
+            ],
+            [
+                ("Homo sapiens", 2, 1, [0.5, 0.5, 0.0, 0.0]),
+                ("Mus musculus", 2, 1, [0.5, 0.0, 0.0, 0.5]),
+            ],
+        )
+        self.assertEqual(
+            [
+                [bin_row["count"] for bin_row in row["bin_counts"]]
+                for row in bundle["profile_rows"]
+            ],
+            [
+                [1, 1, 0, 0],
+                [1, 0, 0, 1],
+            ],
+        )
+        self.assertEqual(
+            bundle["profile_rows"][0]["length_counts"],
+            [
+                {"length": 11, "count": 1},
+                {"length": 17, "count": 1},
+            ],
+        )
 
     def test_imported_run_fixture_populates_residue_specific_codon_defaults(self):
         gamma = create_imported_run_fixture(
@@ -759,6 +1441,116 @@ class BrowserStatsTests(TestCase):
             ],
         )
 
+    def test_build_codon_overview_payload_uses_similarity_mode_for_multi_codon_residue(self):
+        payload = build_codon_overview_payload(
+            [
+                {
+                    "taxon_id": 1,
+                    "taxon_name": "Taxon A",
+                    "rank": "class",
+                    "observation_count": 3,
+                    "species_count": 2,
+                    "codon_shares": [
+                        {"codon": "AAA", "share": 1.0},
+                        {"codon": "AAG", "share": 0.0},
+                        {"codon": "AAC", "share": 0.0},
+                    ],
+                },
+                {
+                    "taxon_id": 2,
+                    "taxon_name": "Taxon B",
+                    "rank": "class",
+                    "observation_count": 4,
+                    "species_count": 3,
+                    "codon_shares": [
+                        {"codon": "AAA", "share": 0.0},
+                        {"codon": "AAG", "share": 1.0},
+                        {"codon": "AAC", "share": 0.0},
+                    ],
+                },
+            ],
+            visible_codons=["AAA", "AAG", "AAC"],
+        )
+
+        self.assertEqual(payload["mode"], "pairwise_similarity_matrix")
+        self.assertEqual(payload["displayMetric"], "similarity")
+        self.assertEqual(payload["visibleCodons"], ["AAA", "AAG", "AAC"])
+        self.assertEqual(payload["visibleTaxaCount"], 2)
+        self.assertEqual(payload["maxObservationCount"], 4)
+        self.assertEqual(payload["maxSpeciesCount"], 3)
+        self.assertEqual(payload["valueMin"], 0)
+        self.assertEqual(payload["valueMax"], 1)
+        self.assertEqual(
+            payload["taxa"],
+            [
+                {
+                    "taxonId": 1,
+                    "taxonName": "Taxon A",
+                    "rank": "class",
+                    "observationCount": 3,
+                    "speciesCount": 2,
+                    "rowIndex": 0,
+                    "columnIndex": 0,
+                },
+                {
+                    "taxonId": 2,
+                    "taxonName": "Taxon B",
+                    "rank": "class",
+                    "observationCount": 4,
+                    "speciesCount": 3,
+                    "rowIndex": 1,
+                    "columnIndex": 1,
+                },
+            ],
+        )
+        self.assertEqual(
+            payload["divergenceMatrix"],
+            [
+                [0.0, 1.0],
+                [1.0, 0.0],
+            ],
+        )
+
+    def test_build_typical_length_overview_payload_uses_divergence_mode(self):
+        rows = [
+            {
+                "taxon_id": 1,
+                "taxon_name": "Taxon A",
+                "rank": "class",
+                "observation_count": 3,
+                "species_count": 2,
+                "length_profile": [1.0, 0.0, 0.0],
+                "raw_lengths": [5, 10, 15],
+            },
+            {
+                "taxon_id": 2,
+                "taxon_name": "Taxon B",
+                "rank": "class",
+                "observation_count": 4,
+                "species_count": 3,
+                "length_profile": [0.0, 1.0, 0.0],
+                "raw_lengths": [20, 25, 30, 35],
+            },
+        ]
+        payload = build_typical_length_overview_payload(rows)
+
+        self.assertEqual(payload["mode"], "pairwise_similarity_matrix")
+        self.assertEqual(payload["displayMetric"], "divergence")
+        self.assertEqual(payload["visibleTaxaCount"], 2)
+        self.assertEqual(payload["maxObservationCount"], 4)
+        self.assertEqual(payload["maxSpeciesCount"], 3)
+        taxa = payload["taxa"]
+        self.assertEqual(taxa[0]["taxonId"], 1)
+        self.assertEqual(taxa[0]["rowIndex"], 0)
+        self.assertEqual(taxa[0]["columnIndex"], 0)
+        self.assertEqual(taxa[1]["rowIndex"], 1)
+        self.assertEqual(taxa[1]["columnIndex"], 1)
+        matrix = payload["divergenceMatrix"]
+        self.assertEqual(matrix[0][0], 0.0)
+        self.assertEqual(matrix[1][1], 0.0)
+        self.assertAlmostEqual(matrix[0][1], matrix[1][0], places=6)
+        self.assertGreater(matrix[0][1], 0.0)
+
     def test_order_taxon_rows_by_lineage_uses_curated_metazoa_order_for_root_linked_phyla(self):
         ordered_rows = order_taxon_rows_by_lineage(
             [
@@ -1157,3 +1949,277 @@ class BrowserStatsTests(TestCase):
             ],
         )
         self.assertEqual(bundle["summary_rows"], summary_rows)
+
+    def test_build_ccdf_points_builds_step_function_from_sorted_lengths(self):
+        points = build_ccdf_points([5, 10, 10, 20])
+
+        self.assertEqual(points, [
+            {"x": 5, "y": 1.0},
+            {"x": 10, "y": 0.75},
+            {"x": 20, "y": 0.25},
+        ])
+
+    def test_build_ccdf_points_returns_empty_for_empty_input(self):
+        self.assertEqual(build_ccdf_points([]), [])
+
+    def test_build_ccdf_points_always_includes_first_and_last_when_downsampling(self):
+        lengths = list(range(1, 1002))
+        points = build_ccdf_points(lengths, max_points=10)
+
+        self.assertLessEqual(len(points), 10)
+        self.assertEqual(points[0]["x"], 1)
+        self.assertEqual(points[0]["y"], 1.0)
+        self.assertEqual(points[-1]["x"], 1001)
+        self.assertAlmostEqual(points[-1]["y"], 1 / 1001, places=5)
+
+    def test_build_length_inspect_bundle_returns_empty_for_no_matching_calls(self):
+        filter_state = build_stats_filter_state(
+            self.factory.get("/browser/lengths/", {"q": "NOMATCH_XXXXXX"})
+        )
+
+        bundle = build_length_inspect_bundle(filter_state)
+
+        self.assertEqual(bundle["observation_count"], 0)
+        self.assertEqual(bundle["ccdf_points"], [])
+        self.assertIsNone(bundle["median"])
+        self.assertIsNone(bundle["max"])
+
+    def test_build_length_inspect_bundle_returns_ccdf_and_quantiles_for_branch_scope(self):
+        self._create_repeat_call(
+            self.alpha,
+            suffix="inspect-len-a",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.5,
+            length=15,
+        )
+        self._create_repeat_call(
+            self.alpha,
+            suffix="inspect-len-b",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.5,
+            length=20,
+        )
+        filter_state = build_stats_filter_state(
+            self.factory.get(
+                "/browser/lengths/",
+                {
+                    "branch": str(self.alpha["taxa"]["primates"].pk),
+                    "min_count": "1",
+                },
+            )
+        )
+
+        bundle = build_length_inspect_bundle(filter_state)
+
+        self.assertEqual(bundle["observation_count"], 3)
+        self.assertEqual(bundle["ccdf_points"], [
+            {"x": 11, "y": 1.0},
+            {"x": 15, "y": round(2 / 3, 6)},
+            {"x": 20, "y": round(1 / 3, 6)},
+        ])
+        self.assertEqual(bundle["median"], 15)
+        self.assertEqual(bundle["max"], 20)
+
+    def test_build_length_inspect_payload_shapes_bundle_for_frontend(self):
+        bundle = {
+            "observation_count": 5,
+            "ccdf_points": [{"x": 10, "y": 1.0}, {"x": 20, "y": 0.4}],
+            "median": 15,
+            "q90": 19,
+            "q95": 20,
+            "max": 20,
+        }
+
+        payload = build_length_inspect_payload(bundle, scope_label="Primates")
+
+        self.assertEqual(payload["scopeLabel"], "Primates")
+        self.assertEqual(payload["observationCount"], 5)
+        self.assertEqual(payload["ccdfPoints"], bundle["ccdf_points"])
+        self.assertEqual(payload["median"], 15)
+        self.assertEqual(payload["q90"], 19)
+        self.assertEqual(payload["q95"], 20)
+        self.assertEqual(payload["max"], 20)
+
+    def test_build_length_inspect_payload_returns_empty_shape_for_empty_bundle(self):
+        payload = build_length_inspect_payload(
+            {"observation_count": 0, "ccdf_points": [], "median": None, "q90": None, "q95": None, "max": None},
+            scope_label="Empty branch",
+        )
+
+        self.assertEqual(payload["observationCount"], 0)
+        self.assertEqual(payload["ccdfPoints"], [])
+        self.assertIsNone(payload["median"])
+
+
+class LengthOverviewMetricsTests(TestCase):
+    # ---- Wasserstein-1 distance ----
+
+    def test_wasserstein1_zero_for_identical_inputs(self):
+        self.assertEqual(_compute_wasserstein1_distance([5, 10, 15], [5, 10, 15]), 0.0)
+
+    def test_wasserstein1_symmetry(self):
+        a = [5, 10, 15]
+        b = [20, 30, 40]
+        self.assertAlmostEqual(
+            _compute_wasserstein1_distance(a, b),
+            _compute_wasserstein1_distance(b, a),
+            places=6,
+        )
+
+    def test_wasserstein1_completely_separated_distributions(self):
+        # a all at 1, b all at 50 (at l_cap); integral of |CDF_a - CDF_b| from 1→50 = 49, /50 = 0.98
+        result = _compute_wasserstein1_distance([1, 1, 1], [50, 50, 50])
+        self.assertAlmostEqual(result, 0.98, places=4)
+
+    def test_wasserstein1_outlier_clamped_not_filtered(self):
+        # 500 gets clamped to 50, not removed — creates a detectable shift
+        result_with_outlier = _compute_wasserstein1_distance([5, 5, 5, 500], [5, 5, 5, 5])
+        self.assertGreater(result_with_outlier, 0.0)
+        self.assertLessEqual(result_with_outlier, 1.0)
+
+    def test_wasserstein1_returns_zero_for_empty_inputs(self):
+        self.assertEqual(_compute_wasserstein1_distance([], []), 0.0)
+        self.assertEqual(_compute_wasserstein1_distance([], [10, 20]), 0.0)
+
+    def test_wasserstein1_result_in_unit_interval(self):
+        result = _compute_wasserstein1_distance([5, 10, 15], [20, 30, 40])
+        self.assertGreaterEqual(result, 0.0)
+        self.assertLessEqual(result, 1.0)
+
+    def test_wasserstein1_concrete_value(self):
+        # a=[5,10,15] b=[20,30,40] l_cap=50 → W1=20 → normalized=0.4 (verified analytically)
+        result = _compute_wasserstein1_distance([5, 10, 15], [20, 30, 40])
+        self.assertAlmostEqual(result, 0.4, places=5)
+
+    # ---- Tail feature vector ----
+
+    def test_tail_feature_all_short_lengths(self):
+        vec = _compute_tail_feature_vector([5, 10, 15, 20])
+        self.assertEqual(vec[0], 0.0)  # p(L>20)
+        self.assertEqual(vec[1], 0.0)  # p(L>30)
+        self.assertEqual(vec[2], 0.0)  # p(L>50)
+
+    def test_tail_feature_threshold_boundaries_strict(self):
+        # strict >: 20 is NOT > 20, 21,30,31,50,51 are → 5/6
+        # 30 is NOT > 30, 31,50,51 are → 3/6
+        # 50 is NOT > 50, 51 is → 1/6
+        vec = _compute_tail_feature_vector([20, 21, 30, 31, 50, 51])
+        self.assertAlmostEqual(vec[0], 5 / 6, places=5)  # p(L>20)
+        self.assertAlmostEqual(vec[1], 3 / 6, places=5)  # p(L>30)
+        self.assertAlmostEqual(vec[2], 1 / 6, places=5)  # p(L>50)
+
+    def test_tail_feature_empty_list(self):
+        self.assertEqual(_compute_tail_feature_vector([]), [0.0, 0.0, 0.0, 0.0])
+
+    def test_tail_feature_q95_capped_at_one(self):
+        # q95 >> l_cap=50, normalized should cap at 1.0
+        vec = _compute_tail_feature_vector([300, 300, 300, 300, 300])
+        self.assertEqual(vec[3], 1.0)
+
+    def test_tail_feature_q95_normalized_by_l_cap(self):
+        # All lengths = 25; q95 = 25; 25/50 = 0.5
+        vec = _compute_tail_feature_vector([25] * 10)
+        self.assertAlmostEqual(vec[3], 0.5, places=5)
+
+    # ---- L1 tail distance ----
+
+    def test_l1_tail_distance_zero_for_identical(self):
+        self.assertEqual(_compute_l1_tail_distance([0.3, 0.2, 0.1, 0.4], [0.3, 0.2, 0.1, 0.4]), 0.0)
+
+    def test_l1_tail_distance_symmetry(self):
+        a = [0.8, 0.5, 0.2, 0.9]
+        b = [0.1, 0.3, 0.0, 0.4]
+        self.assertAlmostEqual(
+            _compute_l1_tail_distance(a, b),
+            _compute_l1_tail_distance(b, a),
+            places=6,
+        )
+
+    def test_l1_tail_distance_max_value(self):
+        # all-ones vs all-zeros → sum = 4, /4 = 1.0
+        self.assertAlmostEqual(
+            _compute_l1_tail_distance([1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 0.0]),
+            1.0,
+            places=6,
+        )
+
+    # ---- Pairwise matrix builders ----
+
+    def _make_rows(self, lengths_list):
+        return [
+            {"raw_lengths": lengths, "taxon_id": i, "taxon_name": f"T{i}",
+             "rank": "class", "observation_count": len(lengths), "species_count": 1,
+             "length_profile": []}
+            for i, lengths in enumerate(lengths_list)
+        ]
+
+    def test_wasserstein_matrix_zero_diagonal(self):
+        rows = self._make_rows([[5, 10, 15], [20, 25, 30], [35, 40, 45]])
+        matrix = build_wasserstein_pairwise_matrix(rows)
+        for i in range(3):
+            self.assertEqual(matrix[i][i], 0.0)
+
+    def test_wasserstein_matrix_symmetric(self):
+        rows = self._make_rows([[5, 10, 15], [20, 25, 30], [35, 40, 45]])
+        matrix = build_wasserstein_pairwise_matrix(rows)
+        for i in range(3):
+            for j in range(3):
+                self.assertAlmostEqual(matrix[i][j], matrix[j][i], places=6)
+
+    def test_tail_matrix_zero_diagonal(self):
+        rows = self._make_rows([[5, 10, 15], [20, 25, 30]])
+        matrix = build_tail_pairwise_matrix(rows)
+        for i in range(2):
+            self.assertEqual(matrix[i][i], 0.0)
+
+    def test_tail_matrix_symmetric(self):
+        rows = self._make_rows([[5, 10, 15], [20, 25, 60], [100, 200, 300]])
+        matrix = build_tail_pairwise_matrix(rows)
+        for i in range(3):
+            for j in range(3):
+                self.assertAlmostEqual(matrix[i][j], matrix[j][i], places=6)
+
+    # ---- Payload shapes ----
+
+    def test_build_typical_length_overview_payload_shape(self):
+        rows = self._make_rows([[5, 10, 15], [20, 30, 40]])
+        payload = build_typical_length_overview_payload(rows)
+        self.assertEqual(payload["mode"], "pairwise_similarity_matrix")
+        self.assertEqual(payload["displayMetric"], "divergence")
+        self.assertEqual(payload["visibleTaxaCount"], 2)
+        matrix = payload["divergenceMatrix"]
+        self.assertEqual(matrix[0][0], 0.0)
+        self.assertEqual(matrix[1][1], 0.0)
+        self.assertAlmostEqual(matrix[0][1], matrix[1][0], places=6)
+        taxa = payload["taxa"]
+        self.assertIn("rowIndex", taxa[0])
+        self.assertIn("columnIndex", taxa[0])
+
+    def test_build_tail_burden_overview_payload_shape(self):
+        rows = self._make_rows([[5, 10, 15], [100, 200, 300]])
+        payload = build_tail_burden_overview_payload(rows)
+        self.assertEqual(payload["mode"], "pairwise_similarity_matrix")
+        self.assertEqual(payload["displayMetric"], "divergence")
+        matrix = payload["divergenceMatrix"]
+        self.assertEqual(matrix[0][0], 0.0)
+        self.assertEqual(matrix[1][1], 0.0)
+        self.assertAlmostEqual(matrix[0][1], matrix[1][0], places=6)
+        self.assertGreater(matrix[0][1], 0.0)
+
+    def test_both_overview_payloads_return_empty_shape_for_empty_rows(self):
+        for builder in (build_typical_length_overview_payload, build_tail_burden_overview_payload):
+            payload = builder([])
+            self.assertEqual(payload["mode"], "pairwise_similarity_matrix")
+            self.assertEqual(payload["displayMetric"], "divergence")
+            self.assertEqual(payload["divergenceMatrix"], [])
+            self.assertEqual(payload["visibleTaxaCount"], 0)
+
+    def test_typical_and_tail_payloads_produce_different_matrices(self):
+        # Same central lengths, but one taxon has a very long tail → matrices differ
+        rows = self._make_rows([[10, 12, 14, 16], [10, 12, 14, 200]])
+        typical_matrix = build_typical_length_overview_payload(rows)["divergenceMatrix"]
+        tail_matrix = build_tail_burden_overview_payload(rows)["divergenceMatrix"]
+        # The off-diagonal value should differ between the two metrics
+        self.assertNotAlmostEqual(typical_matrix[0][1], tail_matrix[0][1], places=3)

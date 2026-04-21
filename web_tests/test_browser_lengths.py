@@ -113,6 +113,7 @@ class BrowserLengthExplorerTests(TestCase):
         self.assertEqual(response.context["chart_payload"]["visibleTaxaCount"], 0)
         self.assertContains(response, 'id="repeat-length-chart-payload"')
         self.assertContains(response, 'id="repeat-length-chart"')
+        self.assertContains(response, "stats-chart-shell.js")
         self.assertContains(response, "repeat-length-explorer.js")
         self.assertContains(response, "echarts.min.js")
         self.assertContains(response, "Ranked length distributions for the visible taxa")

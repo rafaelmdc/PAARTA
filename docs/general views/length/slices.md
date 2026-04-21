@@ -1,179 +1,367 @@
 # Length Viewer Slices
 
-## Goal
+## Status
 
-Align the implemented length explorer with the new general-views architecture
-without rewriting working code unnecessarily.
+The current branch already ships the length browse baseline at
+`/browser/lengths/`.
 
-## Already complete baseline
+This implementation track adds the missing overview and inspect layers while
+reusing as much of the codon-composition browser stack as possible.
 
-These slices are already effectively done and should be treated as the starting
-point, not re-implementation work:
+Core decisions:
 
-### `L0.1` Shared stats foundation exists
+- overview is a codon-style pairwise `Taxon x Taxon` heatmap
+- visible taxa are presented in lineage order across overview, browse, and
+  grouped table
+- inspect is branch-scoped only in the first pass
+- inspect uses a CCDF as the first chart
 
-- `apps/browser/views/stats/lengths.py`
-- `apps/browser/stats/filters.py`
-- `apps/browser/stats/queries.py`
-- `apps/browser/stats/summaries.py`
-- `apps/browser/stats/payloads.py`
+Boundary rule:
 
-### `L0.2` Browse page exists
+- keep one browser stats stack in `apps/browser/stats/`
+- do not build a length-only tree widget or a second heatmap framework
+- only extract shared helpers that codon and length both consume immediately
 
-- `/browser/lengths/`
-- server-rendered grouped summary table
-- page-local chart payload and JS
+## Phase 1: Reuse Seams First
 
-### `L0.3` Navigation and handoffs exist
-
-- browser home discoverability
-- taxon, protein, and repeat-call handoffs
-- branch drill-down within the explorer
-
-## Next slices
-
-### `L1` Document the current page as the official Tier 2 baseline
+### `L1` Freeze the current length browse baseline
 
 Goal:
 
-- stop treating the length explorer as a one-off page
+- treat the live length page as the correct Tier 2 baseline
 
 Scope:
 
-- align docs and page copy with the `Overview / Browse / Inspect` model
-- treat the current ranked explorer as `Tier 2 - Browse`
+- keep the current boxplot browse chart
+- keep the grouped HTML table
+- keep current branch drill-down and taxon-detail handoffs
 
 Exit criteria:
 
-- the project docs consistently describe `/browser/lengths/` as the length
-  browse layer
+- no product rewrite of browse happens before overview work
 
-### `L2` Extract only the first proven shared helpers
+### `L2` Extract a shared backend pairwise-overview payload seam
 
 Goal:
 
-- prepare for codon viewer reuse without broad refactoring
+- reuse one bounded pairwise matrix payload contract across codon and length
 
 Scope:
 
-- move repeated stats-page context assembly into a small shared helper or mixin
-- extract any duplicated template partials only if the codon-composition viewer
-  immediately reuses them
+- extract a private shared helper in `apps/browser/stats/payloads.py`
+- keep the common pairwise shell in that helper:
+  - `mode`
+  - `taxa`
+  - `divergenceMatrix`
+  - visible-taxa metadata
+  - value range metadata
+- keep the current codon payload shape stable
 
 Exit criteria:
 
-- shared abstractions exist only where length and codon already overlap
+- codon still emits the same public overview payload
+- length can build on the same pairwise payload seam
 
-### `L3` Add reusable lineage-aware taxon ordering
+### `L3` Extract a shared frontend pairwise-overview renderer
 
 Goal:
 
-- make the future overview page biologically coherent
+- reuse the codon overview shell instead of cloning it into length JS
 
 Scope:
 
-- add one shared lineage-order helper for overview viewers
-- keep the current browse page behavior stable unless the new helper is adopted
-  explicitly
+- extract the pairwise overview rendering path from
+  `static/js/repeat-codon-ratio-explorer.js`
+- keep shared behavior in the extracted seam:
+  - square matrix layout
+  - y-axis zoom
+  - visible-window matrix slicing
+  - wheel navigation
+  - large-window styling fallback
+  - taxonomy-gutter attachment hooks
+- continue using `static/js/taxonomy-gutter.js` unchanged
 
 Exit criteria:
 
-- the overview tier will not need page-local taxon-ordering logic
+- codon still renders through the shared seam
+- length can mount the same pairwise shell with a different payload
 
-### `L4` Add length-bin summary queries
+## Phase 2: Length Overview Backend
+
+### `L4` Build bounded per-taxon length profile vectors
 
 Goal:
 
-- support the length overview without changing the browse page contract
+- represent each visible taxon as one normalized length-distribution profile
 
 Scope:
 
-- add grouped bin counts by display taxon and length bin
-- keep the same normalized stats filter contract
-- return bounded, aggregated rows only
-
-Tests:
-
-- broad scope bin counts
-- branch-scoped bin counts
-- bin filtering under method, residue, and length constraints
+- start from the same visible taxa selected by the length summary bundle
+- build one bounded length profile per visible taxon in `apps/browser/stats/`
+- keep the length-bin definition internal to the stats layer
 
 Exit criteria:
 
-- backend data exists for a `Taxon x Length-bin` overview
+- each visible taxon has one stable vector suitable for pairwise comparison
 
-### `L5` Add a server-rendered overview fallback
+### `L5` Build the length pairwise overview payload
 
 Goal:
 
-- prove the overview semantics before wiring the taxonomy-first chart layer
+- emit the length overview through the shared pairwise payload seam
 
 Scope:
 
-- render a simple HTML fallback summary for visible taxon/bin combinations
-- keep no-JS output meaningful
+- compute pairwise divergence from the bounded length profiles
+- expose similarity as `1 - Jensen-Shannon divergence`
+- emit the same taxon metadata shape expected by the shared frontend renderer
+- build the taxonomy gutter payload from the same visible lineage-ordered rows
 
 Exit criteria:
 
-- the overview tier is understandable even before chart wiring
+- the backend can emit a complete pairwise overview payload for length
 
-### `L6` Add the Tier 1 taxonomy-first hex overview
+### `L6` Wire overview context into `RepeatLengthExplorerView`
 
 Goal:
 
-- deliver the scalable overview page for length
+- expose the new overview contract to the length template
 
 Scope:
 
-- ECharts taxonomy-first hex overview using the shared bin payload
-- lineage-aware row order on the taxonomy axis
-- tooltip with taxon, bin, and count information
-- shared overview shell conventions aligned with the codon viewers
-
-Tests:
-
-- payload shape
-- page-local asset loading
-- empty-state behavior
+- add overview payload context
+- add overview taxonomy-gutter payload context
+- keep the existing browse payload and links intact
 
 Exit criteria:
 
-- length has a real overview tier, not just a browse page
+- the length template receives overview data without changing route or filter
+  semantics
 
-### `L7` Add Tier 3 inspect charts
+## Phase 3: Length Page Shell
+
+### `L7` Add the overview section to the length template
 
 Goal:
 
-- support taxon- or branch-level inspection without leaving the viewer family
+- give the length page the same top-level overview card pattern as codon
 
 Scope:
 
-- histogram and boxplot-style detail charts
-- one selected taxon, branch, or filtered subset at a time
-- reuse the same normalized filter state
-
-Tests:
-
-- inspect page with no JS
-- inspect payload for one branch
-- handoff from browse row into inspect state
+- add overview card copy
+- add overview payload script tag
+- add overview taxonomy-gutter payload script tag
+- add overview chart container
+- include the taxonomy-gutter script
 
 Exit criteria:
 
-- length now spans all three tiers
+- the template is ready to mount the pairwise overview
 
-### `L8` Final polish and discoverability alignment
+### `L8` Mount the shared pairwise overview renderer on the length page
 
 Goal:
 
-- make the three tiers feel intentional and connected
+- render the pairwise overview using the codon-style shell
 
 Scope:
 
-- tier navigation or view-mode switching
-- consistent copy on browser home and handoff links
-- docs updates if implementation details changed while landing the slices
+- mount the shared pairwise heatmap renderer from `repeat-length-explorer.js`
+- reuse left and bottom taxonomy trees
+- reuse visible-window rendering for large matrices
 
 Exit criteria:
 
-- length is fully aligned with the general-views model
+- the length overview renders with the same behavioral shell as codon
+
+## Phase 4: Browse Alignment And Overview Freeze
+
+### `L9` Make lineage order the shared visible-order contract
+
+Goal:
+
+- align the visible order across all length page layers
+
+Scope:
+
+- use lineage order for:
+  - overview axes
+  - taxonomy gutter
+  - browse chart rows
+  - grouped table rows
+- keep any count-ranked selection internal to candidate selection only
+
+Exit criteria:
+
+- overview, browse, and table describe the same visible taxon ordering
+
+### `L10` Freeze overview plus browse behavior
+
+Goal:
+
+- stabilize the shared overview shell before adding inspect
+
+Scope:
+
+- keep the codon-style pairwise overview as the fixed reuse baseline
+- avoid mixing inspect work into unresolved overview behavior
+
+Exit criteria:
+
+- overview and browse are stable enough to build inspect on top
+
+## Phase 5: Length Inspect Backend
+
+### `L11` Add a branch-scoped length inspect bundle
+
+Goal:
+
+- add one cached inspect bundle that matches the existing stats-page pattern
+
+Scope:
+
+- add a bundle builder in `apps/browser/stats/queries.py`
+- add a payload builder in `apps/browser/stats/payloads.py`
+- activate only when branch scope is active
+- expose:
+  - scope label
+  - observation count
+  - CCDF points
+  - median
+  - upper quantiles
+  - max
+
+Exit criteria:
+
+- the backend can emit one bounded inspect contract without sending raw repeat
+  rows to the page
+
+### `L12` Add small shared numeric inspect helpers
+
+Goal:
+
+- keep inspect shaping out of the view and keep it reusable
+
+Scope:
+
+- add narrow helpers for CCDF point shaping and metric normalization in
+  `apps/browser/stats/`
+- keep extraction small enough that it does not become a generic chart
+  framework
+
+Exit criteria:
+
+- inspect bundle shaping is reusable and stays in the stats layer
+
+### `L13` Wire inspect context into `RepeatLengthExplorerView`
+
+Goal:
+
+- expose inspect state through the same pattern already used by codon
+
+Scope:
+
+- add:
+  - `inspect_scope_active`
+  - `inspect_payload`
+  - `inspect_payload_id`
+  - `inspect_chart_container_id`
+  - inspect summary values
+  - inspect empty reason
+- reuse existing branch-scope label conventions
+
+Exit criteria:
+
+- the length template can render inspect only when branch scope is active
+
+## Phase 6: Length Inspect UI
+
+### `L14` Add the inspect section to the length template
+
+Goal:
+
+- add a lightweight Tier 3 shell without changing the page contract
+
+Scope:
+
+- place inspect after the grouped taxa section
+- render it only when branch scope is active
+- include:
+  - one CCDF chart container
+  - a small metric row
+  - a fallback HTML table
+  - a clear empty state
+
+Exit criteria:
+
+- inspect has a server-rendered fallback and a stable mount point
+
+### `L15` Add the CCDF inspect renderer to `repeat-length-explorer.js`
+
+Goal:
+
+- render the first inspect chart with minimal new frontend code
+
+Scope:
+
+- add one payload parser path
+- add one CCDF mount function
+- add page-local resize handling
+- keep the first inspect chart single-series and branch-scoped
+
+Exit criteria:
+
+- the length page renders one tail-aware inspect chart when inspect payload is
+  present
+
+### `L16` Freeze the first inspect MVP
+
+Goal:
+
+- stop the inspect layer before scope creep
+
+Scope:
+
+- keep inspect at:
+  - branch-scoped CCDF
+  - summary metrics
+  - fallback table
+- defer:
+  - histogram companion chart
+  - parent/global comparison overlays
+  - richer inspect controls
+
+Exit criteria:
+
+- the first length inspect layer is complete and bounded
+
+## Test Plan
+
+- Codon regression checks:
+  - shared payload extraction does not change codon overview payload shape
+  - shared overview extraction does not change codon taxonomy-gutter behavior
+  - codon inspect behavior remains unchanged
+- Length overview checks:
+  - overview uses the same bounded visible taxa selected by the page filters
+  - visible taxa are lineage-ordered
+  - the pairwise matrix is square and stable for empty and small result sets
+  - grouped table, browse chart, overview, and gutter all use the same visible
+    taxon order
+- Length inspect checks:
+  - inspect activates only under branch scope
+  - inspect payload stays aggregated and bounded
+  - CCDF payload is valid for empty, small, and larger branch scopes
+  - inspect summary values match the filtered branch subset
+  - no-JS fallback remains meaningful
+- Frontend checks:
+  - overview uses the same visible-window strategy as codon for large matrices
+  - left and bottom taxonomy gutters stay aligned during zoom and resize
+  - inspect chart mounts only when payload exists
+  - `node --check` passes for affected JS files
+
+## Deferred After This Track
+
+- length inspect comparison overlays against parent or global scope
+- histogram companion inspect chart
+- additional browse controls beyond the current boxplot baseline
+- any redesign away from the codon-style pairwise overview shell

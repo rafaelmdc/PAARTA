@@ -102,6 +102,7 @@ class BrowserCodonRatioExplorerTests(TestCase):
         self.assertContains(response, "Pairwise codon similarity map")
         self.assertContains(response, "Stacked codon composition for the visible taxa")
         self.assertContains(response, "Select a residue to browse codon composition.")
+        self.assertContains(response, "stats-chart-shell.js")
         self.assertContains(response, "taxonomy-gutter.js")
         self.assertContains(response, "repeat-codon-ratio-explorer.js")
         self.assertContains(response, "echarts.min.js")

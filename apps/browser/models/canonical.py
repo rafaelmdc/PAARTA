@@ -359,3 +359,73 @@ class CanonicalCodonCompositionSummary(TimestampedModel):
         return (
             f"{self.repeat_residue}:{self.display_rank}:{self.display_taxon_name}:{self.codon}"
         )
+
+
+class CanonicalCodonCompositionLengthSummary(TimestampedModel):
+    repeat_residue = models.CharField(max_length=16)
+    display_rank = models.CharField(max_length=64)
+    display_taxon = models.ForeignKey(
+        "Taxon",
+        on_delete=models.CASCADE,
+        related_name="canonical_codon_composition_length_summaries",
+    )
+    display_taxon_name = models.CharField(max_length=255)
+    length_bin_start = models.PositiveIntegerField()
+    observation_count = models.PositiveIntegerField()
+    species_count = models.PositiveIntegerField()
+    codon = models.CharField(max_length=16)
+    codon_share = models.FloatField()
+
+    class Meta:
+        ordering = [
+            "repeat_residue",
+            "display_rank",
+            "-observation_count",
+            "display_taxon_name",
+            "display_taxon_id",
+            "length_bin_start",
+            "codon",
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "repeat_residue",
+                    "display_rank",
+                    "display_taxon",
+                    "length_bin_start",
+                    "codon",
+                ],
+                name="brw_cccls_unique_scope",
+            ),
+            models.CheckConstraint(
+                condition=Q(codon_share__gte=0) & Q(codon_share__lte=1),
+                name="brw_cccls_share_0_1",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=[
+                    "repeat_residue",
+                    "display_rank",
+                    "observation_count",
+                    "display_taxon_name",
+                    "display_taxon",
+                ],
+                name="brw_cccls_browse_idx",
+            ),
+            models.Index(
+                fields=[
+                    "repeat_residue",
+                    "display_rank",
+                    "display_taxon",
+                    "length_bin_start",
+                ],
+                name="brw_cccls_taxbin_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.repeat_residue}:{self.display_rank}:{self.display_taxon_name}:"
+            f"{self.length_bin_start}:{self.codon}"
+        )

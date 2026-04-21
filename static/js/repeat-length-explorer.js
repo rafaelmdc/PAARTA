@@ -4,6 +4,8 @@
   const MEDIAN_COLOR = "#d06e37";
   const CHART_MODE_FOCUSED = "focused";
   const CHART_MODE_FULL_RANGE = "full-range";
+  const OVERVIEW_MODE_TYPICAL = "typical";
+  const OVERVIEW_MODE_TAIL = "tail";
   const GRID_COLOR = "rgba(23, 36, 44, 0.1)";
   const MAX_VISIBLE_ROWS_WITH_TAXON_LABELS = 24;
   const PENDING_SCROLL_KEY = "repeat-length-explorer:pending-scroll";
@@ -322,7 +324,18 @@
     return sum / rows.length;
   }
 
-  function buildChartOption(payload, mode, zoomState) {
+  function xZoomStateFromChart(chart) {
+    const dataZoom = chart.getOption().dataZoom;
+    if (!Array.isArray(dataZoom)) return { start: 0, end: 100 };
+    const xZoom = dataZoom.find((z) => z.id === "length-x-slider");
+    if (!xZoom) return { start: 0, end: 100 };
+    return {
+      start: typeof xZoom.start === "number" ? xZoom.start : 0,
+      end: typeof xZoom.end === "number" ? xZoom.end : 100,
+    };
+  }
+
+  function buildChartOption(payload, mode, zoomState, xZoomState = { start: 0, end: 100 }) {
     if (!Array.isArray(payload.rows) || payload.rows.length === 0) {
       return buildEmptyOption(payload);
     }
@@ -349,7 +362,7 @@
         left: 188,
         right: needsZoom ? 56 : 20,
         top: 16,
-        bottom: 56,
+        bottom: 84,
         containLabel: false,
       },
       tooltip: {
@@ -370,8 +383,7 @@
       },
       xAxis: {
         type: "value",
-        min: xMin,
-        max: xMax,
+        scale: true,
         name: "Repeat length",
         nameGap: 22,
         nameLocation: "middle",
@@ -429,44 +441,81 @@
           },
         },
       },
-      dataZoom: needsZoom
-        ? [
-            {
-              type: "inside",
-              yAxisIndex: 0,
-              zoomOnMouseWheel: false,
-              moveOnMouseMove: true,
-              moveOnMouseWheel: false,
-              startValue: normalizedZoomState.startValue,
-              endValue: normalizedZoomState.endValue,
+      dataZoom: [
+        ...(needsZoom ? [
+          {
+            type: "inside",
+            yAxisIndex: 0,
+            zoomOnMouseWheel: false,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+            startValue: normalizedZoomState.startValue,
+            endValue: normalizedZoomState.endValue,
+          },
+          {
+            type: "slider",
+            yAxisIndex: 0,
+            filterMode: "empty",
+            right: 8,
+            width: 14,
+            top: 24,
+            bottom: 88,
+            brushSelect: false,
+            zoomOnMouseWheel: false,
+            startValue: normalizedZoomState.startValue,
+            endValue: normalizedZoomState.endValue,
+            fillerColor: "rgba(15, 89, 100, 0.16)",
+            borderColor: "rgba(23, 36, 44, 0.08)",
+            handleStyle: {
+              color: BOX_BORDER,
+              borderColor: BOX_BORDER,
             },
-            {
-              type: "slider",
-              yAxisIndex: 0,
-              filterMode: "empty",
-              right: 8,
-              width: 14,
-              top: 24,
-              bottom: 64,
-              brushSelect: false,
-              zoomOnMouseWheel: false,
-              startValue: normalizedZoomState.startValue,
-              endValue: normalizedZoomState.endValue,
-              fillerColor: "rgba(15, 89, 100, 0.16)",
-              borderColor: "rgba(23, 36, 44, 0.08)",
-              handleStyle: {
-                color: BOX_BORDER,
-                borderColor: BOX_BORDER,
-              },
-              moveHandleStyle: {
-                color: BOX_BORDER,
-              },
-              textStyle: {
-                color: MUTED_TEXT_COLOR,
-              },
+            moveHandleStyle: {
+              color: BOX_BORDER,
             },
-          ]
-        : [],
+            textStyle: {
+              color: MUTED_TEXT_COLOR,
+            },
+          },
+        ] : []),
+        {
+          id: "length-x-inside",
+          type: "inside",
+          xAxisIndex: 0,
+          filterMode: "none",
+          zoomOnMouseWheel: false,
+          moveOnMouseMove: false,
+          moveOnMouseWheel: false,
+          start: xZoomState.start,
+          end: xZoomState.end,
+        },
+        {
+          id: "length-x-slider",
+          type: "slider",
+          xAxisIndex: 0,
+          filterMode: "none",
+          left: 188,
+          right: needsZoom ? 56 : 20,
+          bottom: 8,
+          height: 12,
+          brushSelect: false,
+          zoomOnMouseWheel: false,
+          start: xZoomState.start,
+          end: xZoomState.end,
+          fillerColor: "rgba(15, 89, 100, 0.16)",
+          borderColor: "rgba(23, 36, 44, 0.08)",
+          handleStyle: {
+            color: BOX_BORDER,
+            borderColor: BOX_BORDER,
+          },
+          moveHandleStyle: {
+            color: BOX_BORDER,
+          },
+          textStyle: {
+            color: MUTED_TEXT_COLOR,
+          },
+        },
+      ],
       series: [
         {
           name: "Repeat length distribution",
@@ -647,6 +696,86 @@
     }, { passive: false, capture: true });
   }
 
+  function mountLengthOverview() {
+    const container = document.getElementById("length-overview");
+    const typicalPayload = parsePayload("length-overview-typical-payload");
+    const tailPayload = parsePayload("length-overview-tail-payload");
+    const taxonomyGutterPayload = parsePayload("length-overview-taxonomy-gutter-payload");
+    const pairwiseOverviewApi = window.HomorepeatPairwiseOverview;
+    if (
+      !container
+      || typeof window.echarts === "undefined"
+      || !pairwiseOverviewApi
+      || typeof pairwiseOverviewApi.renderPairwiseOverview !== "function"
+    ) {
+      return;
+    }
+    if (!typicalPayload && !tailPayload) return;
+
+    const overviewModeButtons = Array.from(document.querySelectorAll("[data-overview-mode-button]"));
+    const overviewDescriptions = Array.from(document.querySelectorAll("[data-overview-description]"));
+    let currentMode = OVERVIEW_MODE_TYPICAL;
+
+    function syncOverviewModeButtons() {
+      overviewModeButtons.forEach((btn) => {
+        const isActive = btn.dataset.overviewMode === currentMode;
+        btn.classList.toggle("btn-brand", isActive);
+        btn.classList.toggle("btn-outline-secondary", !isActive);
+        btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+      overviewDescriptions.forEach((el) => {
+        el.hidden = el.dataset.overviewMode !== currentMode;
+      });
+    }
+
+    function makeTooltipFormatter(distanceLabel) {
+      return function (params) {
+        const cell = params.data || {};
+        const isSelf = cell.rowTaxonId === cell.columnTaxonId;
+        return [
+          `<strong>${cell.rowTaxonName}</strong> x <strong>${cell.columnTaxonName}</strong>`,
+          `${distanceLabel}: ${typeof cell.divergence === "number" ? cell.divergence.toFixed(4) : "—"}`,
+          `Species support: ${cell.rowSpeciesCount} vs ${cell.columnSpeciesCount}`,
+          `Calls: ${cell.rowObservationCount} vs ${cell.columnObservationCount}`,
+          isSelf ? "Self-comparison: identical by definition." : "",
+        ].filter(Boolean).join("<br>");
+      };
+    }
+
+    const TOOLTIP_FORMATTERS = {
+      [OVERVIEW_MODE_TYPICAL]: makeTooltipFormatter("W1 distance"),
+      [OVERVIEW_MODE_TAIL]: makeTooltipFormatter("Tail L1 distance"),
+    };
+
+    function renderOverview(payload) {
+      const existing = window.echarts.getInstanceByDom(container);
+      if (existing) existing.dispose();
+      pairwiseOverviewApi.renderPairwiseOverview({
+        container,
+        payload,
+        taxonomyGutterPayload,
+        distanceScaleStorageKey: `length-overview:scale:${currentMode}`,
+        emptyStateMessages: { similarity: "No visible taxon distance cells." },
+        emptyStateDetail: "Adjust the filters to populate the overview.",
+        similarityTooltipFormatter: TOOLTIP_FORMATTERS[currentMode],
+      });
+    }
+
+    overviewModeButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const requested = btn.dataset.overviewMode;
+        if (requested !== OVERVIEW_MODE_TYPICAL && requested !== OVERVIEW_MODE_TAIL) return;
+        if (requested === currentMode) return;
+        currentMode = requested;
+        syncOverviewModeButtons();
+        renderOverview(currentMode === OVERVIEW_MODE_TYPICAL ? typicalPayload : tailPayload);
+      });
+    });
+
+    syncOverviewModeButtons();
+    renderOverview(typicalPayload || tailPayload);
+  }
+
   function mountLengthChart() {
     const container = document.getElementById("repeat-length-chart");
     const payload = parsePayload("repeat-length-chart-payload");
@@ -660,6 +789,7 @@
     const chart = window.echarts.init(container, null, { renderer: "svg" });
     let currentMode = CHART_MODE_FOCUSED;
     let currentZoomState = normalizeZoomState(payload.visibleTaxaCount || 0, null);
+    let currentXZoomState = { start: 0, end: 100 };
     installWheelHandler(chart, payload.visibleTaxaCount || 0, () => currentZoomState);
 
     function syncModeButtons() {
@@ -672,16 +802,18 @@
     }
 
     function renderChart() {
-      chart.setOption(buildChartOption(payload, currentMode, currentZoomState), { notMerge: true });
+      chart.setOption(buildChartOption(payload, currentMode, currentZoomState, currentXZoomState), { notMerge: true });
       installDrilldown(chart, payload);
     }
 
     chart.off("datazoom");
     chart.on("datazoom", () => {
       const nextZoomState = zoomStateFromChart(chart, payload.visibleTaxaCount || 0);
+      const nextXZoomState = xZoomStateFromChart(chart);
       const previousVisibleRowCount = visibleRowCountForZoom(payload.visibleTaxaCount || 0, currentZoomState);
       const nextVisibleRowCount = visibleRowCountForZoom(payload.visibleTaxaCount || 0, nextZoomState);
       currentZoomState = nextZoomState;
+      currentXZoomState = nextXZoomState;
       if (shouldShowObservationCounts(previousVisibleRowCount) !== shouldShowObservationCounts(nextVisibleRowCount)) {
         renderChart();
       }
@@ -697,6 +829,7 @@
           return;
         }
         currentMode = requestedMode;
+        currentXZoomState = { start: 0, end: 100 };
         syncModeButtons();
         renderChart();
       });
@@ -708,6 +841,181 @@
     window.addEventListener("resize", () => {
       chart.resize();
     });
+  }
+
+  function mountInspectChart() {
+    const container = document.getElementById("length-inspect-chart");
+    const payload = parsePayload("length-inspect-payload");
+    if (!container || !payload || typeof window.echarts === "undefined") {
+      return;
+    }
+
+    container.style.height = "320px";
+    const chart = window.echarts.init(container);
+
+    if (!Array.isArray(payload.ccdfPoints) || payload.ccdfPoints.length === 0) {
+      chart.setOption({
+        animation: false,
+        grid: { left: 16, right: 16, top: 16, bottom: 16 },
+        xAxis: { show: false },
+        yAxis: { show: false },
+        series: [],
+        graphic: [
+          {
+            type: "text",
+            left: "center",
+            top: "42%",
+            style: {
+              text: "No length data in scope",
+              fontSize: 20,
+              fontWeight: 700,
+              fill: TEXT_COLOR,
+              textAlign: "center",
+            },
+          },
+        ],
+      });
+      return;
+    }
+
+    const seriesData = payload.ccdfPoints.map((pt) => [pt.x, pt.y]);
+    const dataXMin = seriesData.length > 0 ? seriesData[0][0] : 1;
+    const focusXMax = (() => {
+      const q95Upper = payload.q95 != null ? Math.ceil(payload.q95 * 1.5) : 0;
+      const medianUpper = payload.median != null ? Math.ceil(payload.median * 3) : 0;
+      const raw = Math.max(q95Upper, medianUpper, 10);
+      return Math.min(raw, payload.max || raw);
+    })();
+
+    let currentScale = "linear";
+    let currentRange = "focus";
+
+    const scaleButtons = Array.from(document.querySelectorAll("[data-inspect-scale-button]"));
+    const rangeButtons = Array.from(document.querySelectorAll("[data-inspect-range-button]"));
+
+    const markLines = [];
+    if (payload.median != null) {
+      markLines.push({
+        xAxis: payload.median,
+        label: { formatter: `Median\n${payload.median}`, position: "insideEndTop" },
+        lineStyle: { color: MEDIAN_COLOR, type: "dashed", width: 2 },
+      });
+    }
+    if (payload.q90 != null) {
+      markLines.push({
+        xAxis: payload.q90,
+        label: { formatter: `P90\n${payload.q90}`, position: "insideEndTop" },
+        lineStyle: { color: MUTED_TEXT_COLOR, type: "dotted", width: 1.5 },
+      });
+    }
+    if (payload.q95 != null) {
+      markLines.push({
+        xAxis: payload.q95,
+        label: { formatter: `P95\n${payload.q95}`, position: "insideEndTop" },
+        lineStyle: { color: MUTED_TEXT_COLOR, type: "dotted", width: 1.5 },
+      });
+    }
+
+    function syncButtons() {
+      scaleButtons.forEach((btn) => {
+        const active = btn.dataset.inspectScale === currentScale;
+        btn.classList.toggle("btn-brand", active);
+        btn.classList.toggle("btn-outline-secondary", !active);
+        btn.setAttribute("aria-pressed", String(active));
+      });
+      rangeButtons.forEach((btn) => {
+        const active = btn.dataset.inspectRange === currentRange;
+        btn.classList.toggle("btn-brand", active);
+        btn.classList.toggle("btn-outline-secondary", !active);
+        btn.setAttribute("aria-pressed", String(active));
+      });
+    }
+
+    function renderChart() {
+      const isLog = currentScale === "log";
+      const xMin = isLog ? Math.max(1, dataXMin) : dataXMin;
+      const xMax = currentRange === "focus" ? focusXMax : undefined;
+
+      chart.setOption({
+        animation: false,
+        grid: { left: 64, right: 32, top: 24, bottom: 48 },
+        tooltip: {
+          trigger: "axis",
+          formatter(params) {
+            if (!Array.isArray(params) || params.length === 0) return "";
+            const pt = params[0];
+            return [
+              `<strong>${payload.scopeLabel}</strong>`,
+              `Length: ${pt.data[0]}`,
+              `P(length ≥ x): ${formatLengthValue(pt.data[1])}`,
+            ].join("<br>");
+          },
+        },
+        xAxis: {
+          type: isLog ? "log" : "value",
+          logBase: 10,
+          min: xMin,
+          max: xMax,
+          name: "Repeat length",
+          nameGap: 22,
+          nameLocation: "middle",
+          nameTextStyle: { color: MUTED_TEXT_COLOR, fontWeight: 700, fontSize: 12 },
+          axisLabel: { color: MUTED_TEXT_COLOR },
+          splitLine: { lineStyle: { color: GRID_COLOR } },
+        },
+        yAxis: {
+          type: "value",
+          min: 0,
+          max: 1,
+          name: "P(length ≥ x)",
+          nameGap: 16,
+          nameLocation: "middle",
+          nameRotate: 90,
+          nameTextStyle: { color: MUTED_TEXT_COLOR, fontWeight: 700, fontSize: 12 },
+          axisLabel: { color: MUTED_TEXT_COLOR, formatter: (v) => formatLengthValue(v) },
+          splitLine: { lineStyle: { color: GRID_COLOR } },
+        },
+        series: [
+          {
+            type: "line",
+            step: isLog ? false : "end",
+            data: seriesData,
+            smooth: false,
+            symbol: "none",
+            lineStyle: { color: BOX_BORDER, width: 2 },
+            areaStyle: { color: "rgba(15, 89, 100, 0.08)" },
+            markLine: markLines.length > 0
+              ? {
+                  silent: true,
+                  symbol: "none",
+                  data: markLines,
+                  label: { color: MUTED_TEXT_COLOR, fontSize: 11 },
+                }
+              : undefined,
+          },
+        ],
+      }, { notMerge: true });
+    }
+
+    scaleButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentScale = btn.dataset.inspectScale;
+        syncButtons();
+        renderChart();
+      });
+    });
+
+    rangeButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentRange = btn.dataset.inspectRange;
+        syncButtons();
+        renderChart();
+      });
+    });
+
+    syncButtons();
+    renderChart();
+    window.addEventListener("resize", () => chart.resize());
   }
 
   function installScrollPreservingLinks() {
@@ -725,7 +1033,9 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    mountLengthOverview();
     mountLengthChart();
+    mountInspectChart();
     installScrollPreservingLinks();
     restorePendingScrollPosition();
   });

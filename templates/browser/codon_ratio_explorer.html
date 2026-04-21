@@ -211,7 +211,9 @@
 {% endblock %}
 {% block extra_scripts %}
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <script src="{% static 'js/stats-chart-shell.js' %}"></script>
   <script src="{% static 'js/taxonomy-gutter.js' %}"></script>
+  <script src="{% static 'js/pairwise-overview.js' %}"></script>
   <script src="{% static 'js/repeat-codon-ratio-explorer.js' %}"></script>
 {% endblock %}
 
