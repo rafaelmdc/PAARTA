@@ -4,6 +4,7 @@ from django.views.generic import TemplateView
 from apps.browser.stats import (
     apply_stats_filter_context,
     build_codon_length_composition_bundle,
+    build_codon_length_browse_payload,
     build_codon_length_dominance_overview_payload,
     build_codon_length_preference_overview_payload,
     build_codon_length_shift_overview_payload,
@@ -185,6 +186,7 @@ class CodonCompositionLengthExplorerView(TemplateView):
             summary_bundle
         )
         context["overview_shift_payload"] = build_codon_length_shift_overview_payload(summary_bundle)
+        context["browse_payload"] = build_codon_length_browse_payload(summary_bundle)
         context["overview_preference_payload_id"] = (
             "codon-composition-length-preference-overview-payload"
         )
@@ -193,6 +195,8 @@ class CodonCompositionLengthExplorerView(TemplateView):
         )
         context["overview_shift_payload_id"] = "codon-composition-length-shift-overview-payload"
         context["overview_container_id"] = "codon-composition-length-overview-chart"
+        context["browse_payload_id"] = "codon-composition-length-browse-payload"
+        context["browse_container_id"] = "codon-composition-length-browse"
         context["run_choices"] = PipelineRun.objects.order_by("-imported_at", "run_id")
         context["rank_choices"] = [
             {"value": rank, "label": rank}

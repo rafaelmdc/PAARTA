@@ -158,6 +158,33 @@
 <section class="surface-card surface-card-wide mb-4">
   <div class="section-header">
     <div>
+      <p class="section-kicker mb-2">Browse layer</p>
+      <h2>Per-taxon composition trajectories</h2>
+      <p class="text-secondary mb-0">
+        Full codon composition is shown across the same length bins for the
+        first selected visible taxa. Codon order stays fixed across panels.
+      </p>
+    </div>
+  </div>
+
+  {{ browse_payload|json_script:browse_payload_id }}
+  <div class="codon-length-browse-toolbar" data-codon-length-browse-toolbar hidden>
+    <span class="surface-note" data-codon-length-browse-range></span>
+    <div class="mode-switch">
+      <button class="btn btn-outline-secondary" type="button" data-codon-length-browse-prev>Previous</button>
+      <button class="btn btn-outline-secondary" type="button" data-codon-length-browse-next>Next</button>
+    </div>
+  </div>
+  <div class="codon-length-browse-grid" id="{{ browse_container_id }}"></div>
+  <p class="empty-callout mb-0 mt-3" data-codon-length-browse-empty>{{ summary_empty_reason }}</p>
+  <noscript>
+    <p class="surface-note mb-0 mt-3">JavaScript is disabled, so the grouped fallback table remains the active browse view.</p>
+  </noscript>
+</section>
+
+<section class="surface-card surface-card-wide mb-4">
+  <div class="section-header">
+    <div>
       <p class="section-kicker mb-2">Current filter scope</p>
       <h2>{{ matching_repeat_calls_count }} matching canonical repeat call{{ matching_repeat_calls_count|pluralize }}</h2>
       <p class="text-secondary mb-0">

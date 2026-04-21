@@ -127,11 +127,14 @@ class BrowserCodonCompositionLengthExplorerTests(TestCase):
         self.assertFalse(response.context["overview_preference_payload"]["available"])
         self.assertFalse(response.context["overview_dominance_payload"]["available"])
         self.assertFalse(response.context["overview_shift_payload"]["available"])
+        self.assertFalse(response.context["browse_payload"]["available"])
         self.assertContains(response, "Select a residue to summarize codon composition by length.")
         self.assertContains(response, "Codon preference and transition summaries")
+        self.assertContains(response, "Per-taxon composition trajectories")
         self.assertContains(response, "the overview uses and future browse and inspect layers will reuse")
         self.assertContains(response, "codon-composition-length-explorer.js")
         self.assertContains(response, "codon-composition-length-preference-overview-payload")
+        self.assertContains(response, "codon-composition-length-browse-payload")
 
     def test_codon_composition_length_explorer_normalizes_filters(self):
         response = self.client.get(
@@ -203,6 +206,8 @@ class BrowserCodonCompositionLengthExplorerTests(TestCase):
         self.assertTrue(response.context["overview_preference_payload"]["available"])
         self.assertFalse(response.context["overview_dominance_payload"]["available"])
         self.assertTrue(response.context["overview_shift_payload"]["available"])
+        self.assertTrue(response.context["browse_payload"]["available"])
+        self.assertEqual(response.context["browse_payload"]["shownTaxaCount"], 1)
         self.assertEqual(
             [
                 (cell["binLabel"], cell["preference"])

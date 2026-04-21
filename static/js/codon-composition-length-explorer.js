@@ -15,6 +15,7 @@
     preference: "codon-composition-length-preference-overview-payload",
     dominance: "codon-composition-length-dominance-overview-payload",
     shift: "codon-composition-length-shift-overview-payload",
+    browse: "codon-composition-length-browse-payload",
   };
   const CODON_COLORS = [
     "#0f5964",
@@ -25,6 +26,7 @@
     "#9a7b2f",
   ];
   const DEFAULT_VISIBLE_COLUMNS = 16;
+  const DEFAULT_BROWSE_WINDOW_SIZE = 12;
 
   function supportOpacity(cell, payload) {
     const maxObservationCount = Math.max(1, payload.maxObservationCount || 1);
@@ -124,6 +126,10 @@
     return (rows || [])
       .map((row) => `${row.codon}: ${(row.share * 100).toFixed(1)}%`)
       .join("<br>");
+  }
+
+  function formatShare(value) {
+    return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "-";
   }
 
   function tooltipHtml(payload, cell) {
@@ -345,5 +351,212 @@
     render();
   }
 
-  document.addEventListener("DOMContentLoaded", mountOverview);
+  function browseSeries(payload, panel) {
+    const codons = payload.visibleCodons || [];
+    if (codons.length === 2) {
+      return codons.map((codon, codonIndex) => ({
+        name: codon,
+        type: "line",
+        smooth: false,
+        showSymbol: true,
+        symbolSize: 4,
+        connectNulls: false,
+        areaStyle: { opacity: codonIndex === 0 ? 0.22 : 0 },
+        lineStyle: { width: 2 },
+        itemStyle: { color: CODON_COLORS[codonIndex % CODON_COLORS.length] },
+        data: panel.bins.map((bin) => {
+          const shareRow = (bin.codonShares || []).find((row) => row.codon === codon);
+          return bin.occupied && shareRow ? shareRow.share : null;
+        }),
+      }));
+    }
+    return codons.map((codon, codonIndex) => ({
+      name: codon,
+      type: "bar",
+      stack: "composition",
+      barWidth: "72%",
+      itemStyle: {
+        color: CODON_COLORS[codonIndex % CODON_COLORS.length],
+      },
+      data: panel.bins.map((bin) => {
+        const shareRow = (bin.codonShares || []).find((row) => row.codon === codon);
+        return bin.occupied && shareRow ? shareRow.share : null;
+      }),
+    }));
+  }
+
+  function browseTooltip(panel, dataIndex) {
+    const bin = panel.bins[dataIndex];
+    if (!bin) return "";
+    const lines = [
+      `<strong>${panel.taxonName}</strong>`,
+      bin.bin.label,
+    ];
+    if (!bin.occupied) {
+      lines.push("No occupied observations in this bin");
+      return lines.join("<br>");
+    }
+    lines.push(`Support: ${bin.observationCount} observations, ${bin.speciesCount} species`);
+    lines.push(...(bin.codonShares || []).map((row) => `${row.codon}: ${formatShare(row.share)}`));
+    return lines.join("<br>");
+  }
+
+  function browseChartOption(payload, panel) {
+    const labels = (payload.visibleBins || []).map((bin) => bin.label);
+    const isTwoCodon = (payload.visibleCodons || []).length === 2;
+    return {
+      animation: false,
+      color: CODON_COLORS,
+      grid: {
+        left: 48,
+        right: 18,
+        top: isTwoCodon ? 34 : 42,
+        bottom: 52,
+      },
+      legend: {
+        show: true,
+        top: 10,
+        type: "scroll",
+        textStyle: { color: "#63727a" },
+      },
+      tooltip: {
+        trigger: "axis",
+        confine: true,
+        formatter(params) {
+          const firstParam = Array.isArray(params) ? params[0] : params;
+          return browseTooltip(panel, firstParam?.dataIndex ?? 0);
+        },
+      },
+      xAxis: {
+        type: "category",
+        data: labels,
+        axisLabel: {
+          color: "#63727a",
+          interval: labelInterval(labels.length),
+          hideOverlap: true,
+          width: 48,
+          overflow: "truncate",
+        },
+        axisTick: { alignWithLabel: true },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 1,
+        axisLabel: {
+          color: "#63727a",
+          formatter: (value) => `${Math.round(value * 100)}%`,
+        },
+        splitLine: {
+          lineStyle: { color: "rgba(23, 36, 44, 0.08)" },
+        },
+      },
+      series: browseSeries(payload, panel),
+    };
+  }
+
+  function buildBrowsePanel(payload, panel) {
+    const panelNode = document.createElement("article");
+    panelNode.className = "codon-length-browse-panel";
+
+    const header = document.createElement("div");
+    header.className = "codon-length-browse-panel__header";
+
+    const title = document.createElement("p");
+    title.className = "codon-length-browse-panel__title";
+    title.textContent = panel.taxonName;
+
+    const meta = document.createElement("p");
+    meta.className = "codon-length-browse-panel__meta";
+    meta.textContent = `${panel.observationCount} observations`;
+
+    const chartNode = document.createElement("div");
+    chartNode.className = "codon-length-browse-chart";
+
+    header.append(title, meta);
+    panelNode.append(header, chartNode);
+
+    return { panelNode, chartNode, panel };
+  }
+
+  function mountBrowse() {
+    const container = document.getElementById("codon-composition-length-browse");
+    if (!container || typeof window.echarts === "undefined") return;
+
+    const payload = parsePayload(PAYLOAD_IDS.browse) || {};
+    const emptyMessage = document.querySelector("[data-codon-length-browse-empty]");
+    const toolbar = document.querySelector("[data-codon-length-browse-toolbar]");
+    const rangeNode = document.querySelector("[data-codon-length-browse-range]");
+    const previousButton = document.querySelector("[data-codon-length-browse-prev]");
+    const nextButton = document.querySelector("[data-codon-length-browse-next]");
+    if (!payload.available || !Array.isArray(payload.panels) || payload.panels.length === 0) {
+      container.hidden = true;
+      if (toolbar) toolbar.hidden = true;
+      return;
+    }
+
+    container.hidden = false;
+    if (emptyMessage) emptyMessage.hidden = true;
+    const windowSize = Math.max(1, payload.windowSize || DEFAULT_BROWSE_WINDOW_SIZE);
+    let windowStart = 0;
+    let charts = [];
+
+    function disposeCharts() {
+      charts.forEach((chart) => chart.dispose());
+      charts = [];
+    }
+
+    function syncToolbar(windowEnd) {
+      if (toolbar) toolbar.hidden = payload.panels.length <= windowSize;
+      if (rangeNode) {
+        rangeNode.textContent = `Showing ${windowStart + 1}-${windowEnd} of ${payload.panels.length} taxa`;
+      }
+      if (previousButton) previousButton.disabled = windowStart === 0;
+      if (nextButton) nextButton.disabled = windowEnd >= payload.panels.length;
+    }
+
+    function renderWindow() {
+      disposeCharts();
+      container.replaceChildren();
+      const windowEnd = Math.min(payload.panels.length, windowStart + windowSize);
+      const panelEntries = payload.panels
+        .slice(windowStart, windowEnd)
+        .map((panel) => buildBrowsePanel(payload, panel));
+      container.append(...panelEntries.map((entry) => entry.panelNode));
+      charts = panelEntries.map((entry) => {
+        const chart = window.echarts.init(entry.chartNode);
+        chart.setOption(browseChartOption(payload, entry.panel), { notMerge: true });
+        return chart;
+      });
+      syncToolbar(windowEnd);
+      window.requestAnimationFrame(() => {
+        charts.forEach((chart) => chart.resize());
+      });
+    }
+
+    if (previousButton) {
+      previousButton.addEventListener("click", () => {
+        windowStart = Math.max(0, windowStart - windowSize);
+        renderWindow();
+      });
+    }
+    if (nextButton) {
+      nextButton.addEventListener("click", () => {
+        windowStart = Math.min(
+          Math.max(0, payload.panels.length - windowSize),
+          windowStart + windowSize,
+        );
+        renderWindow();
+      });
+    }
+    window.addEventListener("resize", () => {
+      charts.forEach((chart) => chart.resize());
+    });
+    renderWindow();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    mountOverview();
+    mountBrowse();
+  });
 })();

@@ -424,6 +424,94 @@ def build_codon_length_shift_overview_payload(bundle):
     )
 
 
+def build_codon_length_browse_payload(bundle, *, window_size=12):
+    visible_codons = list(bundle.get("visible_codons", [])) if bundle else []
+    visible_bins = list(bundle.get("visible_bins", [])) if bundle else []
+    matrix_rows = list(bundle.get("matrix_rows", [])) if bundle else []
+    if len(visible_codons) < 2 or not visible_bins or not matrix_rows:
+        return {
+            "available": False,
+            "visibleCodons": visible_codons,
+            "visibleBins": visible_bins,
+            "panels": [],
+            "visibleTaxaCount": len(matrix_rows),
+            "shownTaxaCount": 0,
+            "windowSize": window_size,
+            "maxObservationCount": 0,
+        }
+
+    panels = []
+    max_observation_count = 0
+    for row_index, row in enumerate(matrix_rows):
+        bin_rows_by_start = {
+            bin_row["bin"]["start"]: bin_row
+            for bin_row in row["bin_rows"]
+        }
+        bins = []
+        for bin_index, visible_bin in enumerate(visible_bins):
+            bin_row = bin_rows_by_start.get(visible_bin["start"])
+            if bin_row is None:
+                bins.append(
+                    {
+                        "binIndex": bin_index,
+                        "bin": visible_bin,
+                        "occupied": False,
+                        "codonShares": [
+                            {"codon": codon, "share": None}
+                            for codon in visible_codons
+                        ],
+                        "observationCount": 0,
+                        "speciesCount": 0,
+                        "supportTier": "missing",
+                    }
+                )
+                continue
+            support_fields = _codon_length_support_fields(bin_row)
+            max_observation_count = max(
+                max_observation_count,
+                support_fields["observationCount"],
+            )
+            shares_by_codon = _codon_share_lookup(bin_row)
+            bins.append(
+                {
+                    "binIndex": bin_index,
+                    "bin": visible_bin,
+                    "occupied": True,
+                    "codonShares": [
+                        {
+                            "codon": codon,
+                            "share": shares_by_codon.get(codon, 0),
+                        }
+                        for codon in visible_codons
+                    ],
+                    **support_fields,
+                }
+            )
+        panels.append(
+            {
+                "rowIndex": row_index,
+                "taxonId": row["taxon_id"],
+                "taxonName": row["taxon_name"],
+                "rank": row["rank"],
+                "observationCount": row["observation_count"],
+                "speciesCount": row.get("species_count", row["observation_count"]),
+                "bins": bins,
+            }
+        )
+
+    return {
+        "available": bool(panels),
+        "visibleCodons": visible_codons,
+        "visibleBins": visible_bins,
+        "panels": panels,
+        "visibleTaxaCount": len(matrix_rows),
+        "shownTaxaCount": min(len(panels), window_size),
+        "windowSize": window_size,
+        "maxObservationCount": max_observation_count,
+        "mode": "two_codon_area" if len(visible_codons) == 2 else "stacked_composition",
+    }
+
+
 def build_length_inspect_payload(bundle, *, scope_label: str):
     if not bundle or bundle.get("observation_count", 0) == 0:
         return {

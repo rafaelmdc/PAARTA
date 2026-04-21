@@ -12,6 +12,7 @@ from apps.browser.stats import (
     apply_stats_filter_context,
     build_ccdf_points,
     build_codon_length_composition_bundle,
+    build_codon_length_browse_payload,
     build_codon_length_dominance_overview_payload,
     build_codon_length_preference_overview_payload,
     build_codon_length_shift_overview_payload,
@@ -682,6 +683,70 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(payload["cells"][0]["shift"], 0.6)
         self.assertEqual(payload["cells"][0]["previousSupport"]["supportTier"], "high")
         self.assertEqual(payload["cells"][0]["nextSupport"]["supportTier"], "medium")
+
+    def test_codon_length_browse_payload_preserves_fixed_bins_and_codon_order(self):
+        bundle = {
+            "visible_codons": ["CAA", "CAG"],
+            "visible_bins": [
+                {"start": 10, "end": 14, "label": "10-14"},
+                {"start": 15, "end": 19, "label": "15-19"},
+            ],
+            "matrix_rows": [
+                {
+                    "taxon_id": 1,
+                    "taxon_name": "Mammalia",
+                    "rank": "class",
+                    "observation_count": 12,
+                    "species_count": 2,
+                    "bin_rows": [
+                        {
+                            "bin": {"start": 10, "end": 14, "label": "10-14"},
+                            "observation_count": 8,
+                            "species_count": 2,
+                            "codon_shares": [
+                                {"codon": "CAA", "share": 0.75},
+                                {"codon": "CAG", "share": 0.25},
+                            ],
+                            "dominant_codon": "CAA",
+                            "dominance_margin": 0.5,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        payload = build_codon_length_browse_payload(bundle)
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["mode"], "two_codon_area")
+        self.assertEqual(payload["visibleCodons"], ["CAA", "CAG"])
+        self.assertEqual(payload["shownTaxaCount"], 1)
+        self.assertEqual(payload["windowSize"], 12)
+        self.assertEqual(
+            [
+                (
+                    bin_row["bin"]["label"],
+                    bin_row["occupied"],
+                    bin_row["codonShares"],
+                    bin_row["supportTier"],
+                )
+                for bin_row in payload["panels"][0]["bins"]
+            ],
+            [
+                (
+                    "10-14",
+                    True,
+                    [{"codon": "CAA", "share": 0.75}, {"codon": "CAG", "share": 0.25}],
+                    "medium",
+                ),
+                (
+                    "15-19",
+                    False,
+                    [{"codon": "CAA", "share": None}, {"codon": "CAG", "share": None}],
+                    "missing",
+                ),
+            ],
+        )
 
     def test_codon_length_composition_bundle_skips_rollup_for_filtered_scope(self):
         request = self.factory.get(

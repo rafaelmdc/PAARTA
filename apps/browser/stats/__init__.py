@@ -3,6 +3,7 @@ from .codon_length_rollups import rebuild_canonical_codon_composition_length_sum
 from .filters import StatsFilterState, apply_stats_filter_context, build_stats_filter_state
 from .payloads import (
     build_codon_composition_inspect_payload,
+    build_codon_length_browse_payload,
     build_codon_length_dominance_overview_payload,
     build_codon_length_preference_overview_payload,
     build_codon_length_shift_overview_payload,
@@ -52,6 +53,7 @@ __all__ = [
     "build_codon_composition_inspect_bundle",
     "build_codon_length_composition_bundle",
     "build_codon_composition_inspect_payload",
+    "build_codon_length_browse_payload",
     "build_codon_length_dominance_overview_payload",
     "build_codon_length_preference_overview_payload",
     "build_codon_length_shift_overview_payload",
