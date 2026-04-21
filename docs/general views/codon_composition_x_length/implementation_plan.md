@@ -434,6 +434,16 @@ Scope:
 - use observation counts as the first support signal
 - include species counts in tooltips where available
 
+Status:
+
+- deferred as of `2026-04-21`
+- an implementation attempt showed that per-panel support strips added visual
+  clutter and did not align clearly enough with the chart x-axis labels in the
+  virtualized small-multiple layout
+- do not treat support strips as shipped behavior
+- keep support available through the chart/tooltips for now, and revisit this
+  only if a cleaner bin-aligned support encoding is designed
+
 Exit criteria:
 
 - long-bin composition changes remain visually tied to their support
@@ -587,7 +597,8 @@ Exit criteria:
 4. `CL-R5`
 5. `CL-R8`
 6. `CL-R9` if the simple matrix is stable
-7. `CL-R10` to `CL-R12`
+7. `CL-R10`, then `CL-R12`; `CL-R11` is deferred unless a cleaner support
+   encoding is designed
 8. `CL-R13` to `CL-R15`
 9. `CL-R16` only if a secondary pairwise view is still needed
 10. `CL-R17` to `CL-R18`

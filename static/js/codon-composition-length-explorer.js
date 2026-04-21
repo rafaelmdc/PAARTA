@@ -135,6 +135,12 @@
     return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "-";
   }
 
+  function supportLine(label, observationCount, speciesCount, totalObservationCount) {
+    const total = Math.max(0, totalObservationCount || 0);
+    const share = total > 0 ? ` (${formatShare((observationCount || 0) / total)} of panel total)` : "";
+    return `${label}: ${observationCount} observations${share}, ${speciesCount} species`;
+  }
+
   function tooltipHtml(payload, cell) {
     const taxon = payload.taxa[cell.rowIndex] || {};
     if (payload.mode === "shift") {
@@ -142,8 +148,18 @@
         `<strong>${taxon.taxonName || "Taxon"}</strong>`,
         `${cell.previousBin.label} -> ${cell.nextBin.label}`,
         `${payload.metricLabel}: ${cell.shift.toFixed(3)}`,
-        `Previous support: ${cell.previousSupport.observationCount} observations, ${cell.previousSupport.speciesCount} species`,
-        `Next support: ${cell.nextSupport.observationCount} observations, ${cell.nextSupport.speciesCount} species`,
+        supportLine(
+          "Previous support",
+          cell.previousSupport.observationCount,
+          cell.previousSupport.speciesCount,
+          taxon.observationCount,
+        ),
+        supportLine(
+          "Next support",
+          cell.nextSupport.observationCount,
+          cell.nextSupport.speciesCount,
+          taxon.observationCount,
+        ),
         "<hr>",
         `<strong>${cell.previousBin.label}</strong><br>${formatShares(cell.previousCodonShares)}`,
         `<strong>${cell.nextBin.label}</strong><br>${formatShares(cell.nextCodonShares)}`,
@@ -156,7 +172,7 @@
         `${payload.metricLabel}: ${cell.preference.toFixed(3)}`,
         `${cell.codonA}: ${(cell.codonAShare * 100).toFixed(1)}%`,
         `${cell.codonB}: ${(cell.codonBShare * 100).toFixed(1)}%`,
-        `Support: ${cell.observationCount} observations, ${cell.speciesCount} species`,
+        supportLine("Support", cell.observationCount, cell.speciesCount, taxon.observationCount),
       ].join("<br>");
     }
     return [
@@ -164,7 +180,7 @@
       cell.binLabel,
       `Dominant codon: ${cell.dominantCodon}`,
       `Dominance margin: ${cell.dominanceMargin.toFixed(3)}`,
-      `Support: ${cell.observationCount} observations, ${cell.speciesCount} species`,
+      supportLine("Support", cell.observationCount, cell.speciesCount, taxon.observationCount),
       "<hr>",
       formatShares(cell.codonShares),
     ].join("<br>");
@@ -399,7 +415,7 @@
       lines.push("No occupied observations in this bin");
       return lines.join("<br>");
     }
-    lines.push(`Support: ${bin.observationCount} observations, ${bin.speciesCount} species`);
+    lines.push(supportLine("Support", bin.observationCount, bin.speciesCount, panel.observationCount));
     lines.push(...(bin.codonShares || []).map((row) => `${row.codon}: ${formatShare(row.share)}`));
     return lines.join("<br>");
   }

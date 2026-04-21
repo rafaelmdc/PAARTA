@@ -76,3 +76,70 @@ When no x-slider is active, `xZoomBand = 0` and the gutter is flush to container
 
 ## Open Issues
 - None known. Manual browser verification is the remaining gate.
+
+---
+
+# Session Log
+
+**Date:** 2026-04-21
+
+## Objective
+- Continue the `Codon Composition x Length` implementation plan through the
+  browse-layer slices.
+- Finish the per-taxon small-multiple browse layer, evaluate Phase 11 support
+  strips, and settle on a cleaner support presentation.
+
+## What happened
+- Implemented/validated the browse-layer small multiples:
+  - per-taxon panels across the shared length bins
+  - fixed codon order across panels
+  - line/area-style rendering for 2-codon residues
+  - virtualized scrolling so many taxa can be browsed without rendering every
+    chart at once
+- Reordered the page so the overview layer appears above the browse layer.
+- Attempted Phase 11 support strips under each browse panel.
+- Manual review showed the strips were visually noisy, did not align clearly
+  enough with the x-axis, and added clutter without enough interpretability.
+- Decision: do not ship the support-strip approach for the first wave.
+- Replaced the useful part of the support strip with richer hover support text:
+  chart tooltips now show bin observations as a percentage of the current
+  taxon/rollup panel total.
+- Updated the codon-composition x length docs to mark `CL-R11` as deferred and
+  to state that support strips are not shipped first-wave behavior.
+
+## Files touched
+- `static/js/codon-composition-length-explorer.js`
+  - Added tooltip support formatting for browse, preference, dominance, and
+    shift tooltips.
+  - Support now reads as `N observations (X% of panel total), Y species`.
+- `docs/general views/codon_composition_x_length/implementation_plan.md`
+  - Marked `CL-R11` support strips as deferred as of `2026-04-21`.
+  - Updated delivery order so `CL-R10` proceeds to `CL-R12` unless a cleaner
+    support encoding is designed.
+- `docs/general views/codon_composition_x_length/overview.md`
+  - Changed Tier 2 support guidance to use chart/tooltips first.
+  - Recorded that the support-strip attempt was deferred due to clutter and
+    alignment problems.
+
+## Validation
+- JavaScript syntax check passed:
+  - `node --check static/js/codon-composition-length-explorer.js`
+- Focused Django tests passed:
+  - `python manage.py test web_tests.test_browser_codon_composition_lengths web_tests.test_browser_stats`
+  - `70` tests passed.
+
+## Current status
+- Browse small multiples and virtualized scrolling are in place.
+- Phase 11 support strips are intentionally deferred.
+- Support remains visible in chart hover text, including percentage of the
+  current panel's observations.
+
+## Open issues
+- Manual browser check should confirm the new tooltip wording is clear enough
+  on real data.
+- A future support-strip design should only be revisited if it can align cleanly
+  with the x-axis and reduce clutter.
+
+## Next step
+- Continue with `CL-R12`: keep the grouped fallback table aligned with the
+  refactored summary-first viewer.

@@ -220,9 +220,19 @@ Recommended view rules:
 
 Support display:
 
-- add a compact support strip or count strip beneath each taxon panel
+- first-wave implementation should keep support visible through chart/tooltips
+  rather than adding a separate per-panel support strip by default
 - sparse bins must remain visibly sparse
 - long-bin differences should be easy to distinguish from long-bin uncertainty
+
+Implementation note:
+
+- a compact support strip was attempted on `2026-04-21`, but it was deferred
+  because it added clutter and did not align clearly enough with the x-axis in
+  the virtualized small-multiple layout
+- do not count the browse support strip as shipped first-wave behavior
+- revisit only if a cleaner bin-aligned support encoding can be added without
+  making the browse panels harder to read
 
 Tier 2 should answer:
 
@@ -366,7 +376,7 @@ First-wave defaults should not include:
 - per-taxon small multiples across length
 - line or area chart for 2-codon residues
 - stacked bars or stacked areas for 3+ codon residues
-- support strip under each panel
+- support visible through chart/tooltips; separate support strip deferred
 
 ### Tier 3
 
