@@ -27,6 +27,9 @@
   ];
   const DEFAULT_VISIBLE_COLUMNS = 16;
   const DEFAULT_BROWSE_WINDOW_SIZE = 12;
+  const BROWSE_PANEL_HEIGHT = 250;
+  const BROWSE_ROW_GAP = 16;
+  const BROWSE_ROW_BUFFER = 2;
 
   function supportOpacity(cell, payload) {
     const maxObservationCount = Math.max(1, payload.maxObservationCount || 1);
@@ -479,6 +482,13 @@
     return { panelNode, chartNode, panel };
   }
 
+  function browseColumnCount(container) {
+    const width = container.clientWidth || 0;
+    if (width <= 720) return 1;
+    if (width <= 1100) return 2;
+    return 3;
+  }
+
   function mountBrowse() {
     const container = document.getElementById("codon-composition-length-browse");
     if (!container || typeof window.echarts === "undefined") return;
@@ -487,8 +497,7 @@
     const emptyMessage = document.querySelector("[data-codon-length-browse-empty]");
     const toolbar = document.querySelector("[data-codon-length-browse-toolbar]");
     const rangeNode = document.querySelector("[data-codon-length-browse-range]");
-    const previousButton = document.querySelector("[data-codon-length-browse-prev]");
-    const nextButton = document.querySelector("[data-codon-length-browse-next]");
+    const spacer = container.querySelector("[data-codon-length-browse-spacer]");
     if (!payload.available || !Array.isArray(payload.panels) || payload.panels.length === 0) {
       container.hidden = true;
       if (toolbar) toolbar.hidden = true;
@@ -497,62 +506,106 @@
 
     container.hidden = false;
     if (emptyMessage) emptyMessage.hidden = true;
-    const windowSize = Math.max(1, payload.windowSize || DEFAULT_BROWSE_WINDOW_SIZE);
-    let windowStart = 0;
-    let charts = [];
+    if (toolbar) toolbar.hidden = false;
 
-    function disposeCharts() {
-      charts.forEach((chart) => chart.dispose());
-      charts = [];
+    let columnCount = browseColumnCount(container);
+    let rowHeight = BROWSE_PANEL_HEIGHT + BROWSE_ROW_GAP;
+    let mountedRows = new Map();
+    let rafHandle = null;
+
+    function totalRows() {
+      return Math.ceil(payload.panels.length / columnCount);
     }
 
-    function syncToolbar(windowEnd) {
-      if (toolbar) toolbar.hidden = payload.panels.length <= windowSize;
-      if (rangeNode) {
-        rangeNode.textContent = `Showing ${windowStart + 1}-${windowEnd} of ${payload.panels.length} taxa`;
+    function updateSpacerHeight() {
+      if (spacer) {
+        spacer.style.height = `${Math.max(1, totalRows() * rowHeight)}px`;
       }
-      if (previousButton) previousButton.disabled = windowStart === 0;
-      if (nextButton) nextButton.disabled = windowEnd >= payload.panels.length;
     }
 
-    function renderWindow() {
-      disposeCharts();
-      container.replaceChildren();
-      const windowEnd = Math.min(payload.panels.length, windowStart + windowSize);
-      const panelEntries = payload.panels
-        .slice(windowStart, windowEnd)
-        .map((panel) => buildBrowsePanel(payload, panel));
-      container.append(...panelEntries.map((entry) => entry.panelNode));
-      charts = panelEntries.map((entry) => {
+    function disposeRow(rowIndex) {
+      const rowEntry = mountedRows.get(rowIndex);
+      if (!rowEntry) return;
+      rowEntry.charts.forEach((chart) => chart.dispose());
+      rowEntry.rowNode.remove();
+      mountedRows.delete(rowIndex);
+    }
+
+    function buildBrowseRow(rowIndex) {
+      const rowNode = document.createElement("div");
+      rowNode.className = "codon-length-browse-row";
+      rowNode.style.top = `${rowIndex * rowHeight}px`;
+      rowNode.style.height = `${BROWSE_PANEL_HEIGHT}px`;
+
+      const startIndex = rowIndex * columnCount;
+      const panels = payload.panels.slice(startIndex, startIndex + columnCount);
+      const entries = panels.map((panel) => buildBrowsePanel(payload, panel));
+      rowNode.append(...entries.map((entry) => entry.panelNode));
+      spacer.append(rowNode);
+
+      const charts = entries.map((entry) => {
         const chart = window.echarts.init(entry.chartNode);
         chart.setOption(browseChartOption(payload, entry.panel), { notMerge: true });
         return chart;
       });
-      syncToolbar(windowEnd);
       window.requestAnimationFrame(() => {
         charts.forEach((chart) => chart.resize());
       });
+      mountedRows.set(rowIndex, { rowNode, charts });
     }
 
-    if (previousButton) {
-      previousButton.addEventListener("click", () => {
-        windowStart = Math.max(0, windowStart - windowSize);
-        renderWindow();
-      });
+    function syncToolbar(firstPanelIndex, lastPanelIndex) {
+      if (!rangeNode) return;
+      rangeNode.textContent = `Showing taxa ${firstPanelIndex + 1}-${lastPanelIndex + 1} of ${payload.panels.length}`;
     }
-    if (nextButton) {
-      nextButton.addEventListener("click", () => {
-        windowStart = Math.min(
-          Math.max(0, payload.panels.length - windowSize),
-          windowStart + windowSize,
-        );
-        renderWindow();
+
+    function renderVirtualWindow() {
+      rafHandle = null;
+      updateSpacerHeight();
+      const viewportHeight = container.clientHeight || 1;
+      const scrollTop = container.scrollTop || 0;
+      const firstVisibleRow = Math.max(0, Math.floor(scrollTop / rowHeight) - BROWSE_ROW_BUFFER);
+      const lastVisibleRow = Math.min(
+        Math.max(0, totalRows() - 1),
+        Math.ceil((scrollTop + viewportHeight) / rowHeight) + BROWSE_ROW_BUFFER,
+      );
+      mountedRows.forEach((_rowEntry, rowIndex) => {
+        if (rowIndex < firstVisibleRow || rowIndex > lastVisibleRow) {
+          disposeRow(rowIndex);
+        }
       });
+      for (let rowIndex = firstVisibleRow; rowIndex <= lastVisibleRow; rowIndex += 1) {
+        if (!mountedRows.has(rowIndex)) {
+          buildBrowseRow(rowIndex);
+        }
+      }
+      const firstPanelIndex = Math.min(payload.panels.length - 1, firstVisibleRow * columnCount);
+      const lastPanelIndex = Math.min(payload.panels.length - 1, ((lastVisibleRow + 1) * columnCount) - 1);
+      syncToolbar(firstPanelIndex, lastPanelIndex);
     }
+
+    function scheduleRenderVirtualWindow() {
+      if (rafHandle !== null) return;
+      rafHandle = window.requestAnimationFrame(renderVirtualWindow);
+    }
+
+    if (spacer) spacer.replaceChildren();
+    updateSpacerHeight();
+    container.addEventListener("scroll", scheduleRenderVirtualWindow, { passive: true });
     window.addEventListener("resize", () => {
-      charts.forEach((chart) => chart.resize());
+      const nextColumnCount = browseColumnCount(container);
+      if (nextColumnCount !== columnCount) {
+        mountedRows.forEach((_rowEntry, rowIndex) => disposeRow(rowIndex));
+        columnCount = nextColumnCount;
+        updateSpacerHeight();
+        renderVirtualWindow();
+        return;
+      }
+      mountedRows.forEach((rowEntry) => {
+        rowEntry.charts.forEach((chart) => chart.resize());
+      });
     });
-    renderWindow();
+    renderVirtualWindow();
   }
 
   document.addEventListener("DOMContentLoaded", () => {
