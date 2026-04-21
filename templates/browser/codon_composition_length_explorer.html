@@ -11,8 +11,8 @@
       <h1 class="landing-title mb-3">Residue-scoped codon composition across repeat length bins.</h1>
       <p class="landing-lead mb-0">
         Define the lineage, rank, method, residue, target search, and length
-        scope, then follow how codon mixtures change across shared repeat-length
-        bins.
+        scope, then compare codon preference, dominance, and transitions across
+        shared repeat-length bins.
       </p>
     </div>
     <aside class="landing-aside">
@@ -109,11 +109,12 @@
   <div class="section-header">
     <div>
       <p class="section-kicker mb-2">Overview layer</p>
-      <h2>Composition across shared repeat-length bins</h2>
+      <h2>Codon preference and transition summaries</h2>
       <p class="text-secondary mb-0">
-        This first slice wires the route, filter shell, and residue-aware page
-        contract. The grouped `Taxon x Length-bin` composition matrix lands in
-        the next implementation slice.
+        The first-wave overview will use simple matrix summaries: signed
+        preference for 2-codon residues, dominant codon plus strength for 3+
+        codon residues, and adjacent-bin shift for transitions. Full codon
+        mixtures stay in browse and inspect views.
       </p>
     </div>
   </div>
@@ -130,9 +131,8 @@
           {{ matching_repeat_calls_with_codon_usage_count }} of those call{{ matching_repeat_calls_with_codon_usage_count|pluralize }}
           currently expose residue-scoped codon-usage rows for the selected residue.
         {% else %}
-          The shared stats filter state is active for this route and will drive
-          overview, browse, and inspect once the grouped codon-by-length bundle is
-          wired.
+          The shared stats filter state is active for this route. Select a
+          residue to activate the grouped codon-by-length bundle.
         {% endif %}
       </p>
     </div>
@@ -156,8 +156,8 @@
       <p class="section-kicker mb-2">Grouped taxa</p>
       <h2>{{ visible_taxa_count }} visible taxon{{ visible_taxa_count|pluralize }} at rank {{ current_rank }}</h2>
       <p class="text-secondary mb-0">
-        The grouped fallback table for codon composition by length will appear
-        here once the shared bundle is implemented.
+        Server-rendered fallback rows show the grouped taxon-length states that
+        future overview, browse, and inspect layers will reuse.
       </p>
     </div>
   </div>

@@ -123,9 +123,9 @@ class BrowserCodonCompositionLengthExplorerTests(TestCase):
         self.assertEqual(response.context["total_taxa_count"], 0)
         self.assertEqual(response.context["visible_taxa_count"], 0)
         self.assertEqual(response.context["summary_rows"], [])
-        self.assertContains(response, "Select a residue to browse codon composition by length.")
-        self.assertContains(response, "Composition across shared repeat-length bins")
-        self.assertContains(response, "The grouped fallback table for codon composition by length will appear")
+        self.assertContains(response, "Select a residue to summarize codon composition by length.")
+        self.assertContains(response, "Codon preference and transition summaries")
+        self.assertContains(response, "future overview, browse, and inspect layers will reuse")
 
     def test_codon_composition_length_explorer_normalizes_filters(self):
         response = self.client.get(

@@ -108,7 +108,7 @@ class CodonCompositionLengthExplorerView(TemplateView):
     def _summary_empty_reason(self) -> str:
         filter_state = self._get_filter_state()
         if not filter_state.residue:
-            return "Select a residue to browse codon composition by length."
+            return "Select a residue to summarize codon composition by length."
         matching_repeat_calls_count = self._get_matching_repeat_calls_count()
         matching_repeat_calls_with_codon_usage_count = (
             self._get_matching_repeat_calls_with_codon_usage_count()

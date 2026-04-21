@@ -336,6 +336,26 @@ class BrowserStatsTests(TestCase):
         self.assertEqual(bundle["matrix_rows"][0]["taxon_name"], "Mammalia")
         self.assertEqual(
             [
+                [share_row["codon"] for share_row in row["codon_shares"]]
+                for row in bundle["matrix_rows"][0]["bin_rows"]
+            ],
+            [
+                ["CAA", "CAG"],
+                ["CAA", "CAG"],
+            ],
+        )
+        self.assertEqual(
+            [
+                [share_row["share"] for share_row in row["codon_shares"]]
+                for row in bundle["matrix_rows"][0]["bin_rows"]
+            ],
+            [
+                [1, 0],
+                [0, 1],
+            ],
+        )
+        self.assertEqual(
+            [
                 (row["bin"]["label"], row["dominant_codon"], row["observation_count"], row["species_count"])
                 for row in bundle["matrix_rows"][0]["bin_rows"]
             ],
