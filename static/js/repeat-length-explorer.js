@@ -324,7 +324,18 @@
     return sum / rows.length;
   }
 
-  function buildChartOption(payload, mode, zoomState) {
+  function xZoomStateFromChart(chart) {
+    const dataZoom = chart.getOption().dataZoom;
+    if (!Array.isArray(dataZoom)) return { start: 0, end: 100 };
+    const xZoom = dataZoom.find((z) => z.id === "length-x-slider");
+    if (!xZoom) return { start: 0, end: 100 };
+    return {
+      start: typeof xZoom.start === "number" ? xZoom.start : 0,
+      end: typeof xZoom.end === "number" ? xZoom.end : 100,
+    };
+  }
+
+  function buildChartOption(payload, mode, zoomState, xZoomState = { start: 0, end: 100 }) {
     if (!Array.isArray(payload.rows) || payload.rows.length === 0) {
       return buildEmptyOption(payload);
     }
@@ -351,7 +362,7 @@
         left: 188,
         right: needsZoom ? 56 : 20,
         top: 16,
-        bottom: 56,
+        bottom: 84,
         containLabel: false,
       },
       tooltip: {
@@ -372,8 +383,7 @@
       },
       xAxis: {
         type: "value",
-        min: xMin,
-        max: xMax,
+        scale: true,
         name: "Repeat length",
         nameGap: 22,
         nameLocation: "middle",
@@ -431,44 +441,81 @@
           },
         },
       },
-      dataZoom: needsZoom
-        ? [
-            {
-              type: "inside",
-              yAxisIndex: 0,
-              zoomOnMouseWheel: false,
-              moveOnMouseMove: true,
-              moveOnMouseWheel: false,
-              startValue: normalizedZoomState.startValue,
-              endValue: normalizedZoomState.endValue,
+      dataZoom: [
+        ...(needsZoom ? [
+          {
+            type: "inside",
+            yAxisIndex: 0,
+            zoomOnMouseWheel: false,
+            moveOnMouseMove: true,
+            moveOnMouseWheel: false,
+            startValue: normalizedZoomState.startValue,
+            endValue: normalizedZoomState.endValue,
+          },
+          {
+            type: "slider",
+            yAxisIndex: 0,
+            filterMode: "empty",
+            right: 8,
+            width: 14,
+            top: 24,
+            bottom: 88,
+            brushSelect: false,
+            zoomOnMouseWheel: false,
+            startValue: normalizedZoomState.startValue,
+            endValue: normalizedZoomState.endValue,
+            fillerColor: "rgba(15, 89, 100, 0.16)",
+            borderColor: "rgba(23, 36, 44, 0.08)",
+            handleStyle: {
+              color: BOX_BORDER,
+              borderColor: BOX_BORDER,
             },
-            {
-              type: "slider",
-              yAxisIndex: 0,
-              filterMode: "empty",
-              right: 8,
-              width: 14,
-              top: 24,
-              bottom: 64,
-              brushSelect: false,
-              zoomOnMouseWheel: false,
-              startValue: normalizedZoomState.startValue,
-              endValue: normalizedZoomState.endValue,
-              fillerColor: "rgba(15, 89, 100, 0.16)",
-              borderColor: "rgba(23, 36, 44, 0.08)",
-              handleStyle: {
-                color: BOX_BORDER,
-                borderColor: BOX_BORDER,
-              },
-              moveHandleStyle: {
-                color: BOX_BORDER,
-              },
-              textStyle: {
-                color: MUTED_TEXT_COLOR,
-              },
+            moveHandleStyle: {
+              color: BOX_BORDER,
             },
-          ]
-        : [],
+            textStyle: {
+              color: MUTED_TEXT_COLOR,
+            },
+          },
+        ] : []),
+        {
+          id: "length-x-inside",
+          type: "inside",
+          xAxisIndex: 0,
+          filterMode: "none",
+          zoomOnMouseWheel: false,
+          moveOnMouseMove: false,
+          moveOnMouseWheel: false,
+          start: xZoomState.start,
+          end: xZoomState.end,
+        },
+        {
+          id: "length-x-slider",
+          type: "slider",
+          xAxisIndex: 0,
+          filterMode: "none",
+          left: 188,
+          right: needsZoom ? 56 : 20,
+          bottom: 8,
+          height: 12,
+          brushSelect: false,
+          zoomOnMouseWheel: false,
+          start: xZoomState.start,
+          end: xZoomState.end,
+          fillerColor: "rgba(15, 89, 100, 0.16)",
+          borderColor: "rgba(23, 36, 44, 0.08)",
+          handleStyle: {
+            color: BOX_BORDER,
+            borderColor: BOX_BORDER,
+          },
+          moveHandleStyle: {
+            color: BOX_BORDER,
+          },
+          textStyle: {
+            color: MUTED_TEXT_COLOR,
+          },
+        },
+      ],
       series: [
         {
           name: "Repeat length distribution",
@@ -742,6 +789,7 @@
     const chart = window.echarts.init(container, null, { renderer: "svg" });
     let currentMode = CHART_MODE_FOCUSED;
     let currentZoomState = normalizeZoomState(payload.visibleTaxaCount || 0, null);
+    let currentXZoomState = { start: 0, end: 100 };
     installWheelHandler(chart, payload.visibleTaxaCount || 0, () => currentZoomState);
 
     function syncModeButtons() {
@@ -754,16 +802,18 @@
     }
 
     function renderChart() {
-      chart.setOption(buildChartOption(payload, currentMode, currentZoomState), { notMerge: true });
+      chart.setOption(buildChartOption(payload, currentMode, currentZoomState, currentXZoomState), { notMerge: true });
       installDrilldown(chart, payload);
     }
 
     chart.off("datazoom");
     chart.on("datazoom", () => {
       const nextZoomState = zoomStateFromChart(chart, payload.visibleTaxaCount || 0);
+      const nextXZoomState = xZoomStateFromChart(chart);
       const previousVisibleRowCount = visibleRowCountForZoom(payload.visibleTaxaCount || 0, currentZoomState);
       const nextVisibleRowCount = visibleRowCountForZoom(payload.visibleTaxaCount || 0, nextZoomState);
       currentZoomState = nextZoomState;
+      currentXZoomState = nextXZoomState;
       if (shouldShowObservationCounts(previousVisibleRowCount) !== shouldShowObservationCounts(nextVisibleRowCount)) {
         renderChart();
       }
@@ -779,6 +829,7 @@
           return;
         }
         currentMode = requestedMode;
+        currentXZoomState = { start: 0, end: 100 };
         syncModeButtons();
         renderChart();
       });

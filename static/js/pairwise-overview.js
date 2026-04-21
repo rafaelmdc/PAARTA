@@ -30,6 +30,11 @@
     zoomState,
     { ...options, mutedTextColor: MUTED_TEXT_COLOR },
   );
+  const buildXAxisZoom = (columnCount, zoomState, options = {}) => chartShell.buildXAxisZoom(
+    columnCount,
+    zoomState,
+    { ...options, mutedTextColor: MUTED_TEXT_COLOR },
+  );
   const clamp = chartShell.clamp;
   const hasTaxonomyGutterPayload = chartShell.hasTaxonomyGutterPayload;
   const installWheelHandler = chartShell.installWheelHandler;
@@ -657,15 +662,26 @@
       });
     }
 
-    function currentOverviewLayout(visibleRowCount) {
+    const PAIRWISE_X_SLIDER_BOTTOM_OFFSET = 24;
+    const PAIRWISE_X_SLIDER_HEIGHT = 12;
+
+    function computePairwiseLayout(visibleRowCount, hasXSlider) {
       const showBottomTreeLeafLabels = shouldShowBottomTreeLeafLabels(visibleRowCount);
       const showBottomTreeBraceLabels = shouldShowBottomTreeBraceLabels(visibleRowCount);
       const showMatrixColumnLabels = !showBottomTreeLeafLabels
         && !showBottomTreeBraceLabels
         && shouldShowMatrixColumnLabels(visibleRowCount);
+      const bottomGutterHeight = overviewBottomTreeHeight(visibleRowCount);
+      const labelBand = showMatrixColumnLabels ? 92 : 28;
+      const sliderBand = hasXSlider
+        ? PAIRWISE_X_SLIDER_BOTTOM_OFFSET + PAIRWISE_X_SLIDER_HEIGHT
+        : 0;
       return {
         top: 32,
-        bottom: overviewBottomTreeHeight(visibleRowCount) + (showMatrixColumnLabels ? 92 : 28),
+        bottom: bottomGutterHeight + sliderBand + labelBand,
+        xZoomBottom: hasXSlider ? bottomGutterHeight + PAIRWISE_X_SLIDER_BOTTOM_OFFSET : null,
+        xZoomHeight: PAIRWISE_X_SLIDER_HEIGHT,
+        bottomGutterHeight,
         showMatrixColumnLabels,
         showBottomTreeLeafLabels,
         showBottomTreeBraceLabels,
@@ -728,7 +744,7 @@
 
     function refreshOverviewGutter() {
       const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
-      const layout = currentOverviewLayout(visibleRowCount);
+      const layout = computePairwiseLayout(visibleRowCount, !!currentZoomState);
       const gutterWidth = overviewGutterWidth(visibleRowCount);
       const margins = currentOverviewMargins(gutterWidth);
 
@@ -882,7 +898,7 @@
       const visibleRowCount = visibleRowCountForZoom(rowCount, currentZoomState);
       const showTaxonLabels = shouldShowTaxonLabels(visibleRowCount);
       const showMatrixCellLabels = shouldShowMatrixCellLabels(visibleRowCount);
-      const layout = currentOverviewLayout(visibleRowCount);
+      const layout = computePairwiseLayout(visibleRowCount, !!currentZoomState);
       const columnBounds = currentVisibleColumnBounds();
       const gutterWidth = overviewGutterWidth(visibleRowCount);
       const margins = currentOverviewMargins(gutterWidth);
@@ -907,8 +923,6 @@
           xAxis: {
             type: "category",
             data: taxonAxisValues,
-            min: columnBounds.min,
-            max: columnBounds.max,
             axisLabel: {
               show: layout.showMatrixColumnLabels,
               interval: 0,
@@ -950,13 +964,23 @@
               color: ["#0f5964", "#f2efe6", "#d06e37"],
             },
           },
-          dataZoom: buildYAxisZoom(rowCount, currentZoomState, {
-            yAxisIndex: 0,
-            right: 8,
-            top: 28,
-            bottom: 56,
-            width: 12,
-          }),
+          dataZoom: [
+            ...buildYAxisZoom(rowCount, currentZoomState, {
+              yAxisIndex: 0,
+              right: 8,
+              top: 28,
+              bottom: 56,
+              width: 12,
+            }),
+            ...buildXAxisZoom(rowCount, currentZoomState, {
+              xAxisIndex: 0,
+              left: margins.left,
+              right: margins.right,
+              bottom: layout.xZoomBottom,
+              height: layout.xZoomHeight,
+              moveOnMouseMove: false,
+            }),
+          ],
           series: [
             {
               type: "heatmap",
@@ -1020,8 +1044,6 @@
         xAxis: {
           type: "category",
           data: taxonAxisValues,
-          min: columnBounds.min,
-          max: columnBounds.max,
           axisLabel: {
             show: layout.showMatrixColumnLabels,
             interval: 0,
@@ -1065,13 +1087,23 @@
               : ["#d06e37", "#f2efe6", "#0f5964"],
           },
         },
-        dataZoom: buildYAxisZoom(rowCount, currentZoomState, {
-          yAxisIndex: 0,
-          right: 8,
-          top: 28,
-          bottom: 56,
-          width: 12,
-        }),
+        dataZoom: [
+          ...buildYAxisZoom(rowCount, currentZoomState, {
+            yAxisIndex: 0,
+            right: 8,
+            top: 28,
+            bottom: 56,
+            width: 12,
+          }),
+          ...buildXAxisZoom(rowCount, currentZoomState, {
+            xAxisIndex: 0,
+            left: margins.left,
+            right: margins.right,
+            bottom: layout.xZoomBottom,
+            height: layout.xZoomHeight,
+            moveOnMouseMove: false,
+          }),
+        ],
         series: [
           {
             type: "heatmap",

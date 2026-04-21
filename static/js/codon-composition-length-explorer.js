@@ -187,7 +187,7 @@
     const xZoom = buildXAxisZoom(labels.length, columnZoomState, {
       insideId: "codon-length-x-inside",
       sliderId: "codon-length-x-slider",
-      left: 172,
+      left: 0,
       right: payload.mode === "dominance" ? 28 : 96,
       bottom: 24,
       height: 18,

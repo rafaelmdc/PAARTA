@@ -150,6 +150,7 @@
     bottom = 24,
     height = 18,
     mutedTextColor = DEFAULT_MUTED_TEXT_COLOR,
+    moveOnMouseMove = true,
   } = {}) {
     if (!zoomState) {
       return [];
@@ -162,7 +163,7 @@
         xAxisIndex,
         filterMode: "none",
         zoomOnMouseWheel: false,
-        moveOnMouseMove: true,
+        moveOnMouseMove,
         moveOnMouseWheel: false,
         startValue: zoomState.startValue,
         endValue: Math.min(zoomState.endValue, Math.max(0, columnCount - 1)),
