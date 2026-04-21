@@ -24,7 +24,7 @@
     "#b04f6f",
     "#9a7b2f",
   ];
-  const DEFAULT_VISIBLE_COLUMNS = 64;
+  const DEFAULT_VISIBLE_COLUMNS = 16;
 
   function supportOpacity(cell, payload) {
     const maxObservationCount = Math.max(1, payload.maxObservationCount || 1);
@@ -81,7 +81,8 @@
 
   function columnZoomStateFromParams(params, columnCount) {
     if (!params) return null;
-    const payload = Array.isArray(params.batch) && params.batch.length > 0 ? params.batch[0] : params;
+    const events = Array.isArray(params.batch) && params.batch.length > 0 ? params.batch : [params];
+    const payload = events.find((entry) => entry && entry.dataZoomId === "codon-length-x-slider");
     if (!payload || payload.dataZoomId !== "codon-length-x-slider") return null;
     if (payload.startValue != null || payload.endValue != null) {
       return normalizeColumnZoomState(columnCount, {
