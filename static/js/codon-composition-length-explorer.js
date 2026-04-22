@@ -372,36 +372,69 @@
 
   function browseSeries(payload, panel) {
     const codons = payload.visibleCodons || [];
+    const totalObservations = Math.max(0, panel.observationCount || 0);
+    const supportSeries = {
+      name: "Support",
+      type: "line",
+      smooth: false,
+      showSymbol: false,
+      connectNulls: false,
+      silent: true,
+      tooltip: { show: false },
+      emphasis: { disabled: true },
+      z: 3,
+      lineStyle: {
+        color: "#17242c",
+        width: 2,
+        opacity: 0.22,
+      },
+      areaStyle: {
+        color: "#17242c",
+        opacity: 0.05,
+      },
+      data: panel.bins.map((bin) => {
+        if (!bin.occupied || totalObservations <= 0) return null;
+        return (bin.observationCount || 0) / totalObservations;
+      }),
+    };
     if (codons.length === 2) {
-      return codons.map((codon, codonIndex) => ({
+      return [
+        supportSeries,
+        ...codons.map((codon, codonIndex) => ({
+          name: codon,
+          type: "line",
+          smooth: false,
+          showSymbol: true,
+          symbolSize: 4,
+          connectNulls: false,
+          z: 2,
+          areaStyle: { opacity: codonIndex === 0 ? 0.22 : 0 },
+          lineStyle: { width: 2 },
+          itemStyle: { color: CODON_COLORS[codonIndex % CODON_COLORS.length] },
+          data: panel.bins.map((bin) => {
+            const shareRow = (bin.codonShares || []).find((row) => row.codon === codon);
+            return bin.occupied && shareRow ? shareRow.share : null;
+          }),
+        })),
+      ];
+    }
+    return [
+      ...codons.map((codon, codonIndex) => ({
         name: codon,
-        type: "line",
-        smooth: false,
-        showSymbol: true,
-        symbolSize: 4,
-        connectNulls: false,
-        areaStyle: { opacity: codonIndex === 0 ? 0.22 : 0 },
-        lineStyle: { width: 2 },
-        itemStyle: { color: CODON_COLORS[codonIndex % CODON_COLORS.length] },
+        type: "bar",
+        stack: "composition",
+        barWidth: "72%",
+        z: 2,
+        itemStyle: {
+          color: CODON_COLORS[codonIndex % CODON_COLORS.length],
+        },
         data: panel.bins.map((bin) => {
           const shareRow = (bin.codonShares || []).find((row) => row.codon === codon);
           return bin.occupied && shareRow ? shareRow.share : null;
         }),
-      }));
-    }
-    return codons.map((codon, codonIndex) => ({
-      name: codon,
-      type: "bar",
-      stack: "composition",
-      barWidth: "72%",
-      itemStyle: {
-        color: CODON_COLORS[codonIndex % CODON_COLORS.length],
-      },
-      data: panel.bins.map((bin) => {
-        const shareRow = (bin.codonShares || []).find((row) => row.codon === codon);
-        return bin.occupied && shareRow ? shareRow.share : null;
-      }),
-    }));
+      })),
+      supportSeries,
+    ];
   }
 
   function browseTooltip(panel, dataIndex) {
@@ -436,6 +469,7 @@
         show: true,
         top: 10,
         type: "scroll",
+        data: payload.visibleCodons || [],
         textStyle: { color: "#63727a" },
       },
       tooltip: {
