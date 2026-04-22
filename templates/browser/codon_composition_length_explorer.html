@@ -6,6 +6,7 @@
 {% block extra_scripts %}
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <script src="{% static 'js/stats-chart-shell.js' %}"></script>
+  <script src="{% static 'js/pairwise-overview.js' %}"></script>
   <script src="{% static 'js/codon-composition-length-explorer.js' %}"></script>
 {% endblock %}
 
@@ -130,6 +131,10 @@
         <strong>Shift:</strong> each cell marks how much codon composition
         changes between adjacent length bins for the same taxon.
       </p>
+      <p class="text-secondary mb-0" data-codon-length-overview-description data-overview-mode="similarity" hidden>
+        <strong>Similarity:</strong> pairwise trajectory divergence between visible taxa across
+        all shared length bins. Lower values indicate more similar codon-length trajectories.
+      </p>
     </div>
     <div class="mode-switch" data-codon-length-overview-mode-switch>
       <span class="mode-switch-label">View</span>
@@ -142,13 +147,19 @@
       <button class="btn btn-outline-secondary" type="button"
               data-codon-length-overview-mode-button data-overview-mode="shift"
               aria-pressed="false">Shift</button>
+      <button class="btn btn-outline-secondary" type="button"
+              data-codon-length-overview-mode-button data-overview-mode="similarity"
+              aria-pressed="false">Similarity</button>
     </div>
   </div>
 
   {{ overview_preference_payload|json_script:overview_preference_payload_id }}
   {{ overview_dominance_payload|json_script:overview_dominance_payload_id }}
   {{ overview_shift_payload|json_script:overview_shift_payload_id }}
+  {{ overview_pairwise_payload|json_script:overview_pairwise_payload_id }}
+  {{ overview_pairwise_taxonomy_gutter_payload|json_script:overview_pairwise_taxonomy_gutter_payload_id }}
   <div class="length-chart-shell" id="{{ overview_container_id }}" data-default-overview-mode="{{ overview_default_mode }}"></div>
+  <div class="length-chart-shell" id="{{ overview_pairwise_container_id }}" hidden></div>
   <p class="empty-callout mb-0 mt-3" data-codon-length-overview-empty>{{ summary_empty_reason }}</p>
   <noscript>
     <p class="surface-note mb-0 mt-3">JavaScript is disabled, so the grouped fallback table remains the active view.</p>

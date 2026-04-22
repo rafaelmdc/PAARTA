@@ -393,3 +393,43 @@ class BrowserCodonCompositionLengthExplorerTests(TestCase):
         self.assertIsNone(bin_rows[0]["delta"])
         if len(bin_rows) > 1:
             self.assertIsNotNone(bin_rows[1]["delta"])
+
+    def test_codon_composition_length_pairwise_payload_structure(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        beta_long_call = self._create_repeat_call(
+            self.beta,
+            suffix="beta-long-q-pairwise",
+            method="pure",
+            residue="Q",
+            length=17,
+            purity=1.0,
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            repeat_call=beta_long_call,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"residue": "q", "min_count": "1", "rank": "species"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        pairwise = response.context["overview_pairwise_payload"]
+        self.assertEqual(pairwise["mode"], "pairwise_similarity_matrix")
+        self.assertTrue(pairwise["available"])
+        self.assertEqual(pairwise["displayMetric"], "divergence")
+        n = pairwise["visibleTaxaCount"]
+        self.assertGreaterEqual(n, 2)
+        self.assertEqual(len(pairwise["divergenceMatrix"]), n)
+        self.assertEqual(len(pairwise["divergenceMatrix"][0]), n)
+        self.assertEqual(pairwise["divergenceMatrix"][0][0], 0.0)
+        self.assertContains(response, "codon-composition-length-pairwise-overview-payload")

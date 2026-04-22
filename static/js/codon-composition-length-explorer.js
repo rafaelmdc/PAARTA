@@ -15,6 +15,8 @@
     preference: "codon-composition-length-preference-overview-payload",
     dominance: "codon-composition-length-dominance-overview-payload",
     shift: "codon-composition-length-shift-overview-payload",
+    pairwise: "codon-composition-length-pairwise-overview-payload",
+    pairwiseTaxonomyGutter: "codon-composition-length-pairwise-taxonomy-gutter-payload",
     browse: "codon-composition-length-browse-payload",
     inspect: "codon-composition-length-inspect-payload",
   };
@@ -299,12 +301,15 @@
 
   function mountOverview() {
     const container = document.getElementById("codon-composition-length-overview-chart");
+    const pairwiseContainer = document.getElementById("codon-composition-length-pairwise-chart");
     if (!container || typeof window.echarts === "undefined") return;
 
+    const pairwisePayload = parsePayload(PAYLOAD_IDS.pairwise) || {};
     const payloads = {
       preference: parsePayload(PAYLOAD_IDS.preference) || {},
       dominance: parsePayload(PAYLOAD_IDS.dominance) || {},
       shift: parsePayload(PAYLOAD_IDS.shift) || {},
+      similarity: pairwisePayload,
     };
     let payload = activePayload(payloads, container.dataset.defaultOverviewMode || "preference");
     const emptyMessage = document.querySelector("[data-codon-length-overview-empty]");
@@ -330,7 +335,28 @@
     const chart = window.echarts.init(container);
     installWheelHandler(chart, payload.visibleTaxaCount || 0, () => currentRowZoomState);
 
+    if (pairwiseContainer && pairwisePayload?.available && window.HomorepeatPairwiseOverview) {
+      const pairwiseTaxonomyGutterPayload = parsePayload(PAYLOAD_IDS.pairwiseTaxonomyGutter) || null;
+      window.HomorepeatPairwiseOverview.renderPairwiseOverview({
+        container: pairwiseContainer,
+        payload: pairwisePayload,
+        taxonomyGutterPayload: pairwiseTaxonomyGutterPayload,
+        distanceScaleStorageKey: "codon-length-pairwise-distance-scale",
+      });
+      pairwiseContainer.hidden = true;
+    }
+
     function render() {
+      const isPairwise = currentMode === "similarity";
+      if (isPairwise) {
+        container.hidden = true;
+        if (pairwiseContainer) pairwiseContainer.hidden = false;
+        if (emptyMessage) emptyMessage.hidden = true;
+        syncButtons(buttons, currentMode, payloads);
+        syncDescriptions(descriptions, currentMode);
+        return;
+      }
+      if (pairwiseContainer) pairwiseContainer.hidden = true;
       payload = modePayload(payloads, currentMode);
       currentRowZoomState = normalizeZoomState(payload.visibleTaxaCount || 0, currentRowZoomState);
       currentColumnZoomState = normalizeColumnZoomState(xLabels(payload).length, currentColumnZoomState);
@@ -344,6 +370,7 @@
     }
 
     chart.on("datazoom", (params) => {
+      if (currentMode === "similarity") return;
       currentRowZoomState = resolveZoomState(chart, payload.visibleTaxaCount || 0, params);
       currentColumnZoomState = columnZoomStateFromParams(params, xLabels(payload).length)
         || currentColumnZoomState;
@@ -355,14 +382,16 @@
         const nextPayload = modePayload(payloads, nextMode);
         if (!nextPayload || !nextPayload.available || nextMode === currentMode) return;
         currentMode = nextMode;
-        currentRowZoomState = normalizeZoomState(
-          nextPayload.visibleTaxaCount || 0,
-          defaultZoomState(nextPayload.visibleTaxaCount || 0),
-        );
-        currentColumnZoomState = normalizeColumnZoomState(
-          xLabels(nextPayload).length,
-          defaultColumnZoomState(xLabels(nextPayload).length),
-        );
+        if (nextMode !== "similarity") {
+          currentRowZoomState = normalizeZoomState(
+            nextPayload.visibleTaxaCount || 0,
+            defaultZoomState(nextPayload.visibleTaxaCount || 0),
+          );
+          currentColumnZoomState = normalizeColumnZoomState(
+            xLabels(nextPayload).length,
+            defaultColumnZoomState(xLabels(nextPayload).length),
+          );
+        }
         render();
       });
     });

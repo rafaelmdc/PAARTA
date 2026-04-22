@@ -511,6 +511,90 @@ def build_codon_length_shift_overview_payload(bundle):
     )
 
 
+def build_codon_length_pairwise_overview_payload(bundle):
+    visible_codons = list(bundle.get("visible_codons", [])) if bundle else []
+    matrix_rows = list(bundle.get("matrix_rows", [])) if bundle else []
+    visible_bins = list(bundle.get("visible_bins", [])) if bundle else []
+
+    if len(visible_codons) < 2 or len(matrix_rows) < 2:
+        payload = _build_pairwise_overview_payload(
+            [],
+            mode="pairwise_similarity_matrix",
+            divergence_matrix=[],
+            value_min=0,
+            value_max=1,
+            visible_codons=visible_codons,
+            display_metric="divergence",
+            include_display_metric_when_empty=True,
+        )
+        payload["available"] = False
+        return payload
+
+    taxon_rows = [
+        {
+            "taxon_id": row["taxon_id"],
+            "taxon_name": row["taxon_name"],
+            "rank": row["rank"],
+            "observation_count": row["observation_count"],
+            "species_count": row.get("species_count", row["observation_count"]),
+        }
+        for row in matrix_rows
+    ]
+
+    bin_vectors_per_taxon = []
+    for row in matrix_rows:
+        shares_by_bin = {}
+        for bin_row in row["bin_rows"]:
+            codon_lookup = _codon_share_lookup(bin_row)
+            shares_by_bin[bin_row["bin"]["start"]] = [
+                codon_lookup.get(codon, 0) for codon in visible_codons
+            ]
+        bin_vectors_per_taxon.append(shares_by_bin)
+
+    divergence_matrix = _build_trajectory_divergence_matrix(bin_vectors_per_taxon, visible_bins)
+    value_min, value_max = _matrix_value_range(divergence_matrix, default_min=0, default_max=1)
+
+    payload = _build_pairwise_overview_payload(
+        taxon_rows,
+        mode="pairwise_similarity_matrix",
+        divergence_matrix=divergence_matrix,
+        value_min=value_min,
+        value_max=value_max,
+        visible_codons=visible_codons,
+        display_metric="divergence",
+        extra_taxon_fields=("columnIndex",),
+    )
+    payload["available"] = True
+    return payload
+
+
+def _build_trajectory_divergence_matrix(bin_vectors_per_taxon, visible_bins):
+    n = len(bin_vectors_per_taxon)
+    matrix = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = _trajectory_divergence(bin_vectors_per_taxon[i], bin_vectors_per_taxon[j], visible_bins)
+            matrix[i][j] = d
+            matrix[j][i] = d
+    return matrix
+
+
+def _trajectory_divergence(vectors_i, vectors_j, visible_bins):
+    total = 0.0
+    shared = 0
+    for visible_bin in visible_bins:
+        bin_start = visible_bin["start"]
+        v_i = vectors_i.get(bin_start)
+        v_j = vectors_j.get(bin_start)
+        if v_i is None or v_j is None:
+            continue
+        total += _jensen_shannon_divergence(v_i, v_j)
+        shared += 1
+    if shared == 0:
+        return 1.0
+    return round(total / shared, 6)
+
+
 def build_codon_length_browse_payload(bundle, *, window_size=12):
     visible_codons = list(bundle.get("visible_codons", [])) if bundle else []
     visible_bins = list(bundle.get("visible_bins", [])) if bundle else []

@@ -8,12 +8,14 @@ from apps.browser.stats import (
     build_codon_length_dominance_overview_payload,
     build_codon_length_inspect_bundle,
     build_codon_length_inspect_payload,
+    build_codon_length_pairwise_overview_payload,
     build_codon_length_parent_comparison_bundle,
     build_codon_length_preference_overview_payload,
     build_codon_length_shift_overview_payload,
     build_filtered_repeat_call_queryset,
     build_matching_repeat_calls_with_codon_usage_count,
     build_stats_filter_state,
+    build_taxonomy_gutter_payload,
 )
 from apps.browser.stats.params import ALLOWED_STATS_RANKS
 
@@ -237,6 +239,12 @@ class CodonCompositionLengthExplorerView(TemplateView):
             summary_bundle
         )
         context["overview_shift_payload"] = build_codon_length_shift_overview_payload(summary_bundle)
+        pairwise_payload = build_codon_length_pairwise_overview_payload(summary_bundle)
+        context["overview_pairwise_payload"] = pairwise_payload
+        context["overview_pairwise_taxonomy_gutter_payload"] = build_taxonomy_gutter_payload(
+            summary_bundle.get("matrix_rows", []),
+            filter_state=filter_state,
+        )
         context["browse_payload"] = build_codon_length_browse_payload(summary_bundle)
         context["overview_preference_payload_id"] = (
             "codon-composition-length-preference-overview-payload"
@@ -245,7 +253,12 @@ class CodonCompositionLengthExplorerView(TemplateView):
             "codon-composition-length-dominance-overview-payload"
         )
         context["overview_shift_payload_id"] = "codon-composition-length-shift-overview-payload"
+        context["overview_pairwise_payload_id"] = "codon-composition-length-pairwise-overview-payload"
+        context["overview_pairwise_taxonomy_gutter_payload_id"] = (
+            "codon-composition-length-pairwise-taxonomy-gutter-payload"
+        )
         context["overview_container_id"] = "codon-composition-length-overview-chart"
+        context["overview_pairwise_container_id"] = "codon-composition-length-pairwise-chart"
         context["browse_payload_id"] = "codon-composition-length-browse-payload"
         context["browse_container_id"] = "codon-composition-length-browse"
         context["run_choices"] = PipelineRun.objects.order_by("-imported_at", "run_id")
