@@ -664,6 +664,10 @@
     const binRows = payload.binRows || [];
     const labels = binRows.map((row) => row.binLabel);
     const isTwoCodon = codons.length === 2;
+    const compRows = payload.comparisonBinRows || [];
+    const hasComparison = compRows.length > 0;
+    const compLabel = payload.comparisonScopeLabel || "Parent";
+    const compRowByBinStart = new Map(compRows.map((r) => [r.binStart, r]));
 
     function inspectTooltip(dataIndex) {
       const row = binRows[dataIndex];
@@ -679,12 +683,20 @@
         lines.push(`Shift from previous: ${row.delta.toFixed(3)}`);
       }
       lines.push(...(row.codonShares || []).map((cs) => `${cs.codon}: ${formatShare(cs.share)}`));
+      if (hasComparison) {
+        const compRow = compRowByBinStart.get(row.binStart);
+        if (compRow) {
+          lines.push(`<hr><strong>${compLabel}</strong>`);
+          lines.push(supportLine("Support", compRow.observationCount, compRow.speciesCount, payload.comparisonObservationCount));
+          lines.push(...(compRow.codonShares || []).map((cs) => `${cs.codon}: ${formatShare(cs.share)}`));
+        }
+      }
       return lines.join("<br>");
     }
 
     function makeSeries() {
       if (isTwoCodon) {
-        return codons.map((codon, i) => ({
+        const focused = codons.map((codon, i) => ({
           name: codon,
           type: "line",
           smooth: false,
@@ -699,18 +711,49 @@
             return cs ? cs.share : null;
           }),
         }));
+        if (!hasComparison) return focused;
+        const comparison = codons.map((codon, i) => ({
+          name: `${codon} (${compLabel})`,
+          type: "line",
+          smooth: false,
+          showSymbol: false,
+          connectNulls: false,
+          lineStyle: { width: 1.5, type: "dashed", color: CODON_COLORS[i % CODON_COLORS.length] },
+          itemStyle: { color: CODON_COLORS[i % CODON_COLORS.length] },
+          tooltip: { show: false },
+          data: binRows.map((row) => {
+            const compRow = compRowByBinStart.get(row.binStart);
+            const cs = compRow && (compRow.codonShares || []).find((s) => s.codon === codon);
+            return cs ? cs.share : null;
+          }),
+        }));
+        return [...focused, ...comparison];
       }
-      return codons.map((codon, i) => ({
+      const focused = codons.map((codon, i) => ({
         name: codon,
         type: "bar",
         stack: "composition",
-        barWidth: "72%",
+        barWidth: hasComparison ? "42%" : "72%",
         itemStyle: { color: CODON_COLORS[i % CODON_COLORS.length] },
         data: binRows.map((row) => {
           const cs = (row.codonShares || []).find((s) => s.codon === codon);
           return cs ? cs.share : null;
         }),
       }));
+      if (!hasComparison) return focused;
+      const comparison = codons.map((codon, i) => ({
+        name: `${codon} (${compLabel})`,
+        type: "bar",
+        stack: "composition-parent",
+        barWidth: "42%",
+        itemStyle: { color: CODON_COLORS[i % CODON_COLORS.length], opacity: 0.4 },
+        data: binRows.map((row) => {
+          const compRow = compRowByBinStart.get(row.binStart);
+          const cs = compRow && (compRow.codonShares || []).find((s) => s.codon === codon);
+          return cs ? cs.share : null;
+        }),
+      }));
+      return [...focused, ...comparison];
     }
 
     return {

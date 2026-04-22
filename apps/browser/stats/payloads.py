@@ -258,7 +258,13 @@ def build_two_codon_preference_map_payload(summary_rows, *, visible_codons):
     )
 
 
-def build_codon_length_inspect_payload(bundle, *, scope_label: str) -> dict:
+def build_codon_length_inspect_payload(
+    bundle,
+    *,
+    scope_label: str,
+    comparison_bundle=None,
+    comparison_scope_label: str = "",
+) -> dict:
     observation_count = bundle.get("observation_count", 0) if bundle else 0
     visible_codons = list(bundle.get("visible_codons", [])) if bundle else []
     bin_rows = list(bundle.get("bin_rows", [])) if bundle else []
@@ -273,6 +279,32 @@ def build_codon_length_inspect_payload(bundle, *, scope_label: str) -> dict:
             "binRows": [],
         }
 
+    payload_bin_rows = _build_inspect_bin_rows(bin_rows, visible_codons)
+
+    result = {
+        "scopeLabel": scope_label,
+        "observationCount": observation_count,
+        "available": True,
+        "visibleCodons": visible_codons,
+        "visibleBins": list(bundle.get("visible_bins", [])),
+        "binRows": payload_bin_rows,
+        "maxObservationCount": max((row["observation_count"] for row in bin_rows), default=0),
+    }
+
+    if comparison_bundle and comparison_bundle.get("bin_rows"):
+        comparison_bin_rows = _build_inspect_bin_rows(
+            comparison_bundle["bin_rows"],
+            visible_codons,
+        )
+        if comparison_bin_rows:
+            result["comparisonBinRows"] = comparison_bin_rows
+            result["comparisonScopeLabel"] = comparison_scope_label
+            result["comparisonObservationCount"] = comparison_bundle.get("observation_count", 0)
+
+    return result
+
+
+def _build_inspect_bin_rows(bin_rows: list, visible_codons: list) -> list:
     payload_bin_rows = []
     previous_shares: dict[str, float] | None = None
     for bin_row in bin_rows:
@@ -310,16 +342,7 @@ def build_codon_length_inspect_payload(bundle, *, scope_label: str) -> dict:
             }
         )
         previous_shares = current_shares
-
-    return {
-        "scopeLabel": scope_label,
-        "observationCount": observation_count,
-        "available": True,
-        "visibleCodons": visible_codons,
-        "visibleBins": list(bundle.get("visible_bins", [])),
-        "binRows": payload_bin_rows,
-        "maxObservationCount": max((row["observation_count"] for row in bin_rows), default=0),
-    }
+    return payload_bin_rows
 
 
 def build_codon_length_preference_overview_payload(bundle):

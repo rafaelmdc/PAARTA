@@ -12,6 +12,7 @@ from ..models import (
     CanonicalCodonCompositionLengthSummary,
     CanonicalRepeatCall,
     CanonicalRepeatCallCodonUsage,
+    TaxonClosure,
 )
 from .aggregates import PercentileCont
 from .bins import build_length_bin_definition, build_visible_length_bins
@@ -371,27 +372,11 @@ def build_codon_composition_inspect_bundle(filter_state: StatsFilterState) -> di
     return bundle
 
 
-def build_codon_length_inspect_bundle(filter_state: StatsFilterState) -> dict[str, object]:
-    if not filter_state.residue:
-        return {
-            "observation_count": 0,
-            "visible_codons": [],
-            "visible_bins": [],
-            "bin_rows": [],
-        }
-
-    cache_key = f"browser:stats:codon-length-inspect:{filter_state.cache_key()}"
-    cached_bundle = cache.get(cache_key)
-    if cached_bundle is not None:
-        return cached_bundle
-
-    length_taxon_pairs = list(
-        build_filtered_repeat_call_queryset(filter_state)
-        .values_list("length", "taxon_id")
-    )
+def _aggregate_codon_length_by_bin(repeat_call_qs, codon_usage_qs) -> dict[str, object]:
+    length_taxon_pairs = list(repeat_call_qs.values_list("length", "taxon_id"))
 
     codon_length_rows = list(
-        build_filtered_codon_usage_queryset(filter_state)
+        codon_usage_qs
         .values("repeat_call__length", "codon")
         .annotate(
             fraction_sum=Sum("codon_fraction"),
@@ -402,14 +387,7 @@ def build_codon_length_inspect_bundle(filter_state: StatsFilterState) -> dict[st
     )
 
     if not length_taxon_pairs:
-        bundle = {
-            "observation_count": 0,
-            "visible_codons": [],
-            "visible_bins": [],
-            "bin_rows": [],
-        }
-        cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
-        return bundle
+        return {"observation_count": 0, "visible_codons": [], "visible_bins": [], "bin_rows": []}
 
     bin_call_counts: dict[int, int] = {}
     bin_taxon_sets: dict[int, set] = {}
@@ -468,12 +446,77 @@ def build_codon_length_inspect_bundle(filter_state: StatsFilterState) -> dict[st
             }
         )
 
-    bundle = {
+    return {
         "observation_count": len(length_taxon_pairs),
         "visible_codons": visible_codons,
         "visible_bins": visible_bins,
         "bin_rows": bin_rows,
     }
+
+
+def build_codon_length_parent_comparison_bundle(filter_state: StatsFilterState, *, parent_taxon) -> dict[str, object]:
+    if not filter_state.residue or parent_taxon is None:
+        return {"observation_count": 0, "visible_codons": [], "visible_bins": [], "bin_rows": []}
+
+    cache_key = f"browser:stats:codon-length-parent-comparison:{parent_taxon.pk}:{filter_state.cache_key()}"
+    cached_bundle = cache.get(cache_key)
+    if cached_bundle is not None:
+        return cached_bundle
+
+    parent_taxa_ids = (
+        TaxonClosure.objects.filter(ancestor_id=parent_taxon.pk)
+        .order_by()
+        .values_list("descendant_id", flat=True)
+        .distinct()
+    )
+    repeat_call_qs = CanonicalRepeatCall.objects.order_by()
+    if filter_state.current_run is not None:
+        repeat_call_qs = repeat_call_qs.filter(latest_pipeline_run=filter_state.current_run)
+    repeat_call_qs = repeat_call_qs.filter(taxon_id__in=parent_taxa_ids)
+    if filter_state.q:
+        repeat_call_qs = repeat_call_qs.filter(
+            Q(gene_symbol__istartswith=filter_state.q)
+            | Q(protein__protein_id__istartswith=filter_state.q)
+            | Q(protein_name__istartswith=filter_state.q)
+            | Q(accession__istartswith=filter_state.q)
+        )
+    if filter_state.method:
+        repeat_call_qs = repeat_call_qs.filter(method=filter_state.method)
+    if filter_state.residue:
+        repeat_call_qs = repeat_call_qs.filter(repeat_residue=filter_state.residue)
+    if filter_state.length_min is not None:
+        repeat_call_qs = repeat_call_qs.filter(length__gte=filter_state.length_min)
+    if filter_state.length_max is not None:
+        repeat_call_qs = repeat_call_qs.filter(length__lte=filter_state.length_max)
+
+    codon_usage_qs = CanonicalRepeatCallCodonUsage.objects.order_by().filter(
+        repeat_call__in=repeat_call_qs,
+        amino_acid=filter_state.residue,
+    )
+
+    bundle = _aggregate_codon_length_by_bin(repeat_call_qs, codon_usage_qs)
+    cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
+    return bundle
+
+
+def build_codon_length_inspect_bundle(filter_state: StatsFilterState) -> dict[str, object]:
+    if not filter_state.residue:
+        return {
+            "observation_count": 0,
+            "visible_codons": [],
+            "visible_bins": [],
+            "bin_rows": [],
+        }
+
+    cache_key = f"browser:stats:codon-length-inspect:{filter_state.cache_key()}"
+    cached_bundle = cache.get(cache_key)
+    if cached_bundle is not None:
+        return cached_bundle
+
+    bundle = _aggregate_codon_length_by_bin(
+        build_filtered_repeat_call_queryset(filter_state),
+        build_filtered_codon_usage_queryset(filter_state),
+    )
     cache.set(cache_key, bundle, timeout=getattr(settings, "HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60))
     return bundle
 

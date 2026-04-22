@@ -286,6 +286,78 @@ class BrowserCodonCompositionLengthExplorerTests(TestCase):
         self.assertContains(response, "Inspect layer")
         self.assertContains(response, "codon-usage rows")
 
+    def test_codon_composition_length_inspect_comparison_shown_via_branch_q_single_match(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"residue": "q", "min_count": "1", "branch_q": "Mammalia"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["inspect_scope_active"])
+        self.assertTrue(response.context["inspect_has_comparison"])
+        self.assertIn("Chordata", response.context.get("inspect_comparison_scope_label", ""))
+
+    def test_codon_composition_length_inspect_no_comparison_when_branch_q_unresolved(self):
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"residue": "q", "branch_q": "nonexistent-taxon-xyz"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["inspect_scope_active"])
+        self.assertFalse(response.context["inspect_has_comparison"])
+        self.assertEqual(response.context["inspect_comparison_bin_rows"], [])
+
+    def test_codon_composition_length_inspect_comparison_shown_with_selected_taxon(self):
+        from apps.browser.models import Taxon
+
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        beta_long_call = self._create_repeat_call(
+            self.beta,
+            suffix="beta-long-q-comp",
+            method="pure",
+            residue="Q",
+            length=17,
+            purity=1.0,
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            repeat_call=beta_long_call,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        primates_taxon = Taxon.objects.filter(taxon_name="Primates").first()
+        if primates_taxon is None:
+            return
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"residue": "q", "min_count": "1", "branch": str(primates_taxon.pk)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["inspect_scope_active"])
+        self.assertIn("inspect_comparison_scope_label", response.context)
+        self.assertIn("Mammalia", response.context.get("inspect_comparison_scope_label", ""))
+        payload = response.context["inspect_payload"]
+        self.assertIn("comparisonBinRows", payload)
+        self.assertGreater(len(payload["comparisonBinRows"]), 0)
+        self.assertContains(response, "Comparison")
+        self.assertContains(response, "Mammalia")
+
     def test_codon_composition_length_inspect_payload_bin_rows_and_delta(self):
         self._set_repeat_call_codon_usages(
             self.alpha,
