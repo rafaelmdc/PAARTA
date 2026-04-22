@@ -223,3 +223,101 @@ class BrowserCodonCompositionLengthExplorerTests(TestCase):
         self.assertContains(response, "15-19")
         self.assertContains(response, "CAA 1")
         self.assertContains(response, "CAG 1")
+
+    def test_codon_composition_length_inspect_not_shown_without_branch_scope(self):
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"residue": "q"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["inspect_scope_active"])
+        self.assertNotContains(response, "Inspect layer")
+
+    def test_codon_composition_length_inspect_shown_with_branch_scope_and_data(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        beta_long_call = self._create_repeat_call(
+            self.beta,
+            suffix="beta-long-q-inspect",
+            method="pure",
+            residue="Q",
+            length=17,
+            purity=1.0,
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            repeat_call=beta_long_call,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"residue": "q", "min_count": "1", "branch_q": "Mammalia"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["inspect_scope_active"])
+        self.assertIn("inspect_observation_count", response.context)
+        self.assertGreater(response.context["inspect_observation_count"], 0)
+        self.assertIn("inspect_bin_rows", response.context)
+        self.assertGreater(len(response.context["inspect_bin_rows"]), 0)
+        self.assertTrue(response.context["inspect_payload"]["available"])
+        self.assertContains(response, "Inspect layer")
+        self.assertContains(response, "codon-composition-length-inspect-payload")
+        self.assertContains(response, "Shift from previous")
+
+    def test_codon_composition_length_inspect_empty_without_residue(self):
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"branch_q": "Mammalia"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["inspect_scope_active"])
+        self.assertEqual(response.context["inspect_observation_count"], 0)
+        self.assertFalse(response.context["inspect_payload"]["available"])
+        self.assertContains(response, "Inspect layer")
+        self.assertContains(response, "codon-usage rows")
+
+    def test_codon_composition_length_inspect_payload_bin_rows_and_delta(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        beta_long_call = self._create_repeat_call(
+            self.beta,
+            suffix="beta-long-q-delta",
+            method="pure",
+            residue="Q",
+            length=17,
+            purity=1.0,
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            repeat_call=beta_long_call,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 6, "codon_fraction": 0.75},
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 2, "codon_fraction": 0.25},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"residue": "q", "min_count": "1", "branch_q": "Mammalia"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        bin_rows = response.context["inspect_bin_rows"]
+        self.assertGreater(len(bin_rows), 0)
+        self.assertIsNone(bin_rows[0]["delta"])
+        if len(bin_rows) > 1:
+            self.assertIsNotNone(bin_rows[1]["delta"])

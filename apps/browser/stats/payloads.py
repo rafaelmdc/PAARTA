@@ -258,6 +258,70 @@ def build_two_codon_preference_map_payload(summary_rows, *, visible_codons):
     )
 
 
+def build_codon_length_inspect_payload(bundle, *, scope_label: str) -> dict:
+    observation_count = bundle.get("observation_count", 0) if bundle else 0
+    visible_codons = list(bundle.get("visible_codons", [])) if bundle else []
+    bin_rows = list(bundle.get("bin_rows", [])) if bundle else []
+
+    if observation_count == 0 or not bin_rows:
+        return {
+            "scopeLabel": scope_label,
+            "observationCount": observation_count,
+            "available": False,
+            "visibleCodons": visible_codons,
+            "visibleBins": list(bundle.get("visible_bins", [])) if bundle else [],
+            "binRows": [],
+        }
+
+    payload_bin_rows = []
+    previous_shares: dict[str, float] | None = None
+    for bin_row in bin_rows:
+        current_shares = {s["codon"]: s["share"] for s in bin_row["codon_shares"]}
+        delta = None
+        if previous_shares is not None:
+            if len(visible_codons) == 2:
+                codon_a = visible_codons[0]
+                delta = round(abs(current_shares.get(codon_a, 0) - previous_shares.get(codon_a, 0)), 6)
+            else:
+                delta = round(
+                    sum(
+                        abs(current_shares.get(c, 0) - previous_shares.get(c, 0))
+                        for c in visible_codons
+                    ),
+                    6,
+                )
+        payload_bin_rows.append(
+            {
+                "binLabel": bin_row["bin"]["label"],
+                "binStart": bin_row["bin"]["start"],
+                "observationCount": bin_row["observation_count"],
+                "speciesCount": bin_row["species_count"],
+                "dominantCodon": bin_row["dominant_codon"],
+                "dominanceMargin": round(bin_row["dominance_margin"], 6),
+                "codonShares": [
+                    {
+                        "codon": s["codon"],
+                        "share": s["share"],
+                        "codonCount": s.get("codon_count", 0),
+                    }
+                    for s in bin_row["codon_shares"]
+                ],
+                "delta": delta,
+            }
+        )
+        previous_shares = current_shares
+
+    return {
+        "scopeLabel": scope_label,
+        "observationCount": observation_count,
+        "available": True,
+        "visibleCodons": visible_codons,
+        "visibleBins": list(bundle.get("visible_bins", [])),
+        "binRows": payload_bin_rows,
+        "maxObservationCount": max((row["observation_count"] for row in bin_rows), default=0),
+    }
+
+
 def build_codon_length_preference_overview_payload(bundle):
     visible_codons = list(bundle.get("visible_codons", [])) if bundle else []
     matrix_rows = list(bundle.get("matrix_rows", [])) if bundle else []

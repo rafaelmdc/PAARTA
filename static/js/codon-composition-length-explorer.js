@@ -16,6 +16,7 @@
     dominance: "codon-composition-length-dominance-overview-payload",
     shift: "codon-composition-length-shift-overview-payload",
     browse: "codon-composition-length-browse-payload",
+    inspect: "codon-composition-length-inspect-payload",
   };
   const CODON_COLORS = [
     "#0f5964",
@@ -658,8 +659,132 @@
     renderVirtualWindow();
   }
 
+  function inspectChartOption(payload) {
+    const codons = payload.visibleCodons || [];
+    const binRows = payload.binRows || [];
+    const labels = binRows.map((row) => row.binLabel);
+    const isTwoCodon = codons.length === 2;
+
+    function inspectTooltip(dataIndex) {
+      const row = binRows[dataIndex];
+      if (!row) return "";
+      const lines = [
+        `<strong>${payload.scopeLabel}</strong>`,
+        row.binLabel,
+        supportLine("Support", row.observationCount, row.speciesCount, payload.observationCount),
+        `Dominant codon: ${row.dominantCodon}`,
+        `Dominance margin: ${row.dominanceMargin.toFixed(3)}`,
+      ];
+      if (row.delta !== null && row.delta !== undefined) {
+        lines.push(`Shift from previous: ${row.delta.toFixed(3)}`);
+      }
+      lines.push(...(row.codonShares || []).map((cs) => `${cs.codon}: ${formatShare(cs.share)}`));
+      return lines.join("<br>");
+    }
+
+    function makeSeries() {
+      if (isTwoCodon) {
+        return codons.map((codon, i) => ({
+          name: codon,
+          type: "line",
+          smooth: false,
+          showSymbol: true,
+          symbolSize: 5,
+          connectNulls: false,
+          areaStyle: { opacity: i === 0 ? 0.22 : 0 },
+          lineStyle: { width: 2.5 },
+          itemStyle: { color: CODON_COLORS[i % CODON_COLORS.length] },
+          data: binRows.map((row) => {
+            const cs = (row.codonShares || []).find((s) => s.codon === codon);
+            return cs ? cs.share : null;
+          }),
+        }));
+      }
+      return codons.map((codon, i) => ({
+        name: codon,
+        type: "bar",
+        stack: "composition",
+        barWidth: "72%",
+        itemStyle: { color: CODON_COLORS[i % CODON_COLORS.length] },
+        data: binRows.map((row) => {
+          const cs = (row.codonShares || []).find((s) => s.codon === codon);
+          return cs ? cs.share : null;
+        }),
+      }));
+    }
+
+    return {
+      animation: false,
+      color: CODON_COLORS,
+      grid: {
+        left: 60,
+        right: 24,
+        top: isTwoCodon ? 42 : 50,
+        bottom: 52,
+      },
+      legend: {
+        show: true,
+        top: 10,
+        type: "scroll",
+        data: codons,
+        textStyle: { color: "#63727a" },
+      },
+      tooltip: {
+        trigger: "axis",
+        confine: true,
+        formatter(params) {
+          const firstParam = Array.isArray(params) ? params[0] : params;
+          return inspectTooltip(firstParam?.dataIndex ?? 0);
+        },
+      },
+      xAxis: {
+        type: "category",
+        data: labels,
+        axisLabel: {
+          color: "#63727a",
+          interval: labelInterval(labels.length),
+          hideOverlap: true,
+          width: 52,
+          overflow: "truncate",
+        },
+        axisTick: { alignWithLabel: true },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 1,
+        axisLabel: {
+          color: "#63727a",
+          formatter: (value) => `${Math.round(value * 100)}%`,
+        },
+        splitLine: {
+          lineStyle: { color: "rgba(23, 36, 44, 0.08)" },
+        },
+      },
+      series: makeSeries(),
+    };
+  }
+
+  function mountInspect() {
+    const container = document.getElementById("codon-composition-length-inspect-chart");
+    if (!container || typeof window.echarts === "undefined") return;
+
+    const payload = parsePayload(PAYLOAD_IDS.inspect) || {};
+    if (!payload.available || !Array.isArray(payload.binRows) || payload.binRows.length === 0) {
+      container.hidden = true;
+      return;
+    }
+
+    container.hidden = false;
+    container.style.height = "300px";
+    const chart = window.echarts.init(container);
+    chart.setOption(inspectChartOption(payload), { notMerge: true });
+    window.addEventListener("resize", () => chart.resize());
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     mountOverview();
     mountBrowse();
+    mountInspect();
   });
 })();
