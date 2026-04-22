@@ -840,6 +840,24 @@ class BrowserViewTests(TestCase):
         self.assertIn("run-alpha", body)
         self.assertNotIn("run-beta", body)
 
+    def test_run_list_tsv_export_honors_status_filter(self):
+        beta_run = self.beta["pipeline_run"]
+        beta_run.status = "failed"
+        beta_run.save(update_fields=["status"])
+
+        response = self.client.get(
+            reverse("browser:run-list"),
+            {
+                "status": "success",
+                "download": "tsv",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertIn("run-alpha", body)
+        self.assertNotIn("run-beta", body)
+
     def test_run_list_renders_tsv_download_link_with_filters(self):
         url = reverse("browser:run-list")
         response = self.client.get(
