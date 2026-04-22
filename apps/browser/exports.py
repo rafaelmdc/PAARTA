@@ -70,6 +70,7 @@ def stream_tsv_response(filename: str, headers, rows) -> StreamingHttpResponse:
 class BrowserTSVExportMixin:
     download_param = "download"
     download_value = "tsv"
+    download_strip_params = ("page", "after", "before", "fragment")
     tsv_chunk_size = 2000
     tsv_columns = ()
     tsv_filename_slug = ""
@@ -85,6 +86,14 @@ class BrowserTSVExportMixin:
     def get_tsv_filename(self):
         slug = self.tsv_filename_slug or self.__class__.__name__.lower()
         return f"homorepeat_{slug}.tsv"
+
+    def get_tsv_download_url(self):
+        query = self.request.GET.copy()
+        for param in self.download_strip_params:
+            query.pop(param, None)
+        query[self.download_param] = self.download_value
+        encoded_query = query.urlencode()
+        return f"{self.request.path}?{encoded_query}" if encoded_query else self.request.path
 
     def get_tsv_queryset(self):
         return self.prepare_tsv_queryset(self.get_queryset())
@@ -108,6 +117,11 @@ class BrowserTSVExportMixin:
             [column.header for column in columns],
             self.iter_tsv_data_rows(),
         )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["download_tsv_url"] = self.get_tsv_download_url()
+        return context
 
 
 def _normalize_tsv_column(column) -> TSVColumn:

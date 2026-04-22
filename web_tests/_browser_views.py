@@ -809,7 +809,7 @@ class BrowserViewTests(TestCase):
             {
                 "q": "run",
                 "order_by": "run_id",
-                "page": "2",
+                "page": "1",
                 "fragment": "virtual-scroll",
                 "download": "tsv",
             },
@@ -839,6 +839,27 @@ class BrowserViewTests(TestCase):
         body = b"".join(response.streaming_content).decode("utf-8")
         self.assertIn("run-alpha", body)
         self.assertNotIn("run-beta", body)
+
+    def test_run_list_renders_tsv_download_link_with_filters(self):
+        url = reverse("browser:run-list")
+        response = self.client.get(
+            url,
+            {
+                "q": "run",
+                "status": "success",
+                "order_by": "run_id",
+                "page": "1",
+                "fragment": "virtual-scroll",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f'href="{url}?q=run&amp;status=success&amp;order_by=run_id&amp;download=tsv"',
+        )
+        self.assertNotContains(response, "page=1&amp;download=tsv")
+        self.assertNotContains(response, "fragment=virtual-scroll&amp;download=tsv")
 
     def test_accession_list_virtual_scroll_fragment_returns_rows(self):
         response = self.client.get(

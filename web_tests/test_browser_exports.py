@@ -1,6 +1,7 @@
-from django.test import SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase
 
 from apps.browser.exports import (
+    BrowserTSVExportMixin,
     TSV_CONTENT_TYPE,
     clean_tsv_value,
     iter_tsv_rows,
@@ -62,4 +63,27 @@ class TSVExportTests(SimpleTestCase):
         self.assertEqual(
             b"".join(response.streaming_content).decode("utf-8"),
             "Run\tStatus\nrun-alpha\tcomplete\n",
+        )
+
+
+class BrowserTSVExportMixinTests(SimpleTestCase):
+    def test_download_url_preserves_filters_and_strips_display_params(self):
+        request = RequestFactory().get(
+            "/browser/runs/",
+            {
+                "q": "run",
+                "status": "success",
+                "order_by": "run_id",
+                "page": "2",
+                "after": "cursor-after",
+                "before": "cursor-before",
+                "fragment": "virtual-scroll",
+            },
+        )
+        view = BrowserTSVExportMixin()
+        view.request = request
+
+        self.assertEqual(
+            view.get_tsv_download_url(),
+            "/browser/runs/?q=run&status=success&order_by=run_id&download=tsv",
         )
