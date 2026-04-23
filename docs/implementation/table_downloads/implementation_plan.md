@@ -480,6 +480,31 @@ Work:
 - confirm each table is either wired to TSV or deliberately non-data/static
 - document any intentionally excluded static table in the plan or follow-up
 
+Audit result as of `2026-04-23`:
+
+- Wired to TSV:
+  list pages
+  operational lists
+  taxonomy list
+  repeat-length explorer sections
+  codon-composition explorer sections
+  codon-composition-by-length explorer sections
+- Intentionally excluded for MVP:
+  `templates/browser/accession_detail.html`
+  `templates/browser/genome_detail.html`
+  `templates/browser/sequence_detail.html`
+  `templates/browser/protein_detail.html`
+  `templates/browser/repeatcall_detail.html`
+  `templates/browser/taxon_detail.html`
+  `templates/browser/run_detail.html`
+  `templates/browser/home.html`
+- Rationale:
+  detail-page tables remain deferred with Phase 3, which is explicitly skipped
+  for MVP.
+  `home.html` contains a convenience recent-runs snapshot that is already
+  covered by the exported run list and is not treated as an independent browser
+  table surface for MVP.
+
 Validation:
 
 - no browser data table is missed

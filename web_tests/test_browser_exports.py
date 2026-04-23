@@ -2,6 +2,7 @@ from django.test import RequestFactory, SimpleTestCase
 from django.http import Http404
 from django.template.loader import render_to_string
 from django.views.generic import TemplateView
+from pathlib import Path
 
 from apps.browser.exports import (
     BrowserTSVExportMixin,
@@ -200,3 +201,41 @@ class DownloadTSVButtonTemplateTests(SimpleTestCase):
 
         self.assertIn('href="/browser/lengths/?download=summary"', html)
         self.assertIn(">Download Summary TSV<", html)
+
+
+class BrowserTemplateTableAuditTests(SimpleTestCase):
+    def test_every_browser_table_template_is_wired_or_explicitly_excluded(self):
+        template_root = Path("templates/browser")
+        excluded_templates = {
+            "templates/browser/accession_detail.html",
+            "templates/browser/genome_detail.html",
+            "templates/browser/sequence_detail.html",
+            "templates/browser/protein_detail.html",
+            "templates/browser/repeatcall_detail.html",
+            "templates/browser/taxon_detail.html",
+            "templates/browser/run_detail.html",
+            "templates/browser/home.html",
+        }
+        wired_marker = 'browser/includes/download_tsv_button.html'
+
+        missing = []
+        seen_exclusions = set()
+        for template_path in sorted(template_root.rglob("*.html")):
+            text = template_path.read_text(encoding="utf-8")
+            if "<table" not in text:
+                continue
+
+            normalized_path = template_path.as_posix()
+            if normalized_path in excluded_templates:
+                seen_exclusions.add(normalized_path)
+                continue
+
+            if wired_marker not in text:
+                missing.append(normalized_path)
+
+        self.assertEqual(
+            missing,
+            [],
+            msg=f"Browser table templates missing TSV wiring: {missing}",
+        )
+        self.assertEqual(seen_exclusions, excluded_templates)
