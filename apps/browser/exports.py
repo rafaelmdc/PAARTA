@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Callable
 
+from django.core.exceptions import ImproperlyConfigured
+from django.http import Http404
 from django.http import StreamingHttpResponse
 from django.utils.http import content_disposition_header
 
@@ -122,6 +124,75 @@ class BrowserTSVExportMixin:
         context = super().get_context_data(**kwargs)
         context["download_tsv_url"] = self.get_tsv_download_url()
         return context
+
+
+class StatsTSVExportMixin:
+    download_param = "download"
+    download_strip_params = ("page", "after", "before", "fragment")
+    stats_tsv_dataset_keys = ()
+    tsv_filename_slug = ""
+
+    def dispatch(self, request, *args, **kwargs):
+        if self.get_requested_tsv_dataset_key():
+            return self.render_stats_tsv_response()
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_requested_tsv_dataset_key(self) -> str:
+        return self.request.GET.get(self.download_param, "").strip()
+
+    def get_stats_tsv_dataset_keys(self):
+        return tuple(self.stats_tsv_dataset_keys)
+
+    def get_tsv_download_url(self, dataset_key: str):
+        query = self.request.GET.copy()
+        for param in self.download_strip_params:
+            query.pop(param, None)
+        query[self.download_param] = dataset_key
+        encoded_query = query.urlencode()
+        return f"{self.request.path}?{encoded_query}" if encoded_query else self.request.path
+
+    def get_stats_tsv_filename(self, dataset_key: str) -> str:
+        slug = self.tsv_filename_slug or self.__class__.__name__.lower()
+        return f"homorepeat_{slug}_{dataset_key}.tsv"
+
+    def get_stats_tsv_headers(self, dataset_key: str):
+        resolver = getattr(self, f"get_{self._dataset_method_token(dataset_key)}_tsv_headers", None)
+        if resolver is None:
+            raise ImproperlyConfigured(
+                f"{self.__class__.__name__} must define TSV headers for dataset '{dataset_key}'."
+            )
+        return resolver()
+
+    def iter_stats_tsv_rows(self, dataset_key: str):
+        resolver = getattr(self, f"iter_{self._dataset_method_token(dataset_key)}_tsv_rows", None)
+        if resolver is None:
+            return ()
+        return resolver()
+
+    def is_stats_tsv_dataset_available(self, dataset_key: str) -> bool:
+        resolver = getattr(self, f"is_{self._dataset_method_token(dataset_key)}_tsv_available", None)
+        if resolver is None:
+            return True
+        return resolver()
+
+    def render_stats_tsv_response(self):
+        dataset_key = self.get_requested_tsv_dataset_key()
+        if dataset_key not in self.get_stats_tsv_dataset_keys():
+            raise Http404(f"Unknown TSV dataset '{dataset_key}'.")
+
+        rows = (
+            self.iter_stats_tsv_rows(dataset_key)
+            if self.is_stats_tsv_dataset_available(dataset_key)
+            else ()
+        )
+        return stream_tsv_response(
+            self.get_stats_tsv_filename(dataset_key),
+            self.get_stats_tsv_headers(dataset_key),
+            rows,
+        )
+
+    def _dataset_method_token(self, dataset_key: str) -> str:
+        return dataset_key.replace("-", "_")
 
 
 def _normalize_tsv_column(column) -> TSVColumn:

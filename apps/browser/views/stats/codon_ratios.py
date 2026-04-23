@@ -17,11 +17,100 @@ from apps.browser.stats.params import ALLOWED_STATS_RANKS, next_lower_rank
 
 from ...metadata import resolve_browser_facets
 from ...models import PipelineRun
+from ...exports import StatsTSVExportMixin
 from ..navigation import _url_with_query
 
 
-class CodonRatioExplorerView(TemplateView):
+class CodonRatioExplorerView(StatsTSVExportMixin, TemplateView):
     template_name = "browser/codon_ratio_explorer.html"
+    tsv_filename_slug = "codon_composition"
+    stats_tsv_dataset_keys = ("summary", "overview", "browse", "inspect")
+
+    def get_summary_tsv_headers(self):
+        return self._codon_share_headers()
+
+    def get_overview_tsv_headers(self):
+        return (
+            "Row taxon",
+            "Column taxon",
+            "Metric",
+            "Value",
+            "Row support",
+            "Column support",
+        )
+
+    def get_browse_tsv_headers(self):
+        return self._codon_share_headers()
+
+    def get_inspect_tsv_headers(self):
+        return ("Scope", "Observations", "Codon", "Share")
+
+    def is_inspect_tsv_available(self) -> bool:
+        return self._inspect_scope_active()
+
+    def _codon_share_headers(self):
+        headers = ["Taxon id", "Taxon", "Rank", "Observations", "Species"]
+        headers.extend(
+            f"{codon} share"
+            for codon in self._get_summary_bundle()["visible_codons"]
+        )
+        return tuple(headers)
+
+    def iter_summary_tsv_rows(self):
+        yield from self._iter_codon_share_tsv_rows()
+
+    def iter_overview_tsv_rows(self):
+        summary_bundle = self._get_summary_bundle()
+        payload = build_codon_overview_payload(
+            summary_bundle["summary_rows"],
+            visible_codons=summary_bundle["visible_codons"],
+        )
+        metric = payload.get("displayMetric", payload["mode"])
+        taxa = payload["taxa"]
+        divergence_matrix = payload["divergenceMatrix"]
+        for row_index, row_taxon in enumerate(taxa):
+            for column_index, column_taxon in enumerate(taxa):
+                yield (
+                    row_taxon["taxonName"],
+                    column_taxon["taxonName"],
+                    metric,
+                    divergence_matrix[row_index][column_index],
+                    row_taxon["observationCount"],
+                    column_taxon["observationCount"],
+                )
+
+    def iter_browse_tsv_rows(self):
+        yield from self._iter_codon_share_tsv_rows()
+
+    def iter_inspect_tsv_rows(self):
+        payload = build_codon_composition_inspect_payload(
+            self._get_inspect_bundle(),
+            scope_label=self._inspect_scope_label(),
+        )
+        for row in payload["codonShares"]:
+            yield (
+                payload["scopeLabel"],
+                payload["observationCount"],
+                row["codon"],
+                row["share"],
+            )
+
+    def _iter_codon_share_tsv_rows(self):
+        summary_bundle = self._get_summary_bundle()
+        visible_codons = summary_bundle["visible_codons"]
+        for row in summary_bundle["summary_rows"]:
+            shares_by_codon = {
+                share_row["codon"]: share_row["share"]
+                for share_row in row["codon_shares"]
+            }
+            yield (
+                row["taxon_id"],
+                row["taxon_name"],
+                row["rank"],
+                row["observation_count"],
+                row["species_count"],
+                *(shares_by_codon.get(codon, 0) for codon in visible_codons),
+            )
 
     def _get_filter_state(self):
         if not hasattr(self, "_filter_state"):
