@@ -154,3 +154,159 @@ Created `docs/implementation/redis_celery_refactor/payload_inventory.md` — ful
 
 ### Next step
 - Phase 3: wrap `import_run` management command logic in a `@shared_task(bind=True, max_retries=3)` and wire the Beat watchdog for stuck-RUNNING batches.
+
+---
+
+## Session continuation — Redis/Celery refactor (Phase 3 + 4)
+
+### Objective
+- Implement Phase 3 of the Redis/Celery migration: move import execution onto Celery while preserving the synchronous `manage.py import_run` path.
+- Implement the full Phase 4 slice: catalog-version cache invalidation for stats payloads, explicit stats payload classification, and service-boundary checks.
+
+### What happened
+
+#### Phase 3 — import execution to Celery
+- Confirmed the current enqueue path only created `ImportBatch` rows and did not dispatch Celery work; the old polled worker was still the real executor.
+- Added `run_import_batch` and `reset_stale_import_batches` Celery tasks.
+- Added a dispatch helper so the imports UI now enqueues Celery work immediately and stores the Celery task id on `ImportBatch`.
+- Kept `manage.py import_run` unchanged as the synchronous/manual path.
+- Added `celery-beat` to Compose and removed the deprecated DB-polling `worker` service from the normal local stack.
+- Made stale-batch recovery conservative for MVP:
+  - if the worker dies before raw import commits, the batch is reset to `PENDING` and re-dispatched automatically
+  - if the worker dies after the raw import commit boundary, the batch is marked `FAILED` rather than retried unsafely
+- Explicitly decided not to implement post-commit automatic resume in Phase 3; that remains future hardening, not MVP scope.
+
+#### Phase 4 — catalog version + cache policy
+- Added a singleton `CatalogVersion` model with cached lookup and increment-on-success behavior.
+- Updated stats cache key generation so cached stats bundles and taxonomy-gutter payloads now include catalog version.
+- Cleared the cached catalog-version lookup on increment so a successful import invalidates stale stats payloads immediately without purging old payload keys.
+- Added an explicit stats payload policy module and routed the three stats explorer views through it instead of leaving payload-classification decisions implicit in view code.
+- Kept all current stats payload families classified as `sync+cache`; no payloads were promoted to async without timing evidence.
+- Added service-boundary coverage to ensure `apps/browser/stats/queries.py` and `payloads.py` do not import the view layer.
+- Improved cache instrumentation logs to record cache family as well as full key and elapsed build time.
+
+### Files touched
+
+#### Phase 3
+- `apps/imports/models.py`
+  - added `ImportBatch.celery_task_id`
+- `apps/imports/migrations/0004_importbatch_celery_task_id.py`
+  - added schema migration for Celery task tracking
+- `apps/imports/services/import_run/api.py`
+  - added `dispatch_import_batch()` to enqueue `run_import_batch` and persist the task id
+- `apps/imports/services/import_run/state.py`
+  - added helper paths for stale-failed and reset-to-pending batch handling used by retry/watchdog recovery
+- `apps/imports/services/import_run/__init__.py`
+  - exported the new dispatch helper
+- `apps/imports/services/__init__.py`
+  - exported the new dispatch helper at the public service boundary
+- `apps/imports/views.py`
+  - changed the imports home form path to dispatch Celery work immediately after queueing the batch
+- `apps/imports/tasks.py`
+  - added `run_import_batch` and `reset_stale_import_batches`
+- `config/settings.py`
+  - added Beat schedule for stale import batch recovery
+- `compose.yaml`
+  - added `celery-beat`
+  - removed the deprecated DB-polling `worker` service from the normal stack
+- `web_tests/test_import_views.py`
+  - added coverage for Celery task id storage from the imports home flow
+- `web_tests/test_import_tasks.py`
+  - added coverage for task dispatch, retry behavior, stale pre-commit requeue, and stale post-commit failure handling
+- `web_tests/test_models.py`
+  - extended `ImportBatch` model expectations for `celery_task_id`
+
+#### Phase 4
+- `apps/imports/models.py`
+  - added singleton `CatalogVersion`
+  - added cached version lookup and cache-key constants
+- `apps/imports/migrations/0005_catalogversion.py`
+  - added schema migration for `CatalogVersion`
+- `apps/imports/services/import_run/state.py`
+  - incremented catalog version on successful import completion
+- `apps/browser/stats/filters.py`
+  - included catalog version in `StatsFilterState.cache_key_data()`
+- `apps/browser/stats/policy.py`
+  - added explicit stats payload classification and inline-build policy helpers
+- `apps/browser/stats/__init__.py`
+  - exported policy helpers and enums
+- `apps/browser/stats/_cache.py`
+  - extended cache hit/miss logging to include cache family and timing
+- `apps/browser/views/stats/lengths.py`
+  - routed stats payload construction through the shared stats payload policy
+- `apps/browser/views/stats/codon_ratios.py`
+  - routed stats payload construction through the shared stats payload policy
+- `apps/browser/views/stats/codon_composition_lengths.py`
+  - routed stats payload construction through the shared stats payload policy
+- `web_tests/test_models.py`
+  - added `CatalogVersion` singleton/cache invalidation tests
+- `web_tests/_import_command.py`
+  - added coverage that a successful import increments catalog version
+- `web_tests/test_browser_stats.py`
+  - added cache-version invalidation coverage for stats bundles and taxonomy gutter
+- `web_tests/test_browser_stats_policy.py`
+  - added policy classification tests and service-boundary tests for `queries.py`/`payloads.py`
+
+### Validation
+- Phase 3:
+  - `python -m py_compile apps/imports/models.py apps/imports/services/import_run/state.py apps/imports/services/import_run/api.py apps/imports/views.py apps/imports/tasks.py config/settings.py web_tests/test_import_views.py web_tests/test_import_tasks.py web_tests/test_models.py`
+  - `python manage.py test web_tests.test_import_views web_tests.test_import_tasks web_tests.test_import_commands web_tests.test_models`
+    - `Ran 49 tests`
+    - `OK`
+  - `python manage.py test web_tests.test_import_process_run`
+    - `Ran 15 tests`
+    - `OK`
+  - `python manage.py makemigrations --check --dry-run`
+    - `No changes detected`
+- Phase 4:
+  - `python -m py_compile apps/imports/models.py apps/imports/services/import_run/state.py apps/browser/stats/filters.py web_tests/test_models.py web_tests/test_browser_stats.py web_tests/_import_command.py`
+  - `python manage.py test web_tests.test_models web_tests.test_import_process_run web_tests.test_browser_stats`
+    - `Ran 141 tests`
+    - `OK`
+  - `python -m py_compile apps/browser/stats/policy.py apps/browser/stats/__init__.py apps/browser/stats/_cache.py apps/browser/views/stats/lengths.py apps/browser/views/stats/codon_ratios.py apps/browser/views/stats/codon_composition_lengths.py web_tests/test_browser_stats_policy.py`
+  - `python manage.py test web_tests.test_browser_stats_policy web_tests.test_browser_stats web_tests.test_browser_lengths web_tests.test_browser_codon_ratios web_tests.test_browser_codon_composition_lengths web_tests.test_import_process_run web_tests.test_models`
+    - `Ran 180 tests`
+    - `OK`
+  - `python manage.py makemigrations --check --dry-run`
+    - `No changes detected`
+
+### Verification guide for Claude
+- Start with schema sanity:
+  - `python manage.py makemigrations --check --dry-run`
+- Re-run the focused test surface:
+  - `python manage.py test web_tests.test_import_views web_tests.test_import_tasks web_tests.test_import_commands web_tests.test_import_process_run web_tests.test_models`
+  - `python manage.py test web_tests.test_browser_stats_policy web_tests.test_browser_stats web_tests.test_browser_lengths web_tests.test_browser_codon_ratios web_tests.test_browser_codon_composition_lengths`
+- Spot-check the key implementation points in code:
+  - Phase 3 enqueue path: `apps/imports/views.py`, `apps/imports/services/import_run/api.py`, `apps/imports/tasks.py`
+  - Phase 3 stale-batch behavior: `apps/imports/tasks.py`, `apps/imports/services/import_run/state.py`
+  - Phase 4 version bump + cache key: `apps/imports/models.py`, `apps/imports/services/import_run/state.py`, `apps/browser/stats/filters.py`
+  - Phase 4 explicit policy: `apps/browser/stats/policy.py` and the three stats views
+- Optional runtime check in Compose:
+  - start `redis`, `postgres`, `migrate`, `web`, `celery-import-worker`, `celery-beat`
+  - queue one import from `/imports/`
+  - confirm the created `ImportBatch` has a non-empty `celery_task_id`
+  - confirm successful import advances `CatalogVersion.version`
+  - confirm a stats page miss after import uses a new cache key family/version rather than stale payloads
+- Expected MVP behavior:
+  - pre-commit worker failure can be retried automatically
+  - post-commit worker failure should end `FAILED`, not remain stuck in `RUNNING`
+  - all current stats payloads should still classify as `sync+cache`
+
+### Current status
+- Phase 3 complete for MVP:
+  - imports now dispatch through Celery
+  - stale `RUNNING` batches no longer hang forever
+  - post-commit crashes fail visibly instead of retrying unsafely
+- Phase 4 complete:
+  - catalog version is stored and advanced on successful import
+  - stats cache keys include catalog version
+  - stats payload classification is explicit and testable
+  - stats query/payload modules are guarded against view-layer imports
+
+### Open issues
+- Post-commit import resume is still intentionally unimplemented; failed batches after the raw import commit boundary require deliberate operator follow-up.
+- The Phase 4 payload policy is explicit but still simple: all current stats payloads remain `sync+cache` until timing evidence justifies promotion.
+- Phase 5 and beyond of the Redis/Celery refactor are still open.
+
+### Next step
+- Phase 5: extract download generation policy from views without changing the existing inline TSV streaming paths.
