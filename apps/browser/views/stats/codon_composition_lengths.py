@@ -21,11 +21,218 @@ from apps.browser.stats.params import ALLOWED_STATS_RANKS
 
 from ...metadata import resolve_browser_facets
 from ...models import PipelineRun
+from ...exports import StatsTSVExportMixin
 from ..navigation import _url_with_query
 
 
-class CodonCompositionLengthExplorerView(TemplateView):
+class CodonCompositionLengthExplorerView(StatsTSVExportMixin, TemplateView):
     template_name = "browser/codon_composition_length_explorer.html"
+    tsv_filename_slug = "codon_composition_length"
+    stats_tsv_dataset_keys = (
+        "summary",
+        "preference",
+        "dominance",
+        "shift",
+        "similarity",
+        "browse",
+        "inspect",
+        "comparison",
+    )
+
+    def get_summary_tsv_headers(self):
+        return self._long_form_summary_headers()
+
+    def get_preference_tsv_headers(self):
+        return (
+            "Taxon",
+            "Length bin",
+            "Preference value",
+            "Codon A share",
+            "Codon B share",
+            "Support",
+        )
+
+    def get_dominance_tsv_headers(self):
+        return (
+            "Taxon",
+            "Length bin",
+            "Dominant codon",
+            "Dominance margin",
+            "Codon share",
+            "Support",
+        )
+
+    def get_shift_tsv_headers(self):
+        return (
+            "Taxon",
+            "Previous length bin",
+            "Next length bin",
+            "Shift value",
+            "Previous support",
+            "Next support",
+        )
+
+    def get_similarity_tsv_headers(self):
+        return ("Row taxon", "Column taxon", "Trajectory Jensen-Shannon divergence")
+
+    def get_browse_tsv_headers(self):
+        return self._long_form_summary_headers()
+
+    def get_inspect_tsv_headers(self):
+        return (
+            "Scope",
+            "Length bin",
+            "Support",
+            "Dominant codon",
+            "Codon",
+            "Codon share",
+            "Shift from previous",
+        )
+
+    def get_comparison_tsv_headers(self):
+        return self.get_inspect_tsv_headers()
+
+    def is_inspect_tsv_available(self) -> bool:
+        return self._inspect_scope_active()
+
+    def is_comparison_tsv_available(self) -> bool:
+        return self._inspect_scope_active() and self._get_comparison_bundle() is not None
+
+    def _long_form_summary_headers(self):
+        return (
+            "Taxon id",
+            "Taxon",
+            "Rank",
+            "Length bin",
+            "Observations",
+            "Species",
+            "Dominant codon",
+            "Dominance margin",
+            "Codon",
+            "Codon share",
+        )
+
+    def iter_summary_tsv_rows(self):
+        yield from self._iter_long_form_summary_rows()
+
+    def iter_preference_tsv_rows(self):
+        payload = build_codon_length_preference_overview_payload(self._get_summary_bundle())
+        taxa = payload["taxa"]
+        for cell in payload["cells"]:
+            taxon = taxa[cell["rowIndex"]]
+            yield (
+                taxon["taxonName"],
+                cell["binLabel"],
+                cell["preference"],
+                cell["codonAShare"],
+                cell["codonBShare"],
+                cell["observationCount"],
+            )
+
+    def iter_dominance_tsv_rows(self):
+        payload = build_codon_length_dominance_overview_payload(self._get_summary_bundle())
+        taxa = payload["taxa"]
+        for cell in payload["cells"]:
+            taxon = taxa[cell["rowIndex"]]
+            dominant_share = next(
+                (
+                    codon_share["share"]
+                    for codon_share in cell["codonShares"]
+                    if codon_share["codon"] == cell["dominantCodon"]
+                ),
+                0,
+            )
+            yield (
+                taxon["taxonName"],
+                cell["binLabel"],
+                cell["dominantCodon"],
+                cell["dominanceMargin"],
+                dominant_share,
+                cell["observationCount"],
+            )
+
+    def iter_shift_tsv_rows(self):
+        payload = build_codon_length_shift_overview_payload(self._get_summary_bundle())
+        taxa = payload["taxa"]
+        for cell in payload["cells"]:
+            taxon = taxa[cell["rowIndex"]]
+            yield (
+                taxon["taxonName"],
+                cell["previousBin"]["label"],
+                cell["nextBin"]["label"],
+                cell["shift"],
+                cell["previousSupport"]["observationCount"],
+                cell["nextSupport"]["observationCount"],
+            )
+
+    def iter_similarity_tsv_rows(self):
+        yield from self._iter_pairwise_similarity_rows(
+            build_codon_length_pairwise_overview_payload(self._get_summary_bundle())
+        )
+
+    def iter_browse_tsv_rows(self):
+        yield from self._iter_long_form_summary_rows()
+
+    def iter_inspect_tsv_rows(self):
+        yield from self._iter_inspect_payload_rows("binRows")
+
+    def iter_comparison_tsv_rows(self):
+        yield from self._iter_inspect_payload_rows("comparisonBinRows")
+
+    def _iter_long_form_summary_rows(self):
+        for matrix_row in self._get_summary_bundle()["matrix_rows"]:
+            for bin_row in matrix_row["bin_rows"]:
+                for codon_share in bin_row["codon_shares"]:
+                    yield (
+                        matrix_row["taxon_id"],
+                        matrix_row["taxon_name"],
+                        matrix_row["rank"],
+                        bin_row["bin"]["label"],
+                        bin_row["observation_count"],
+                        bin_row["species_count"],
+                        bin_row["dominant_codon"],
+                        bin_row["dominance_margin"],
+                        codon_share["codon"],
+                        codon_share["share"],
+                    )
+
+    def _iter_pairwise_similarity_rows(self, payload):
+        taxa = payload["taxa"]
+        divergence_matrix = payload["divergenceMatrix"]
+        for row_index, row_taxon in enumerate(taxa):
+            for column_index, column_taxon in enumerate(taxa):
+                yield (
+                    row_taxon["taxonName"],
+                    column_taxon["taxonName"],
+                    divergence_matrix[row_index][column_index],
+                )
+
+    def _iter_inspect_payload_rows(self, key: str):
+        inspect_bundle = self._get_inspect_bundle()
+        if inspect_bundle is None:
+            return
+        payload = build_codon_length_inspect_payload(
+            inspect_bundle,
+            scope_label=self._inspect_scope_label(),
+            comparison_bundle=self._get_comparison_bundle(),
+            comparison_scope_label=self._comparison_scope_label(),
+        )
+        scope_label = (
+            payload.get("comparisonScopeLabel", "")
+            if key == "comparisonBinRows"
+            else payload["scopeLabel"]
+        )
+        for bin_row in payload.get(key, []):
+            for codon_share in bin_row["codonShares"]:
+                yield (
+                    scope_label,
+                    bin_row["binLabel"],
+                    bin_row["observationCount"],
+                    bin_row["dominantCodon"],
+                    codon_share["codon"],
+                    codon_share["share"],
+                    bin_row["delta"],
+                )
 
     def _get_filter_state(self):
         if not hasattr(self, "_filter_state"):
@@ -276,12 +483,53 @@ class CodonCompositionLengthExplorerView(TemplateView):
         context["residue_choices"] = facet_choices["residues"]
         context["scope_items"] = self._scope_items()
         context["reset_url"] = reverse("browser:codon-composition-length")
+        context["overview_download_tsv_actions"] = self.get_tsv_download_actions(
+            {
+                "dataset_key": "preference",
+                "label": "Download Preference TSV",
+                "available": bool(context["overview_preference_payload"].get("available")),
+            },
+            {
+                "dataset_key": "dominance",
+                "label": "Download Dominance TSV",
+                "available": bool(context["overview_dominance_payload"].get("available")),
+            },
+            {
+                "dataset_key": "shift",
+                "label": "Download Shift TSV",
+                "available": bool(context["overview_shift_payload"].get("available")),
+            },
+            {
+                "dataset_key": "similarity",
+                "label": "Download Similarity TSV",
+                "available": bool(context["overview_pairwise_payload"].get("available")),
+            },
+        )
+        context["browse_download_tsv_actions"] = self.get_tsv_download_actions(
+            {
+                "dataset_key": "browse",
+                "label": "Download Browse TSV",
+                "available": bool(context["browse_payload"].get("available")),
+            }
+        )
+        context["summary_download_tsv_actions"] = self.get_tsv_download_actions(
+            {
+                "dataset_key": "summary",
+                "label": "Download Summary TSV",
+            }
+        )
         context["summary_empty_reason"] = self._summary_empty_reason()
         context["inspect_scope_active"] = self._inspect_scope_active()
         inspect_bundle = self._get_inspect_bundle()
         if inspect_bundle is not None:
             comparison_bundle = self._get_comparison_bundle()
             comparison_scope_label = self._comparison_scope_label()
+            context["inspect_download_tsv_actions"] = self.get_tsv_download_actions(
+                {
+                    "dataset_key": "inspect",
+                    "label": "Download Inspect TSV",
+                }
+            )
             inspect_payload = build_codon_length_inspect_payload(
                 inspect_bundle,
                 scope_label=self._inspect_scope_label(),
@@ -297,6 +545,13 @@ class CodonCompositionLengthExplorerView(TemplateView):
             context["inspect_has_comparison"] = bool(inspect_payload.get("comparisonBinRows"))
             context["inspect_comparison_scope_label"] = comparison_scope_label
             context["inspect_comparison_bin_rows"] = inspect_payload.get("comparisonBinRows", [])
+            context["comparison_download_tsv_actions"] = self.get_tsv_download_actions(
+                {
+                    "dataset_key": "comparison",
+                    "label": "Download Comparison TSV",
+                    "available": bool(inspect_payload.get("comparisonBinRows")),
+                }
+            )
             context["inspect_empty_reason"] = (
                 "No canonical repeat calls with codon-usage rows matched the current branch scope."
                 if not inspect_payload["available"]

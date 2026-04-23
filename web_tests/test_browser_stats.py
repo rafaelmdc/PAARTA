@@ -7,6 +7,7 @@ from django.utils import timezone
 from apps.browser.catalog import sync_canonical_catalog_for_run
 from django.core.cache import cache
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 
 from apps.browser.stats import (
     apply_stats_filter_context,
@@ -159,6 +160,587 @@ class BrowserStatsTests(TestCase):
         )
         self._sync_run(run_data)
         return target_repeat_call
+
+    def _seed_q_codon_usage_for_length_exports(self, *, with_shift=False):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        if not with_shift:
+            return None
+
+        alpha_shift_call = self._create_repeat_call(
+            self.alpha,
+            suffix="alpha_length_shift",
+            residue="Q",
+            codon_metric_name="codon_ratio",
+            codon_ratio_value=0.0,
+            length=16,
+        )
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            repeat_call=alpha_shift_call,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        return alpha_shift_call
+
+    def _seed_a_codon_usage_for_dominance_export(self):
+        alpha_call = self._create_repeat_call(
+            self.alpha,
+            suffix="alpha_dominance",
+            residue="A",
+            codon_metric_name="alanine_ratio",
+            codon_ratio_value=0.7,
+            length=11,
+        )
+        beta_call = self._create_repeat_call(
+            self.beta,
+            suffix="beta_dominance",
+            residue="A",
+            codon_metric_name="alanine_ratio",
+            codon_ratio_value=0.6,
+            length=11,
+        )
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            repeat_call=alpha_call,
+            rows=[
+                {"amino_acid": "A", "codon": "GCA", "codon_count": 6, "codon_fraction": 0.6},
+                {"amino_acid": "A", "codon": "GCC", "codon_count": 3, "codon_fraction": 0.3},
+                {"amino_acid": "A", "codon": "GCG", "codon_count": 1, "codon_fraction": 0.1},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            repeat_call=beta_call,
+            rows=[
+                {"amino_acid": "A", "codon": "GCT", "codon_count": 10, "codon_fraction": 1.0},
+            ],
+        )
+
+    def test_repeat_length_stats_download_rejects_unknown_dataset_key(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {"download": "bogus"},
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_repeat_length_page_renders_section_download_actions(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {"rank": "species", "min_count": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Download Typical TSV")
+        self.assertContains(response, "Download Tail TSV")
+        self.assertContains(response, "Download Summary TSV")
+        self.assertContains(
+            response,
+            'href="/browser/lengths/?rank=species&amp;min_count=1&amp;download=overview_typical"',
+        )
+        self.assertContains(
+            response,
+            'href="/browser/lengths/?rank=species&amp;min_count=1&amp;download=overview_tail"',
+        )
+        self.assertContains(
+            response,
+            'href="/browser/lengths/?rank=species&amp;min_count=1&amp;download=summary"',
+        )
+
+    def test_repeat_length_inspect_download_returns_header_only_without_branch_scope(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {"download": "inspect", "rank": "class", "method": "pure"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "text/tab-separated-values; charset=utf-8",
+        )
+        self.assertEqual(
+            b"".join(response.streaming_content).decode("utf-8"),
+            "Scope\tObservations\tMedian\tQ90\tQ95\tMax\tCCDF length\tCCDF survival fraction\n",
+        )
+
+    def test_repeat_length_summary_download_matches_summary_bundle_rows(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {"download": "summary", "rank": "class", "min_count": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith(
+                "Taxon id\tTaxon\tRank\tObservations\tSpecies\tMin\tQ1\tMedian\tQ3\tMax\n"
+            )
+        )
+        self.assertIn("\tMammalia\tclass\t2\t2\t11\t11\t11\t11\t11\n", body)
+
+    def test_repeat_length_overview_typical_download_exports_long_form_matrix(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {"download": "overview_typical", "rank": "species", "min_count": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith("Row taxon\tColumn taxon\tWasserstein-1 distance\n")
+        )
+        self.assertEqual(len(body.strip().splitlines()), 5)
+        self.assertIn(
+            f"{self.alpha['taxon'].taxon_name}\t{self.beta['taxon'].taxon_name}\t0.0\n",
+            body,
+        )
+        self.assertIn(
+            f"{self.beta['taxon'].taxon_name}\t{self.alpha['taxon'].taxon_name}\t0.0\n",
+            body,
+        )
+
+    def test_repeat_length_overview_tail_download_exports_long_form_matrix(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {"download": "overview_tail", "rank": "species", "min_count": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith("Row taxon\tColumn taxon\tTail-burden distance\n")
+        )
+        self.assertEqual(len(body.strip().splitlines()), 5)
+        self.assertIn(
+            f"{self.alpha['taxon'].taxon_name}\t{self.beta['taxon'].taxon_name}\t0.0\n",
+            body,
+        )
+
+    def test_repeat_length_inspect_download_matches_active_branch_bundle(self):
+        response = self.client.get(
+            reverse("browser:lengths"),
+            {
+                "download": "inspect",
+                "branch": str(self.alpha["taxa"]["primates"].pk),
+                "rank": "species",
+                "min_count": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith(
+                "Scope\tObservations\tMedian\tQ90\tQ95\tMax\tCCDF length\tCCDF survival fraction\n"
+            )
+        )
+        self.assertIn("Order Primates\t1\t11\t11\t11\t11\t11\t1.0\n", body)
+
+    def test_codon_ratio_inspect_download_returns_header_only_without_branch_scope(self):
+        response = self.client.get(
+            reverse("browser:codon-ratios"),
+            {"download": "inspect", "residue": "Q", "method": "pure"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            b"".join(response.streaming_content).decode("utf-8"),
+            "Scope\tObservations\tCodon\tShare\n",
+        )
+
+    def test_codon_ratio_page_hides_unavailable_overview_and_browse_actions_without_residue(self):
+        response = self.client.get(reverse("browser:codon-ratios"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Download Summary TSV")
+        self.assertNotContains(response, "Download Overview TSV")
+        self.assertNotContains(response, "Download Browse TSV")
+
+    def test_codon_ratio_page_renders_section_download_actions_when_residue_active(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-ratios"),
+            {"rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Download Summary TSV")
+        self.assertContains(response, "Download Overview TSV")
+        self.assertContains(response, "Download Browse TSV")
+        self.assertContains(
+            response,
+            'href="/browser/codon-ratios/?rank=species&amp;min_count=1&amp;residue=Q&amp;download=overview"',
+        )
+        self.assertContains(
+            response,
+            'href="/browser/codon-ratios/?rank=species&amp;min_count=1&amp;residue=Q&amp;download=browse"',
+        )
+
+    def test_codon_ratio_summary_download_exports_visible_codon_shares(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-ratios"),
+            {"download": "summary", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith(
+                "Taxon id\tTaxon\tRank\tObservations\tSpecies\tCAA share\tCAG share\n"
+            )
+        )
+        self.assertIn(
+            f"\t{self.alpha['taxon'].taxon_name}\tspecies\t1\t1\t1\t0\n",
+            body,
+        )
+        self.assertIn(
+            f"\t{self.beta['taxon'].taxon_name}\tspecies\t1\t1\t0\t1\n",
+            body,
+        )
+
+    def test_codon_ratio_overview_download_exports_long_form_matrix(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-ratios"),
+            {"download": "overview", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith(
+                "Row taxon\tColumn taxon\tMetric\tValue\tRow support\tColumn support\n"
+            )
+        )
+        self.assertEqual(len(body.strip().splitlines()), 5)
+        self.assertIn(
+            f"{self.alpha['taxon'].taxon_name}\t{self.beta['taxon'].taxon_name}\tsigned_difference\t1.0\t1\t1\n",
+            body,
+        )
+        self.assertIn(
+            f"{self.beta['taxon'].taxon_name}\t{self.alpha['taxon'].taxon_name}\tsigned_difference\t1.0\t1\t1\n",
+            body,
+        )
+
+    def test_codon_ratio_browse_download_matches_summary_rows(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+        self._set_repeat_call_codon_usages(
+            self.beta,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+
+        summary_response = self.client.get(
+            reverse("browser:codon-ratios"),
+            {"download": "summary", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+        browse_response = self.client.get(
+            reverse("browser:codon-ratios"),
+            {"download": "browse", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(
+            b"".join(summary_response.streaming_content).decode("utf-8"),
+            b"".join(browse_response.streaming_content).decode("utf-8"),
+        )
+
+    def test_codon_ratio_inspect_download_matches_active_branch_bundle(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 8, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-ratios"),
+            {
+                "download": "inspect",
+                "branch": str(self.alpha["taxa"]["primates"].pk),
+                "rank": "species",
+                "residue": "Q",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(body.startswith("Scope\tObservations\tCodon\tShare\n"))
+        self.assertIn("Order Primates\t1\tCAA\t1\n", body)
+
+    def test_codon_composition_length_comparison_download_returns_header_only_without_branch_scope(self):
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"download": "comparison", "residue": "Q", "method": "pure"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            b"".join(response.streaming_content).decode("utf-8"),
+            "Scope\tLength bin\tSupport\tDominant codon\tCodon\tCodon share\tShift from previous\n",
+        )
+
+    def test_codon_composition_length_page_renders_explicit_overview_actions(self):
+        self._seed_q_codon_usage_for_length_exports(with_shift=True)
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Download Summary TSV")
+        self.assertContains(response, "Download Preference TSV")
+        self.assertContains(response, "Download Shift TSV")
+        self.assertContains(response, "Download Similarity TSV")
+        self.assertContains(response, "Download Browse TSV")
+        self.assertNotContains(response, "Download Dominance TSV")
+        self.assertContains(
+            response,
+            'href="/browser/codon-composition-length/?rank=species&amp;min_count=1&amp;residue=Q&amp;download=preference"',
+        )
+        self.assertContains(
+            response,
+            'href="/browser/codon-composition-length/?rank=species&amp;min_count=1&amp;residue=Q&amp;download=similarity"',
+        )
+
+    def test_codon_composition_length_page_renders_inspect_and_comparison_actions(self):
+        self._seed_q_codon_usage_for_length_exports(with_shift=True)
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {
+                "branch": str(self.alpha["taxon"].pk),
+                "rank": "species",
+                "residue": "Q",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Download Inspect TSV")
+        self.assertContains(response, "Download Comparison TSV")
+        self.assertContains(
+            response,
+            f'href="/browser/codon-composition-length/?branch={self.alpha["taxon"].pk}&amp;rank=species&amp;residue=Q&amp;download=inspect"',
+        )
+        self.assertContains(
+            response,
+            f'href="/browser/codon-composition-length/?branch={self.alpha["taxon"].pk}&amp;rank=species&amp;residue=Q&amp;download=comparison"',
+        )
+
+    def test_codon_composition_length_summary_download_exports_long_form_rows(self):
+        self._seed_q_codon_usage_for_length_exports()
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"download": "summary", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith(
+                "Taxon id\tTaxon\tRank\tLength bin\tObservations\tSpecies\tDominant codon\tDominance margin\tCodon\tCodon share\n"
+            )
+        )
+        self.assertEqual(len(body.strip().splitlines()), 5)
+        self.assertIn(
+            f"\t{self.alpha['taxon'].taxon_name}\tspecies\t10-14\t1\t1\tCAA\t1\tCAA\t1\n",
+            body,
+        )
+        self.assertIn(
+            f"\t{self.beta['taxon'].taxon_name}\tspecies\t10-14\t1\t1\tCAG\t1\tCAG\t1\n",
+            body,
+        )
+
+    def test_codon_composition_length_preference_download_exports_rows(self):
+        self._seed_q_codon_usage_for_length_exports()
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"download": "preference", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith(
+                "Taxon\tLength bin\tPreference value\tCodon A share\tCodon B share\tSupport\n"
+            )
+        )
+        self.assertIn(
+            f"{self.alpha['taxon'].taxon_name}\t10-14\t1\t1\t0\t1\n",
+            body,
+        )
+        self.assertIn(
+            f"{self.beta['taxon'].taxon_name}\t10-14\t-1\t0\t1\t1\n",
+            body,
+        )
+
+    def test_codon_composition_length_dominance_download_exports_rows(self):
+        self._seed_a_codon_usage_for_dominance_export()
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"download": "dominance", "rank": "species", "min_count": "1", "residue": "A"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith(
+                "Taxon\tLength bin\tDominant codon\tDominance margin\tCodon share\tSupport\n"
+            )
+        )
+        self.assertIn(
+            f"{self.alpha['taxon'].taxon_name}\t10-14\tGCA\t0.3\t0.6\t1\n",
+            body,
+        )
+
+    def test_codon_composition_length_shift_download_exports_transitions(self):
+        self._seed_q_codon_usage_for_length_exports(with_shift=True)
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"download": "shift", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith(
+                "Taxon\tPrevious length bin\tNext length bin\tShift value\tPrevious support\tNext support\n"
+            )
+        )
+        self.assertIn(
+            f"{self.alpha['taxon'].taxon_name}\t10-14\t15-19\t1\t1\t1\n",
+            body,
+        )
+
+    def test_codon_composition_length_similarity_download_exports_long_form_matrix(self):
+        self._seed_q_codon_usage_for_length_exports()
+
+        response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"download": "similarity", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertTrue(
+            body.startswith("Row taxon\tColumn taxon\tTrajectory Jensen-Shannon divergence\n")
+        )
+        self.assertEqual(len(body.strip().splitlines()), 5)
+        self.assertIn(
+            f"{self.alpha['taxon'].taxon_name}\t{self.beta['taxon'].taxon_name}\t1.0\n",
+            body,
+        )
+
+    def test_codon_composition_length_browse_download_matches_summary_rows(self):
+        self._seed_q_codon_usage_for_length_exports()
+
+        summary_response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"download": "summary", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+        browse_response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {"download": "browse", "rank": "species", "min_count": "1", "residue": "Q"},
+        )
+
+        self.assertEqual(
+            b"".join(summary_response.streaming_content).decode("utf-8"),
+            b"".join(browse_response.streaming_content).decode("utf-8"),
+        )
+
+    def test_codon_composition_length_inspect_and_comparison_downloads_export_rows(self):
+        self._seed_q_codon_usage_for_length_exports(with_shift=True)
+
+        inspect_response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {
+                "download": "inspect",
+                "branch": str(self.alpha["taxon"].pk),
+                "rank": "species",
+                "residue": "Q",
+            },
+        )
+        comparison_response = self.client.get(
+            reverse("browser:codon-composition-length"),
+            {
+                "download": "comparison",
+                "branch": str(self.alpha["taxon"].pk),
+                "rank": "species",
+                "residue": "Q",
+            },
+        )
+
+        inspect_body = b"".join(inspect_response.streaming_content).decode("utf-8")
+        comparison_body = b"".join(comparison_response.streaming_content).decode("utf-8")
+
+        self.assertTrue(
+            inspect_body.startswith(
+                "Scope\tLength bin\tSupport\tDominant codon\tCodon\tCodon share\tShift from previous\n"
+            )
+        )
+        self.assertIn("Species Homo sapiens\t10-14\t1\tCAA\tCAA\t1\t\n", inspect_body)
+        self.assertIn("Species Homo sapiens\t15-19\t1\tCAG\tCAA\t0\t1\n", inspect_body)
+        self.assertIn("Species Homo sapiens\t15-19\t1\tCAG\tCAG\t1\t1\n", inspect_body)
+        self.assertIn("Order Primates\t15-19\t1\tCAG\tCAG\t1\t1\n", comparison_body)
 
     def test_stats_filter_state_defaults_without_branch_scope(self):
         request = self.factory.get("/browser/lengths/")

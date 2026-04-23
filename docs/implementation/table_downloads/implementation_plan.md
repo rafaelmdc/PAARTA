@@ -24,6 +24,18 @@ moving to the next slice.
 - Keep MVP format TSV-only.
 - Add one visible `Download TSV` action per table section.
 
+## MVP Sequencing Note
+
+As of `2026-04-23`, Phase 3 is intentionally skipped for MVP.
+
+- Rationale: detail-page table exports are mostly convenience/redundancy because
+  the same underlying rows are already exportable from the top-level list pages
+  added in Phases 1 and 2.
+- The temporary `3.1` dispatcher experiment was reverted rather than carried
+  forward into MVP.
+- Active implementation should continue at Phase 4 unless detail-page exports
+  become explicitly necessary later.
+
 ## Phase 1: Export Foundation
 
 Build reusable backend and template primitives. This phase should not wire every
@@ -219,12 +231,15 @@ Validation:
 - run, batch, accession, status, method, residue, warning, package, search, and
   ordering filters are preserved where applicable
 
-## Phase 3: Detail-Page Embedded Tables
+## Phase 3: Detail-Page Embedded Tables (Skipped for MVP)
 
 Add exports for contextual tables that do not necessarily have independent
 filters. These exports use the current detail object as their data scope.
 
-### Slice 3.1: Detail Export Dispatcher
+This phase is deferred for MVP. Keep the slice notes below as a future roadmap,
+but do not treat them as the current next step.
+
+### Slice 3.1: Detail Export Dispatcher (Skipped for MVP)
 
 Files:
 
@@ -243,7 +258,7 @@ Validation:
 - unknown keys fail consistently
 - valid keys export only rows belonging to the current detail object
 
-### Slice 3.2: Genome and Accession Detail Tables
+### Slice 3.2: Genome and Accession Detail Tables (Skipped for MVP)
 
 Pages:
 
@@ -263,7 +278,7 @@ Validation:
 - exports are scoped to the accession/genome being viewed
 - current visible context and provenance columns are included
 
-### Slice 3.3: Sequence, Protein, and Repeat-Call Detail Tables
+### Slice 3.3: Sequence, Protein, and Repeat-Call Detail Tables (Skipped for MVP)
 
 Pages:
 
@@ -286,7 +301,7 @@ Validation:
 - source observation tables include enough provenance to trace rows back to
   run, accession, sequence, protein, method, residue, and coordinates
 
-### Slice 3.4: Taxon and Run Detail Tables
+### Slice 3.4: Taxon and Run Detail Tables (Skipped for MVP)
 
 Pages:
 
@@ -464,6 +479,31 @@ Work:
 - scan `templates/browser/` for every `<table`
 - confirm each table is either wired to TSV or deliberately non-data/static
 - document any intentionally excluded static table in the plan or follow-up
+
+Audit result as of `2026-04-23`:
+
+- Wired to TSV:
+  list pages
+  operational lists
+  taxonomy list
+  repeat-length explorer sections
+  codon-composition explorer sections
+  codon-composition-by-length explorer sections
+- Intentionally excluded for MVP:
+  `templates/browser/accession_detail.html`
+  `templates/browser/genome_detail.html`
+  `templates/browser/sequence_detail.html`
+  `templates/browser/protein_detail.html`
+  `templates/browser/repeatcall_detail.html`
+  `templates/browser/taxon_detail.html`
+  `templates/browser/run_detail.html`
+  `templates/browser/home.html`
+- Rationale:
+  detail-page tables remain deferred with Phase 3, which is explicitly skipped
+  for MVP.
+  `home.html` contains a convenience recent-runs snapshot that is already
+  covered by the exported run list and is not treated as an independent browser
+  table surface for MVP.
 
 Validation:
 

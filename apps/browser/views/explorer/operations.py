@@ -6,16 +6,31 @@ from ...models import (
     NormalizationWarning,
     PipelineRun,
 )
+from ...exports import BrowserTSVExportMixin, TSVColumn
 from ..filters import _resolve_batch_filter, _resolve_current_run
 from ..pagination import VirtualScrollListView
 
 
-class NormalizationWarningListView(VirtualScrollListView):
+class NormalizationWarningListView(BrowserTSVExportMixin, VirtualScrollListView):
     model = NormalizationWarning
     template_name = "browser/normalizationwarning_list.html"
     context_object_name = "warnings"
     virtual_scroll_row_template_name = "browser/includes/normalizationwarning_list_rows.html"
     virtual_scroll_colspan = 8
+    tsv_filename_slug = "normalization_warnings"
+    tsv_columns = (
+        TSVColumn("Run", "pipeline_run.run_id"),
+        TSVColumn("Batch", "batch.batch_id"),
+        TSVColumn("Warning code", "warning_code"),
+        TSVColumn("Warning scope", "warning_scope"),
+        TSVColumn("Message", "warning_message"),
+        TSVColumn("Accession", "assembly_accession"),
+        TSVColumn("Genome id", "genome_id"),
+        TSVColumn("Sequence id", "sequence_id"),
+        TSVColumn("Protein id", "protein_id"),
+        TSVColumn("Source file", "source_file"),
+        TSVColumn("Source record id", "source_record_id"),
+    )
     search_fields = (
         "warning_code",
         "warning_message",
@@ -112,12 +127,30 @@ class NormalizationWarningListView(VirtualScrollListView):
         return context
 
 
-class AccessionStatusListView(VirtualScrollListView):
+class AccessionStatusListView(BrowserTSVExportMixin, VirtualScrollListView):
     model = AccessionStatus
     template_name = "browser/accessionstatus_list.html"
     context_object_name = "status_rows"
     virtual_scroll_row_template_name = "browser/includes/accessionstatus_list_rows.html"
     virtual_scroll_colspan = 10
+    tsv_filename_slug = "accession_status"
+    tsv_columns = (
+        TSVColumn("Run", "pipeline_run.run_id"),
+        TSVColumn("Batch", "batch.batch_id"),
+        TSVColumn("Accession", "assembly_accession"),
+        TSVColumn("Download status", "download_status"),
+        TSVColumn("Normalize status", "normalize_status"),
+        TSVColumn("Translate status", "translate_status"),
+        TSVColumn("Detect status", "detect_status"),
+        TSVColumn("Finalize status", "finalize_status"),
+        TSVColumn("Terminal status", "terminal_status"),
+        TSVColumn("Failure stage", "failure_stage"),
+        TSVColumn("Failure reason", "failure_reason"),
+        TSVColumn("Genomes", "n_genomes"),
+        TSVColumn("Proteins", "n_proteins"),
+        TSVColumn("Repeat calls", "n_repeat_calls"),
+        TSVColumn("Notes", "notes"),
+    )
     search_fields = ("assembly_accession", "failure_stage", "failure_reason", "notes")
     ordering_map = {
         "accession": ("assembly_accession", "pipeline_run__run_id", "batch__batch_id"),
@@ -221,12 +254,23 @@ class AccessionStatusListView(VirtualScrollListView):
         return context
 
 
-class AccessionCallCountListView(VirtualScrollListView):
+class AccessionCallCountListView(BrowserTSVExportMixin, VirtualScrollListView):
     model = AccessionCallCount
     template_name = "browser/accessioncallcount_list.html"
     context_object_name = "call_count_rows"
     virtual_scroll_row_template_name = "browser/includes/accessioncallcount_list_rows.html"
     virtual_scroll_colspan = 8
+    tsv_filename_slug = "accession_call_counts"
+    tsv_columns = (
+        TSVColumn("Run", "pipeline_run.run_id"),
+        TSVColumn("Batch", "batch.batch_id"),
+        TSVColumn("Accession", "assembly_accession"),
+        TSVColumn("Method", "method"),
+        TSVColumn("Residue", "repeat_residue"),
+        TSVColumn("Detect status", "detect_status"),
+        TSVColumn("Finalize status", "finalize_status"),
+        TSVColumn("Repeat calls", "n_repeat_calls"),
+    )
     search_fields = ("assembly_accession",)
     ordering_map = {
         "accession": ("assembly_accession", "method", "repeat_residue"),
@@ -332,12 +376,27 @@ class AccessionCallCountListView(VirtualScrollListView):
         return context
 
 
-class DownloadManifestEntryListView(VirtualScrollListView):
+class DownloadManifestEntryListView(BrowserTSVExportMixin, VirtualScrollListView):
     model = DownloadManifestEntry
     template_name = "browser/downloadmanifest_list.html"
     context_object_name = "download_entries"
     virtual_scroll_row_template_name = "browser/includes/downloadmanifest_list_rows.html"
     virtual_scroll_colspan = 8
+    tsv_filename_slug = "download_manifest"
+    tsv_columns = (
+        TSVColumn("Run", "pipeline_run.run_id"),
+        TSVColumn("Batch", "batch.batch_id"),
+        TSVColumn("Accession", "assembly_accession"),
+        TSVColumn("Download status", "download_status"),
+        TSVColumn("Package mode", "package_mode"),
+        TSVColumn("File size bytes", "file_size_bytes"),
+        TSVColumn("Checksum", "checksum"),
+        TSVColumn("Download path", "download_path"),
+        TSVColumn("Rehydrated path", "rehydrated_path"),
+        TSVColumn("Download started", "download_started_at"),
+        TSVColumn("Download finished", "download_finished_at"),
+        TSVColumn("Notes", "notes"),
+    )
     search_fields = (
         "assembly_accession",
         "download_path",

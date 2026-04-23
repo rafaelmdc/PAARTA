@@ -1,3 +1,7 @@
-{% if download_tsv_url %}
-  <a class="btn btn-outline-secondary" href="{{ download_tsv_url }}">Download TSV</a>
+{% if download_tsv_href %}
+  <a class="btn btn-outline-secondary" href="{{ download_tsv_href }}">{{ download_tsv_label|default:"Download TSV" }}</a>
+{% elif download_tsv_url %}
+  <a class="btn btn-outline-secondary" href="{{ download_tsv_url }}">{{ download_tsv_label|default:"Download TSV" }}</a>
+{% elif download_tsv_action %}
+  <a class="btn btn-outline-secondary" href="{{ download_tsv_action.href }}">{{ download_tsv_label|default:download_tsv_action.label|default:"Download TSV" }}</a>
 {% endif %}

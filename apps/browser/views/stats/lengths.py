@@ -17,11 +17,102 @@ from apps.browser.stats.params import ALLOWED_STATS_RANKS, next_lower_rank
 
 from ...metadata import resolve_browser_facets
 from ...models import PipelineRun
+from ...exports import StatsTSVExportMixin
 from ..navigation import _url_with_query
 
 
-class RepeatLengthExplorerView(TemplateView):
+class RepeatLengthExplorerView(StatsTSVExportMixin, TemplateView):
     template_name = "browser/repeat_length_explorer.html"
+    tsv_filename_slug = "repeat_lengths"
+    stats_tsv_dataset_keys = ("summary", "overview_typical", "overview_tail", "inspect")
+
+    def get_summary_tsv_headers(self):
+        return (
+            "Taxon id",
+            "Taxon",
+            "Rank",
+            "Observations",
+            "Species",
+            "Min",
+            "Q1",
+            "Median",
+            "Q3",
+            "Max",
+        )
+
+    def get_overview_typical_tsv_headers(self):
+        return ("Row taxon", "Column taxon", "Wasserstein-1 distance")
+
+    def get_overview_tail_tsv_headers(self):
+        return ("Row taxon", "Column taxon", "Tail-burden distance")
+
+    def get_inspect_tsv_headers(self):
+        return (
+            "Scope",
+            "Observations",
+            "Median",
+            "Q90",
+            "Q95",
+            "Max",
+            "CCDF length",
+            "CCDF survival fraction",
+        )
+
+    def is_inspect_tsv_available(self) -> bool:
+        return self._inspect_scope_active()
+
+    def iter_summary_tsv_rows(self):
+        for row in self._get_summary_bundle()["summary_rows"]:
+            yield (
+                row["taxon_id"],
+                row["taxon_name"],
+                row["rank"],
+                row["observation_count"],
+                row["species_count"],
+                row["min_length"],
+                row["q1"],
+                row["median"],
+                row["q3"],
+                row["max_length"],
+            )
+
+    def iter_overview_typical_tsv_rows(self):
+        yield from self._iter_pairwise_overview_tsv_rows(
+            build_typical_length_overview_payload(self._get_overview_bundle()["profile_rows"])
+        )
+
+    def iter_overview_tail_tsv_rows(self):
+        yield from self._iter_pairwise_overview_tsv_rows(
+            build_tail_burden_overview_payload(self._get_overview_bundle()["profile_rows"])
+        )
+
+    def iter_inspect_tsv_rows(self):
+        payload = build_length_inspect_payload(
+            self._get_inspect_bundle(),
+            scope_label=self._inspect_scope_label(),
+        )
+        for point in payload["ccdfPoints"]:
+            yield (
+                payload["scopeLabel"],
+                payload["observationCount"],
+                payload["median"],
+                payload["q90"],
+                payload["q95"],
+                payload["max"],
+                point["x"],
+                point["y"],
+            )
+
+    def _iter_pairwise_overview_tsv_rows(self, payload):
+        taxa = payload["taxa"]
+        divergence_matrix = payload["divergenceMatrix"]
+        for row_index, row_taxon in enumerate(taxa):
+            for column_index, column_taxon in enumerate(taxa):
+                yield (
+                    row_taxon["taxonName"],
+                    column_taxon["taxonName"],
+                    divergence_matrix[row_index][column_index],
+                )
 
     def _get_filter_state(self):
         if not hasattr(self, "_filter_state"):
@@ -172,9 +263,39 @@ class RepeatLengthExplorerView(TemplateView):
         context["residue_choices"] = facet_choices["residues"]
         context["scope_items"] = self._scope_items()
         context["reset_url"] = reverse("browser:lengths")
+        context["overview_download_tsv_actions"] = self.get_tsv_download_actions(
+            {
+                "dataset_key": "overview_typical",
+                "label": "Download Typical TSV",
+                "available": bool(overview_rows),
+            },
+            {
+                "dataset_key": "overview_tail",
+                "label": "Download Tail TSV",
+                "available": bool(overview_rows),
+            },
+        )
+        context["browse_download_tsv_actions"] = self.get_tsv_download_actions(
+            {
+                "dataset_key": "summary",
+                "label": "Download Summary TSV",
+            }
+        )
+        context["summary_download_tsv_actions"] = self.get_tsv_download_actions(
+            {
+                "dataset_key": "summary",
+                "label": "Download Summary TSV",
+            }
+        )
         context["inspect_scope_active"] = self._inspect_scope_active()
         inspect_bundle = self._get_inspect_bundle()
         if inspect_bundle is not None:
+            context["inspect_download_tsv_actions"] = self.get_tsv_download_actions(
+                {
+                    "dataset_key": "inspect",
+                    "label": "Download Inspect TSV",
+                }
+            )
             context["inspect_payload"] = build_length_inspect_payload(
                 inspect_bundle,
                 scope_label=self._inspect_scope_label(),
