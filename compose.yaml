@@ -1,4 +1,15 @@
 services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis_data:/data
+
   postgres:
     image: postgres:16-alpine
     shm_size: ${POSTGRES_SHM_SIZE:-1gb}
@@ -91,7 +102,7 @@ services:
           echo 'Waiting for database host' $$DATABASE_HOST 'to resolve...'
           sleep 2
         done
-        python manage.py runserver 0.0.0.0:8000
+        gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120 --log-level info
       "
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-secret-key}
@@ -106,6 +117,8 @@ services:
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       HOMOREPEAT_RUNS_ROOT: /workspace/homorepeat_pipeline/runs
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      FLOWER_INTERNAL_URL: http://flower:5555
     volumes:
       - .:/app
       - ${HOMOREPEAT_RUNS_ROOT:-../homorepeat_pipeline/runs}:/workspace/homorepeat_pipeline/runs:ro
@@ -116,7 +129,100 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
+  celery-import-worker:
+    build:
+      context: .
+      dockerfile: containers/web.Dockerfile
+    image: homorepeat-web:dev
+    working_dir: /app
+    command: celery -A config.celery worker -Q imports -c 2 --prefetch-multiplier 1 --loglevel=info
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-secret-key}
+      DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-UTC}
+      DATABASE_ENGINE: ${DATABASE_ENGINE:-django.db.backends.postgresql}
+      DATABASE_NAME: ${POSTGRES_DB:-homorepeat}
+      DATABASE_USER: ${POSTGRES_USER:-homorepeat}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-homorepeat}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      HOMOREPEAT_RUNS_ROOT: /workspace/homorepeat_pipeline/runs
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    volumes:
+      - .:/app
+      - ${HOMOREPEAT_RUNS_ROOT:-../homorepeat_pipeline/runs}:/workspace/homorepeat_pipeline/runs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config.celery inspect ping -d celery@$$HOSTNAME --timeout 5 2>&1 | grep -q pong"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
+
+  celery-payload-worker:
+    build:
+      context: .
+      dockerfile: containers/web.Dockerfile
+    image: homorepeat-web:dev
+    working_dir: /app
+    command: celery -A config.celery worker -Q payload_graph,downloads -c 4 --loglevel=info
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-secret-key}
+      DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-UTC}
+      DATABASE_ENGINE: ${DATABASE_ENGINE:-django.db.backends.postgresql}
+      DATABASE_NAME: ${POSTGRES_DB:-homorepeat}
+      DATABASE_USER: ${POSTGRES_USER:-homorepeat}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-homorepeat}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config.celery inspect ping -d celery@$$HOSTNAME --timeout 5 2>&1 | grep -q pong"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
+
+  flower:
+    build:
+      context: .
+      dockerfile: containers/web.Dockerfile
+    image: homorepeat-web:dev
+    working_dir: /app
+    command: celery -A config.celery flower --port=5555 --url_prefix=admin/flower
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-secret-key}
+      DATABASE_ENGINE: ${DATABASE_ENGINE:-django.db.backends.postgresql}
+      DATABASE_NAME: ${POSTGRES_DB:-homorepeat}
+      DATABASE_USER: ${POSTGRES_USER:-homorepeat}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-homorepeat}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    volumes:
+      - .:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Deprecated: replaced by celery-import-worker (Phase 2). Remove after Phase 3 import task migration.
   worker:
     build:
       context: .
@@ -161,3 +267,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

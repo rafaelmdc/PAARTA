@@ -55,6 +55,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -87,6 +88,32 @@ TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "UTC")
 USE_TZ = True
 HOMOREPEAT_RUNS_ROOT = os.getenv("HOMOREPEAT_RUNS_ROOT", "").strip()
 HOMOREPEAT_BROWSER_STATS_CACHE_TTL = _env_int("HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60)
+
+_REDIS_URL = os.getenv("REDIS_URL", "").strip()
+
+if _REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": f"{_REDIS_URL}/1",
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+        }
+    }
+
+# --- Celery ---
+CELERY_BROKER_URL = f"{_REDIS_URL}/0" if _REDIS_URL else "memory://"
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 43200}
+CELERY_TASK_ALWAYS_EAGER = _env_flag("CELERY_TASK_ALWAYS_EAGER", False)
+CELERY_TASK_ROUTES = {
+    "apps.imports.tasks.*": {"queue": "imports"},
+    "apps.browser.tasks.*": {"queue": "payload_graph"},
+}
 
 if os.getenv("DATABASE_ENGINE", "").strip():
     DATABASES = {
