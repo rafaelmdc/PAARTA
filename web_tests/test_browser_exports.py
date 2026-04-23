@@ -1,5 +1,6 @@
 from django.test import RequestFactory, SimpleTestCase
 from django.http import Http404
+from django.template.loader import render_to_string
 from django.views.generic import TemplateView
 
 from apps.browser.exports import (
@@ -91,6 +92,19 @@ class BrowserTSVExportMixinTests(SimpleTestCase):
             "/browser/runs/?q=run&status=success&order_by=run_id&download=tsv",
         )
 
+    def test_download_action_uses_shared_label_and_href(self):
+        request = RequestFactory().get("/browser/runs/", {"status": "success"})
+        view = BrowserTSVExportMixin()
+        view.request = request
+
+        self.assertEqual(
+            view.get_tsv_download_action(),
+            {
+                "href": "/browser/runs/?status=success&download=tsv",
+                "label": "Download TSV",
+            },
+        )
+
 
 class StatsTSVExportMixinTests(SimpleTestCase):
     class DummyStatsView(StatsTSVExportMixin, TemplateView):
@@ -128,6 +142,19 @@ class StatsTSVExportMixinTests(SimpleTestCase):
             "/browser/lengths/?rank=class&method=pure&branch=123&download=inspect",
         )
 
+    def test_download_action_accepts_custom_label(self):
+        request = RequestFactory().get("/browser/lengths/", {"rank": "class"})
+        view = self.DummyStatsView()
+        view.request = request
+
+        self.assertEqual(
+            view.get_tsv_download_action("summary", label="Download Summary TSV"),
+            {
+                "href": "/browser/lengths/?rank=class&download=summary",
+                "label": "Download Summary TSV",
+            },
+        )
+
     def test_render_stats_tsv_response_rejects_unknown_dataset_key(self):
         request = RequestFactory().get("/browser/lengths/", {"download": "bogus"})
         view = self.DummyStatsView()
@@ -148,3 +175,28 @@ class StatsTSVExportMixinTests(SimpleTestCase):
             b"".join(response.streaming_content).decode("utf-8"),
             "Scope\tValue\n",
         )
+
+
+class DownloadTSVButtonTemplateTests(SimpleTestCase):
+    def test_button_renders_from_default_download_url(self):
+        html = render_to_string(
+            "browser/includes/download_tsv_button.html",
+            {"download_tsv_url": "/browser/runs/?download=tsv"},
+        )
+
+        self.assertIn('href="/browser/runs/?download=tsv"', html)
+        self.assertIn(">Download TSV<", html)
+
+    def test_button_renders_custom_action_label(self):
+        html = render_to_string(
+            "browser/includes/download_tsv_button.html",
+            {
+                "download_tsv_action": {
+                    "href": "/browser/lengths/?download=summary",
+                    "label": "Download Summary TSV",
+                }
+            },
+        )
+
+        self.assertIn('href="/browser/lengths/?download=summary"', html)
+        self.assertIn(">Download Summary TSV<", html)

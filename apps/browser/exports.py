@@ -76,6 +76,7 @@ class BrowserTSVExportMixin:
     tsv_chunk_size = 2000
     tsv_columns = ()
     tsv_filename_slug = ""
+    download_tsv_label = "Download TSV"
 
     def dispatch(self, request, *args, **kwargs):
         if request.GET.get(self.download_param, "").strip() == self.download_value:
@@ -96,6 +97,12 @@ class BrowserTSVExportMixin:
         query[self.download_param] = self.download_value
         encoded_query = query.urlencode()
         return f"{self.request.path}?{encoded_query}" if encoded_query else self.request.path
+
+    def get_tsv_download_action(self):
+        return {
+            "href": self.get_tsv_download_url(),
+            "label": self.download_tsv_label,
+        }
 
     def get_tsv_queryset(self):
         return self.prepare_tsv_queryset(self.get_queryset())
@@ -123,6 +130,7 @@ class BrowserTSVExportMixin:
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["download_tsv_url"] = self.get_tsv_download_url()
+        context["download_tsv_action"] = self.get_tsv_download_action()
         return context
 
 
@@ -131,6 +139,7 @@ class StatsTSVExportMixin:
     download_strip_params = ("page", "after", "before", "fragment")
     stats_tsv_dataset_keys = ()
     tsv_filename_slug = ""
+    download_tsv_label = "Download TSV"
 
     def dispatch(self, request, *args, **kwargs):
         if self.get_requested_tsv_dataset_key():
@@ -150,6 +159,12 @@ class StatsTSVExportMixin:
         query[self.download_param] = dataset_key
         encoded_query = query.urlencode()
         return f"{self.request.path}?{encoded_query}" if encoded_query else self.request.path
+
+    def get_tsv_download_action(self, dataset_key: str, *, label: str | None = None):
+        return {
+            "href": self.get_tsv_download_url(dataset_key),
+            "label": label or self.download_tsv_label,
+        }
 
     def get_stats_tsv_filename(self, dataset_key: str) -> str:
         slug = self.tsv_filename_slug or self.__class__.__name__.lower()
