@@ -100,3 +100,57 @@
 
 ## Next step
 - If desired, commit the Phase 4–6 table-download work and the browser-home `Codon*length` entry.
+
+---
+
+## Session continuation — Redis/Celery refactor (Phase 1 + 2)
+
+### Objective
+Refine and implement the Redis/Celery infrastructure refactor documented in `docs/implementation/redis_celery_refactor/`.
+
+### Planning work (Phase 0 — docs)
+Updated `overview.md` and `implementation_plan.md` to reflect:
+- Stats service layer already extracted (no extraction needed)
+- Gunicorn required for multi-worker shared Redis cache
+- Flower proxied through Django at `/admin/flower/` behind `@staff_member_required` (no exposed port)
+- `celery-beat` promoted to required (not optional) for import correctness — worker crash leaves batch stuck in RUNNING; Beat watchdog is the fix
+- Redis DB separation: `/0` broker (AOF), `/1` cache (`volatile-lru`)
+- `CELERY_WORKER_PREFETCH_MULTIPLIER = 1` and `visibility_timeout: 43200` for long-running import tasks
+- `CatalogVersion` singleton model and cache stampede mitigation (Phase 4 target)
+
+Created `docs/implementation/redis_celery_refactor/payload_inventory.md` — full inventory of all graph, download, and import payloads classified as `sync`, `sync+cache`, `async+persisted`, or `defer`.
+
+### Phase 1 — audit + instrumentation
+- Created `apps/browser/stats/_cache.py` — single `build_or_get_cached()` helper with hit/miss timing logs
+- Refactored all 9 cached bundle builders in `apps/browser/stats/queries.py` to use `build_or_get_cached`
+- Refactored `apps/browser/stats/taxonomy_gutter.py` similarly
+- Updated `pyproject.toml` dependencies: `celery[redis]`, `django-redis`, `gunicorn`, `httpx`, `whitenoise`
+
+### Phase 2 — Redis + Celery skeleton
+- Created `config/celery.py` — Celery app with Django settings namespace
+- Updated `config/__init__.py` to expose `celery_app`
+- Updated `config/settings.py`:
+  - `WhiteNoiseMiddleware` after `SecurityMiddleware`
+  - `CACHES` conditional on `REDIS_URL` (locmem fallback for local dev/tests)
+  - Full Celery config block: broker `/0`, cache `/1`, prefetch multiplier, visibility timeout, task routes
+- Updated `apps/core/views.py` — `flower_proxy` view with `@staff_member_required` and `httpx.ConnectError → 503` handling
+- Updated `config/urls.py` — `/admin/flower/` and `/admin/flower/<path>` routes
+- Updated `compose.yaml`:
+  - Added `redis` service (`redis:7-alpine`, AOF, healthcheck, `redis_data` volume)
+  - Switched `web` from `runserver` to `gunicorn --workers 4 --timeout 120`; added `REDIS_URL`, `FLOWER_INTERNAL_URL`
+  - Added `celery-import-worker` (queue `imports`, concurrency 2, prefetch 1, healthcheck)
+  - Added `celery-payload-worker` (queues `payload_graph,downloads`, concurrency 4, healthcheck)
+  - Added `flower` service (port 5555 internal only, `--url_prefix=admin/flower`)
+  - Kept `worker` service with deprecation comment (remove in Phase 3)
+  - Added `redis_data` to `volumes:`
+
+### Validation
+- `python manage.py test web_tests` — 322 tests, OK (skipped=2)
+
+### Current status
+- Phase 1 complete.
+- Phase 2 complete.
+- Phase 3 (import task → Celery) is next — highest-risk phase.
+
+### Next step
+- Phase 3: wrap `import_run` management command logic in a `@shared_task(bind=True, max_retries=3)` and wire the Beat watchdog for stuck-RUNNING batches.
