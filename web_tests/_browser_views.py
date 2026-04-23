@@ -470,6 +470,67 @@ class BrowserViewTests(TestCase):
         self.assertNotContains(response, "completed")
         self.assertNotContains(response, "GCF_BETA_ALT")
 
+    def test_accession_status_list_tsv_export_honors_filters_and_full_queryset(self):
+        pipeline_run = self.alpha["pipeline_run"]
+        extra_batch = AcquisitionBatch.objects.create(
+            pipeline_run=pipeline_run,
+            batch_id="batch_0002",
+        )
+        AccessionStatus.objects.create(
+            pipeline_run=pipeline_run,
+            batch=extra_batch,
+            assembly_accession="GCF_ALPHA_ALT",
+            download_status="success",
+            normalize_status="warning",
+            translate_status="success",
+            detect_status="failed",
+            finalize_status="skipped",
+            terminal_status="failed",
+            failure_stage="detect",
+            failure_reason="missing translated sequence",
+            n_genomes=1,
+            n_proteins=0,
+            n_repeat_calls=0,
+        )
+        AccessionStatus.objects.create(
+            pipeline_run=self.beta["pipeline_run"],
+            batch=self.beta["batch"],
+            assembly_accession="GCF_BETA_ALT",
+            download_status="success",
+            normalize_status="success",
+            translate_status="success",
+            detect_status="success",
+            finalize_status="success",
+            terminal_status="completed",
+            n_genomes=1,
+            n_proteins=1,
+            n_repeat_calls=2,
+        )
+
+        response = self.client.get(
+            reverse("browser:accessionstatus-list"),
+            {
+                "run": "run-alpha",
+                "batch": str(extra_batch.pk),
+                "terminal_status": "failed",
+                "page": "2",
+                "fragment": "virtual-scroll",
+                "download": "tsv",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="homorepeat_accession_status.tsv"')
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertIn(
+            "Run\tBatch\tAccession\tDownload status\tNormalize status\tTranslate status",
+            body,
+        )
+        self.assertIn("GCF_ALPHA_ALT", body)
+        self.assertIn("missing translated sequence", body)
+        self.assertNotIn("GCF_BETA_ALT", body)
+
     def test_accession_call_count_list_filters_by_run_batch_method_and_residue(self):
         pipeline_run = self.alpha["pipeline_run"]
         extra_batch = AcquisitionBatch.objects.create(
@@ -513,6 +574,61 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "A")
         self.assertNotContains(response, "seed_extend")
         self.assertNotContains(response, "GCF_BETA_ALT")
+
+    def test_accession_call_count_list_tsv_export_honors_filters_and_full_queryset(self):
+        pipeline_run = self.alpha["pipeline_run"]
+        extra_batch = AcquisitionBatch.objects.create(
+            pipeline_run=pipeline_run,
+            batch_id="batch_0002",
+        )
+        AccessionCallCount.objects.create(
+            pipeline_run=pipeline_run,
+            batch=extra_batch,
+            assembly_accession="GCF_ALPHA_ALT",
+            method=RunParameter.Method.THRESHOLD,
+            repeat_residue="A",
+            detect_status="failed",
+            finalize_status="skipped",
+            n_repeat_calls=0,
+        )
+        AccessionCallCount.objects.create(
+            pipeline_run=self.beta["pipeline_run"],
+            batch=self.beta["batch"],
+            assembly_accession="GCF_BETA_ALT",
+            method=RunParameter.Method.SEED_EXTEND,
+            repeat_residue="Q",
+            detect_status="success",
+            finalize_status="success",
+            n_repeat_calls=3,
+        )
+
+        response = self.client.get(
+            reverse("browser:accessioncallcount-list"),
+            {
+                "run": "run-alpha",
+                "batch": str(extra_batch.pk),
+                "method": RunParameter.Method.THRESHOLD,
+                "residue": "A",
+                "page": "2",
+                "fragment": "virtual-scroll",
+                "download": "tsv",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Disposition"],
+            'attachment; filename="homorepeat_accession_call_counts.tsv"',
+        )
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertIn(
+            "Run\tBatch\tAccession\tMethod\tResidue\tDetect status\tFinalize status\tRepeat calls",
+            body,
+        )
+        self.assertIn("GCF_ALPHA_ALT", body)
+        self.assertIn("threshold", body)
+        self.assertNotIn("GCF_BETA_ALT", body)
 
     def test_download_manifest_list_filters_by_run_batch_and_status(self):
         pipeline_run = self.alpha["pipeline_run"]
@@ -558,6 +674,59 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "/tmp/rehydrated_alpha_alt")
         self.assertNotContains(response, "prefetched")
         self.assertNotContains(response, "GCF_BETA_ALT")
+
+    def test_download_manifest_list_tsv_export_honors_filters_and_full_queryset(self):
+        pipeline_run = self.alpha["pipeline_run"]
+        extra_batch = AcquisitionBatch.objects.create(
+            pipeline_run=pipeline_run,
+            batch_id="batch_0002",
+        )
+        DownloadManifestEntry.objects.create(
+            pipeline_run=pipeline_run,
+            batch=extra_batch,
+            assembly_accession="GCF_ALPHA_ALT",
+            download_status="rehydrated",
+            package_mode="direct_zip",
+            download_path="/tmp/download_alpha_alt.zip",
+            rehydrated_path="/tmp/rehydrated_alpha_alt",
+            checksum="checksum-alpha-alt",
+            file_size_bytes=123456,
+            notes="rehydrated replacement",
+        )
+        DownloadManifestEntry.objects.create(
+            pipeline_run=self.beta["pipeline_run"],
+            batch=self.beta["batch"],
+            assembly_accession="GCF_BETA_ALT",
+            download_status="downloaded",
+            package_mode="prefetched",
+            checksum="checksum-beta-alt",
+            file_size_bytes=999,
+        )
+
+        response = self.client.get(
+            reverse("browser:downloadmanifest-list"),
+            {
+                "run": "run-alpha",
+                "batch": str(extra_batch.pk),
+                "download_status": "rehydrated",
+                "page": "2",
+                "fragment": "virtual-scroll",
+                "download": "tsv",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="homorepeat_download_manifest.tsv"')
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertIn(
+            "Run\tBatch\tAccession\tDownload status\tPackage mode\tFile size bytes\tChecksum",
+            body,
+        )
+        self.assertIn("GCF_ALPHA_ALT", body)
+        self.assertIn("checksum-alpha-alt", body)
+        self.assertIn("/tmp/rehydrated_alpha_alt", body)
+        self.assertNotIn("GCF_BETA_ALT", body)
 
     def test_normalization_warning_list_filters_by_run_batch_and_accession(self):
         pipeline_run = self.alpha["pipeline_run"]
@@ -612,6 +781,149 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "batch_0002")
         self.assertNotContains(response, "Alpha batch one warning")
         self.assertNotContains(response, "Beta warning")
+
+    def test_normalization_warning_list_tsv_export_honors_filters_and_full_queryset(self):
+        pipeline_run = self.alpha["pipeline_run"]
+        extra_batch = AcquisitionBatch.objects.create(
+            pipeline_run=pipeline_run,
+            batch_id="batch_0002",
+        )
+        NormalizationWarning.objects.create(
+            pipeline_run=pipeline_run,
+            batch=self.alpha["batch"],
+            warning_code="partial_cds",
+            warning_scope="sequence",
+            warning_message="Alpha batch one warning",
+            assembly_accession="GCF_ALPHA",
+            genome_id=self.alpha["genome"].genome_id,
+            sequence_id=self.alpha["sequence"].sequence_id,
+            source_record_id="alpha-1",
+        )
+        NormalizationWarning.objects.create(
+            pipeline_run=pipeline_run,
+            batch=extra_batch,
+            warning_code="missing_translation",
+            warning_scope="protein",
+            warning_message="Alpha batch two warning",
+            assembly_accession="GCF_ALPHA_ALT",
+            protein_id="prot_alpha_alt",
+            source_record_id="alpha-2",
+        )
+        NormalizationWarning.objects.create(
+            pipeline_run=self.beta["pipeline_run"],
+            batch=self.beta["batch"],
+            warning_code="partial_cds",
+            warning_scope="sequence",
+            warning_message="Beta warning",
+            assembly_accession="GCF_BETA",
+            genome_id=self.beta["genome"].genome_id,
+            source_record_id="beta-1",
+        )
+
+        response = self.client.get(
+            reverse("browser:normalizationwarning-list"),
+            {
+                "run": "run-alpha",
+                "batch": str(extra_batch.pk),
+                "accession": "GCF_ALPHA_ALT",
+                "page": "2",
+                "fragment": "virtual-scroll",
+                "download": "tsv",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Disposition"],
+            'attachment; filename="homorepeat_normalization_warnings.tsv"',
+        )
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertIn(
+            "Run\tBatch\tWarning code\tWarning scope\tMessage\tAccession",
+            body,
+        )
+        self.assertIn("Alpha batch two warning", body)
+        self.assertIn("missing_translation", body)
+        self.assertNotIn("Alpha batch one warning", body)
+        self.assertNotIn("Beta warning", body)
+
+    def test_operational_list_download_links_preserve_filters(self):
+        cases = [
+            (
+                reverse("browser:normalizationwarning-list"),
+                {
+                    "run": "run-alpha",
+                    "batch": str(self.alpha["batch"].pk),
+                    "accession": "GCF_ALPHA",
+                    "warning_code": "partial_cds",
+                    "order_by": "accession",
+                    "page": "1",
+                    "fragment": "virtual-scroll",
+                },
+                (
+                    f'?run=run-alpha&amp;batch={self.alpha["batch"].pk}&amp;accession=GCF_ALPHA'
+                    "&amp;warning_code=partial_cds&amp;order_by=accession&amp;download=tsv"
+                ),
+            ),
+            (
+                reverse("browser:accessionstatus-list"),
+                {
+                    "run": "run-alpha",
+                    "batch": str(self.alpha["batch"].pk),
+                    "terminal_status": "completed",
+                    "detect_status": "success",
+                    "order_by": "repeat_calls",
+                    "page": "1",
+                    "fragment": "virtual-scroll",
+                },
+                (
+                    f'?run=run-alpha&amp;batch={self.alpha["batch"].pk}&amp;terminal_status=completed'
+                    "&amp;detect_status=success&amp;order_by=repeat_calls&amp;download=tsv"
+                ),
+            ),
+            (
+                reverse("browser:accessioncallcount-list"),
+                {
+                    "run": "run-alpha",
+                    "batch": str(self.alpha["batch"].pk),
+                    "method": RunParameter.Method.PURE,
+                    "residue": "Q",
+                    "order_by": "method",
+                    "page": "1",
+                    "fragment": "virtual-scroll",
+                },
+                (
+                    f'?run=run-alpha&amp;batch={self.alpha["batch"].pk}&amp;method=pure'
+                    "&amp;residue=Q&amp;order_by=method&amp;download=tsv"
+                ),
+            ),
+            (
+                reverse("browser:downloadmanifest-list"),
+                {
+                    "run": "run-alpha",
+                    "batch": str(self.alpha["batch"].pk),
+                    "download_status": "downloaded",
+                    "package_mode": "ncbi_dataset",
+                    "order_by": "checksum",
+                    "page": "1",
+                    "fragment": "virtual-scroll",
+                },
+                (
+                    f'?run=run-alpha&amp;batch={self.alpha["batch"].pk}&amp;download_status=downloaded'
+                    "&amp;package_mode=ncbi_dataset&amp;order_by=checksum&amp;download=tsv"
+                ),
+            ),
+        ]
+
+        for url, params, expected_query in cases:
+            with self.subTest(url=url):
+                response = self.client.get(url, params)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, f'href="{url}{expected_query}"')
+                self.assertNotContains(response, "page=1&amp;download=tsv")
+                self.assertNotContains(response, "fragment=virtual-scroll&amp;download=tsv")
 
     def test_accession_list_links_summary_counts_to_filtered_related_views(self):
         response = self.client.get(reverse("browser:accession-list"), {"run": "run-alpha"})
