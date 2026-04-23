@@ -59,9 +59,9 @@ services:
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
       DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-UTC}
       DATABASE_ENGINE: ${DATABASE_ENGINE:-django.db.backends.postgresql}
-      DATABASE_NAME: ${DATABASE_NAME:-homorepeat}
-      DATABASE_USER: ${DATABASE_USER:-homorepeat}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-homorepeat}
+      DATABASE_NAME: ${POSTGRES_DB:-homorepeat}
+      DATABASE_USER: ${POSTGRES_USER:-homorepeat}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-homorepeat}
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       HOMOREPEAT_RUNS_ROOT: /workspace/homorepeat_pipeline/runs
@@ -100,9 +100,9 @@ services:
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
       DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-UTC}
       DATABASE_ENGINE: ${DATABASE_ENGINE:-django.db.backends.postgresql}
-      DATABASE_NAME: ${DATABASE_NAME:-homorepeat}
-      DATABASE_USER: ${DATABASE_USER:-homorepeat}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-homorepeat}
+      DATABASE_NAME: ${POSTGRES_DB:-homorepeat}
+      DATABASE_USER: ${POSTGRES_USER:-homorepeat}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-homorepeat}
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       HOMOREPEAT_RUNS_ROOT: /workspace/homorepeat_pipeline/runs
@@ -144,9 +144,9 @@ services:
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
       DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-UTC}
       DATABASE_ENGINE: ${DATABASE_ENGINE:-django.db.backends.postgresql}
-      DATABASE_NAME: ${DATABASE_NAME:-homorepeat}
-      DATABASE_USER: ${DATABASE_USER:-homorepeat}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-homorepeat}
+      DATABASE_NAME: ${POSTGRES_DB:-homorepeat}
+      DATABASE_USER: ${POSTGRES_USER:-homorepeat}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-homorepeat}
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       HOMOREPEAT_RUNS_ROOT: /workspace/homorepeat_pipeline/runs
