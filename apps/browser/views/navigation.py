@@ -86,6 +86,11 @@ def _browser_directory_sections():
                     "Current-catalog codon-ratio explorer for lineage-aware browsing across residue-specific taxon summaries.",
                     url_name="browser:codon-ratios",
                 ),
+                _nav_item(
+                    "Codon*length",
+                    "Current-catalog codon-composition-by-length explorer for lineage-aware browsing across codon trajectories and branch-scoped inspect views.",
+                    url_name="browser:codon-composition-length",
+                ),
             ],
         },
         {

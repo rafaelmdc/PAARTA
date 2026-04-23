@@ -153,6 +153,8 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, reverse("browser:lengths"))
         self.assertContains(response, "Codon ratios")
         self.assertContains(response, reverse("browser:codon-ratios"))
+        self.assertContains(response, "Codon*length")
+        self.assertContains(response, reverse("browser:codon-composition-length"))
         self.assertContains(response, "Run provenance")
         self.assertContains(response, "Operational provenance")
         self.assertContains(response, reverse("browser:accessionstatus-list"))
