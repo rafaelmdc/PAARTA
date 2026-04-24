@@ -7,7 +7,7 @@ from django.db import DEFAULT_DB_ALIAS, connections, transaction
 from django.utils import timezone
 
 from apps.browser.models.runs import PipelineRun
-from apps.imports.models import ImportBatch
+from apps.imports.models import CatalogVersion, ImportBatch
 from apps.imports.services.published_run import ImportContractError
 
 
@@ -167,6 +167,42 @@ def _mark_batch_failed(
     reporter.save(update_fields, force=True)
 
 
+def _mark_batch_stale_failed(
+    batch: ImportBatch,
+    *,
+    message: str,
+    reporter: _ImportBatchStateReporter | None = None,
+) -> None:
+    failed_phase = batch.phase
+    batch.status = ImportBatch.Status.FAILED
+    batch.phase = ImportPhase.FAILED
+    batch.finished_at = timezone.now()
+    batch.heartbeat_at = batch.finished_at
+    batch.error_count = 1
+    batch.row_counts = {}
+    batch.progress_payload = _normalize_progress_payload(
+        {
+            "message": "Import failed after the worker heartbeat went stale.",
+            "failed_phase": failed_phase,
+        }
+    )
+    batch.error_message = message
+    update_fields = [
+        "status",
+        "phase",
+        "finished_at",
+        "heartbeat_at",
+        "error_count",
+        "row_counts",
+        "progress_payload",
+        "error_message",
+    ]
+    if reporter is None:
+        batch.save(update_fields=update_fields)
+        return
+    reporter.save(update_fields, force=True)
+
+
 def _mark_batch_completed(
     batch: ImportBatch,
     pipeline_run: PipelineRun,
@@ -206,6 +242,42 @@ def _mark_batch_completed(
     ]
     if reporter is None:
         batch.save(update_fields=update_fields)
+    else:
+        reporter.save(update_fields, force=True)
+    new_catalog_version = CatalogVersion.increment()
+    _dispatch_post_import_warmup(new_catalog_version)
+
+
+def _reset_batch_to_pending(
+    batch: ImportBatch,
+    *,
+    message: str,
+    reporter: _ImportBatchStateReporter | None = None,
+) -> None:
+    batch.status = ImportBatch.Status.PENDING
+    batch.phase = ImportPhase.QUEUED
+    batch.finished_at = None
+    batch.heartbeat_at = timezone.now()
+    batch.success_count = 0
+    batch.error_count = 0
+    batch.progress_payload = _normalize_progress_payload({"message": message})
+    batch.row_counts = {}
+    batch.error_message = ""
+    batch.celery_task_id = ""
+    update_fields = [
+        "status",
+        "phase",
+        "finished_at",
+        "heartbeat_at",
+        "success_count",
+        "error_count",
+        "progress_payload",
+        "row_counts",
+        "error_message",
+        "celery_task_id",
+    ]
+    if reporter is None:
+        batch.save(update_fields=update_fields)
         return
     reporter.save(update_fields, force=True)
 
@@ -227,3 +299,27 @@ def _normalize_progress_payload(progress_payload: dict[str, object]) -> dict[str
     percent = max(0.0, min(100.0, (current / total) * 100.0))
     normalized["percent"] = round(percent, 1)
     return normalized
+
+
+def _dispatch_post_import_warmup(catalog_version: int) -> None:
+    """Enqueue the browser stats cache pre-warming fan-out task.
+
+    Uses send_task by string name to avoid importing browser.tasks here
+    (imports services already import from browser models; adding a task
+    import would create a tighter coupling to the Celery task module).
+    The task routes to the payload_graph queue via CELERY_TASK_ROUTES.
+    """
+    try:
+        from celery import current_app as celery_app
+        celery_app.send_task(
+            "apps.browser.tasks.run_post_import_warmup",
+            args=[catalog_version],
+        )
+    except Exception:
+        # Warmup failure must never break import completion.
+        import logging
+        logging.getLogger(__name__).warning(
+            "post_import_warmup dispatch failed for catalog_version=%d",
+            catalog_version,
+            exc_info=True,
+        )

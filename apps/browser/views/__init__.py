@@ -1,4 +1,6 @@
 from ..metadata import resolve_browser_facets, resolve_run_browser_metadata
+from .downloads import DownloadBuildStatusView
+from .payloads import PayloadBuildStatusView
 from .explorer import (
     AccessionCallCountListView,
     AccessionDetailView,
@@ -30,6 +32,8 @@ from .stats import (
 
 __all__ = [
     "AccessionCallCountListView",
+    "DownloadBuildStatusView",
+    "PayloadBuildStatusView",
     "AccessionDetailView",
     "AccessionStatusListView",
     "AccessionsListView",

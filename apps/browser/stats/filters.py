@@ -4,6 +4,8 @@ import hashlib
 import json
 from dataclasses import dataclass
 
+from apps.imports.models import CatalogVersion
+
 from ..models import PipelineRun, Taxon
 from .params import (
     normalize_min_count,
@@ -42,6 +44,7 @@ class StatsFilterState:
 
     def cache_key_data(self) -> dict[str, object]:
         return {
+            "catalog_version": CatalogVersion.cached_current(),
             "run": self.current_run_id,
             "branch": self.current_branch,
             "branch_q": self.current_branch_q,
@@ -98,6 +101,52 @@ def build_stats_filter_state(request) -> StatsFilterState:
         purity_max=parse_float(request.GET.get("purity_max", "")),
         min_count=normalize_min_count(request.GET.get("min_count", "")),
         top_n=normalize_top_n(request.GET.get("top_n", "")),
+    )
+
+
+def build_stats_filter_state_from_params(params: dict) -> StatsFilterState:
+    """Build StatsFilterState from a plain parameter dict.
+
+    Used by Celery tasks to reconstruct filter state without an HTTP request.
+    The params dict should follow the structure of cache_key_data() (excluding
+    catalog_version, which is read fresh at construction time).
+    """
+    from apps.browser.views.filters import _resolve_branch_scope_from_params
+
+    current_run_id = str(params.get("run") or "")
+    current_run = PipelineRun.objects.filter(run_id=current_run_id).first() if current_run_id else None
+
+    branch = str(params.get("branch") or "")
+    branch_q = str(params.get("branch_q") or "")
+    branch_scope = _resolve_branch_scope_from_params(branch, branch_q)
+
+    rank = normalize_rank(
+        str(params.get("rank") or ""),
+        branch_scope_active=bool(branch_scope["branch_scope_active"]),
+    )
+
+    return StatsFilterState(
+        current_run=current_run,
+        current_run_id=current_run_id,
+        branch_scope=branch_scope,
+        current_branch=branch_scope["current_branch"],
+        current_branch_q=branch_scope["current_branch_q"],
+        current_branch_input=branch_scope["current_branch_input"],
+        selected_branch_taxon=branch_scope["selected_branch_taxon"],
+        branch_taxa_ids=branch_scope["branch_taxa_ids"],
+        branch_scope_active=branch_scope["branch_scope_active"],
+        branch_scope_label=branch_scope["branch_scope_label"],
+        branch_scope_noun=branch_scope["branch_scope_noun"],
+        rank=rank,
+        q=normalize_text(str(params.get("q") or "")),
+        method=normalize_text(str(params.get("method") or "")),
+        residue=normalize_residue(str(params.get("residue") or "")),
+        length_min=parse_non_negative_int(str(params.get("length_min") or "")),
+        length_max=parse_non_negative_int(str(params.get("length_max") or "")),
+        purity_min=parse_float(str(params.get("purity_min") or "")),
+        purity_max=parse_float(str(params.get("purity_max") or "")),
+        min_count=normalize_min_count(str(params.get("min_count") or "")),
+        top_n=normalize_top_n(str(params.get("top_n") or "")),
     )
 
 
