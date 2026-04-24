@@ -19,29 +19,32 @@ def _match_branch_taxa(branch_q: str):
     return Taxon.objects.filter(taxon_name__istartswith=branch_q).order_by("taxon_name", "taxon_id")
 
 
-def _resolve_branch_scope(request):
-    current_branch = request.GET.get("branch", "").strip()
-    current_branch_q = request.GET.get("branch_q", "").strip()
+def _resolve_branch_scope_from_params(branch: str, branch_q: str) -> dict:
+    """Resolve branch scope from plain string params.
 
-    if current_branch_q:
-        matched_taxa = _match_branch_taxa(current_branch_q)
+    Called from both the request path (_resolve_branch_scope) and the
+    Celery task path (build_stats_filter_state_from_params) so that filter
+    state reconstruction is consistent in both contexts.
+    """
+    if branch_q:
+        matched_taxa = _match_branch_taxa(branch_q)
         return {
-            "current_branch": current_branch,
-            "current_branch_q": current_branch_q,
-            "current_branch_input": current_branch_q,
+            "current_branch": branch,
+            "current_branch_q": branch_q,
+            "current_branch_input": branch_q,
             "selected_branch_taxon": None,
             "branch_taxa_ids": TaxonClosure.objects.filter(ancestor_id__in=matched_taxa.values("pk"))
             .order_by()
             .values_list("descendant_id", flat=True)
             .distinct(),
             "branch_scope_active": True,
-            "branch_scope_label": current_branch_q,
+            "branch_scope_label": branch_q,
             "branch_scope_noun": "branch search",
         }
 
-    selected_branch_taxon = Taxon.objects.filter(pk=current_branch).first() if current_branch else None
+    selected_branch_taxon = Taxon.objects.filter(pk=branch).first() if branch else None
     return {
-        "current_branch": current_branch,
+        "current_branch": branch,
         "current_branch_q": "",
         "current_branch_input": str(selected_branch_taxon.taxon_id) if selected_branch_taxon else "",
         "selected_branch_taxon": selected_branch_taxon,
@@ -50,6 +53,13 @@ def _resolve_branch_scope(request):
         "branch_scope_label": selected_branch_taxon.taxon_name if selected_branch_taxon else "",
         "branch_scope_noun": "branch",
     }
+
+
+def _resolve_branch_scope(request) -> dict:
+    return _resolve_branch_scope_from_params(
+        branch=request.GET.get("branch", "").strip(),
+        branch_q=request.GET.get("branch_q", "").strip(),
+    )
 
 
 def _apply_branch_scope_filter(queryset, *, branch_scope, field_name: str):

@@ -10,6 +10,7 @@ from .views import (
     CodonRatioExplorerView,
     DownloadBuildStatusView,
     DownloadManifestEntryListView,
+    PayloadBuildStatusView,
     GenomeDetailView,
     GenomeListView,
     NormalizationWarningListView,
@@ -57,4 +58,5 @@ urlpatterns = [
     path("calls/<int:pk>/", RepeatCallDetailView.as_view(), name="repeatcall-detail"),
     path("warnings/", NormalizationWarningListView.as_view(), name="normalizationwarning-list"),
     path("downloads/<int:pk>/status/", DownloadBuildStatusView.as_view(), name="downloadbuild-status"),
+    path("payload-builds/<int:pk>/status/", PayloadBuildStatusView.as_view(), name="payloadbuild-status"),
 ]

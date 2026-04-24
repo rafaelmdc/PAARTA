@@ -244,7 +244,8 @@ def _mark_batch_completed(
         batch.save(update_fields=update_fields)
     else:
         reporter.save(update_fields, force=True)
-    CatalogVersion.increment()
+    new_catalog_version = CatalogVersion.increment()
+    _dispatch_post_import_warmup(new_catalog_version)
 
 
 def _reset_batch_to_pending(
@@ -298,3 +299,27 @@ def _normalize_progress_payload(progress_payload: dict[str, object]) -> dict[str
     percent = max(0.0, min(100.0, (current / total) * 100.0))
     normalized["percent"] = round(percent, 1)
     return normalized
+
+
+def _dispatch_post_import_warmup(catalog_version: int) -> None:
+    """Enqueue the browser stats cache pre-warming fan-out task.
+
+    Uses send_task by string name to avoid importing browser.tasks here
+    (imports services already import from browser models; adding a task
+    import would create a tighter coupling to the Celery task module).
+    The task routes to the payload_graph queue via CELERY_TASK_ROUTES.
+    """
+    try:
+        from celery import current_app as celery_app
+        celery_app.send_task(
+            "apps.browser.tasks.run_post_import_warmup",
+            args=[catalog_version],
+        )
+    except Exception:
+        # Warmup failure must never break import completion.
+        import logging
+        logging.getLogger(__name__).warning(
+            "post_import_warmup dispatch failed for catalog_version=%d",
+            catalog_version,
+            exc_info=True,
+        )

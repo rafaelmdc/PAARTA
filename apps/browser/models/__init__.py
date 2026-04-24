@@ -9,6 +9,7 @@ from .canonical import (
     CanonicalSequence,
 )
 from .downloads import DownloadBuild
+from .payloads import PayloadBuild
 from .runs import AcquisitionBatch, PipelineRun
 from .taxonomy import Taxon, TaxonClosure
 from .genomes import Genome, Protein, Sequence
@@ -33,6 +34,7 @@ __all__ = [
     "CanonicalSequence",
     "DownloadBuild",
     "DownloadManifestEntry",
+    "PayloadBuild",
     "Genome",
     "NormalizationWarning",
     "PipelineRun",

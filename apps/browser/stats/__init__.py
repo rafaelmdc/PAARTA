@@ -1,6 +1,6 @@
 from .codon_rollups import rebuild_canonical_codon_composition_summaries
 from .codon_length_rollups import rebuild_canonical_codon_composition_length_summaries
-from .filters import StatsFilterState, apply_stats_filter_context, build_stats_filter_state
+from .filters import StatsFilterState, apply_stats_filter_context, build_stats_filter_state, build_stats_filter_state_from_params
 from .policy import (
     StatsPayloadClassification,
     StatsPayloadType,
@@ -95,6 +95,7 @@ __all__ = [
     "build_ranked_length_summary_bundle",
     "build_ranked_taxon_group_queryset",
     "build_stats_filter_state",
+    "build_stats_filter_state_from_params",
     "build_taxonomy_gutter_payload",
     "normalize_length_summary_value",
     "rebuild_canonical_codon_composition_summaries",
