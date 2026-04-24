@@ -113,6 +113,8 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 43200}
 CELERY_TASK_ALWAYS_EAGER = _env_flag("CELERY_TASK_ALWAYS_EAGER", False)
 CELERY_TASK_ROUTES = {
     "apps.imports.tasks.*": {"queue": "imports"},
+    # Explicit artifact task before the wildcard so it reaches the downloads queue.
+    "apps.browser.tasks.generate_download_artifact": {"queue": "downloads"},
     "apps.browser.tasks.*": {"queue": "payload_graph"},
 }
 CELERY_BEAT_SCHEDULE = {
