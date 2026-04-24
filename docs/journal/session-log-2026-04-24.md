@@ -160,3 +160,74 @@ OK (skipped=2)
 
 ## Next step
 - Commit the Phase 5–8 work on the `redis-celery-refactor` branch and open a PR against `main`.
+
+---
+
+## Later update — Docker startup fixes and publish contract audit
+
+### Objective
+- Fix the local Docker/Celery startup issues that showed up after the worker
+  split.
+- Review the published pipeline contract with an import/storage focus and write
+  down a slimmer target contract that can be implemented in the sister pipeline
+  repo.
+
+### What happened
+- Diagnosed the local startup failure as two separate issues:
+  - `flower` was referenced by the Compose stack but not declared as a Python
+    dependency.
+  - multiple services in `compose.yaml` were all building and tagging the same
+    `homorepeat-web:dev` image, which could race during `docker compose up
+    --build` and surface `AlreadyExists` errors.
+- Updated the Compose stack so only `web` builds the shared app image and the
+  other app services reuse it.
+- Added `flower` to the Python dependencies so the `flower` service command is
+  backed by an installed executable.
+- Audited the current published-run contract across this repo and
+  `../homorepeat_pipeline`.
+- Confirmed the main published-size and import-cost problem is not whole-genome
+  FASTA; it is the default publication of broad analyzed
+  `proteins.tsv` / `sequences.tsv`, plus `proteins.faa` / `cds.fna`, even
+  though the importer already derives retained IDs from `repeat_calls.tsv`.
+- Wrote a new publish-contract optimization doc set proposing a versioned v2
+  contract that:
+  - keeps accession/genome/status/provenance tables
+  - keeps only hit-linked sequence and protein rows
+  - removes default published FASTA bodies
+  - replaces fragmented finalized codon-usage outputs with flat
+    `repeat_call_codon_usage.tsv`
+  - adds `repeat_context.tsv` for compact sequence context
+
+### Files touched
+- `compose.yaml` — removed duplicated `build:` definitions so `web` is the sole
+  builder of `homorepeat-web:dev`
+- `pyproject.toml` — added `flower>=2,<3`
+- `docs/implementation/publish_contract_optimization/overview.md` — audit and
+  target publish-contract design
+- `docs/implementation/publish_contract_optimization/implementation_plan.md` —
+  decision-complete implementation plan spanning pipeline and web importer work
+
+### Validation
+- `python3 -c "import tomllib; tomllib.load(open('pyproject.toml','rb')); print('pyproject ok')"`
+  — passed
+- `docker compose config >/tmp/homorepeat-compose-config.txt` — passed
+- Reviewed the new implementation docs after writing them
+- No application test suite was run for the publish-contract docs because that
+  work was documentation-only
+
+### Current status
+- Docker startup/build configuration fixes are in place in this repo.
+- Publish-contract review and implementation guidance are documented.
+- The actual contract changes are not implemented yet in either repo.
+
+### Open issues
+- The web importer still requires the legacy v1 raw contract and still expects
+  batch-scoped sequence/protein artifacts plus FASTA files.
+- The pipeline still publishes the broader search-space artifacts by default.
+- The new publish-contract docs were written in this repo first, but the
+  long-term home for that contract work is the sister pipeline repo.
+
+### Next step
+- Move the publish-contract optimization docs to `../homorepeat_pipeline`, then
+  implement contract v2 there and follow with importer support for
+  `publish_contract_version=2` in this repo.
