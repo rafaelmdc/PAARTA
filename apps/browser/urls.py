@@ -8,6 +8,7 @@ from .views import (
     BrowserHomeView,
     CodonCompositionLengthExplorerView,
     CodonRatioExplorerView,
+    DownloadBuildStatusView,
     DownloadManifestEntryListView,
     GenomeDetailView,
     GenomeListView,
@@ -55,4 +56,5 @@ urlpatterns = [
     path("calls/", RepeatCallListView.as_view(), name="repeatcall-list"),
     path("calls/<int:pk>/", RepeatCallDetailView.as_view(), name="repeatcall-detail"),
     path("warnings/", NormalizationWarningListView.as_view(), name="normalizationwarning-list"),
+    path("downloads/<int:pk>/status/", DownloadBuildStatusView.as_view(), name="downloadbuild-status"),
 ]

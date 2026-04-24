@@ -8,6 +8,7 @@ from .canonical import (
     CanonicalRepeatCallCodonUsage,
     CanonicalSequence,
 )
+from .downloads import DownloadBuild
 from .runs import AcquisitionBatch, PipelineRun
 from .taxonomy import Taxon, TaxonClosure
 from .genomes import Genome, Protein, Sequence
@@ -30,6 +31,7 @@ __all__ = [
     "CanonicalRepeatCall",
     "CanonicalRepeatCallCodonUsage",
     "CanonicalSequence",
+    "DownloadBuild",
     "DownloadManifestEntry",
     "Genome",
     "NormalizationWarning",
