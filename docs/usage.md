@@ -37,6 +37,42 @@ The Compose stack exposes:
 The app imports published pipeline output. Normal browser requests read from the
 database; they do not read pipeline files at request time.
 
+The supported import contract is publish contract version 2. A v2 `publish/`
+directory contains run-level public files:
+
+```text
+publish/
+  calls/
+    repeat_calls.tsv
+    run_params.tsv
+  tables/
+    genomes.tsv
+    taxonomy.tsv
+    matched_sequences.tsv
+    matched_proteins.tsv
+    repeat_call_codon_usage.tsv
+    repeat_context.tsv
+    download_manifest.tsv
+    normalization_warnings.tsv
+    accession_status.tsv
+    accession_call_counts.tsv
+  summaries/
+    status_summary.json
+    acquisition_validation.json
+  metadata/
+    run_manifest.json
+```
+
+`metadata/run_manifest.json` must include `publish_contract_version: 2`.
+The importer does not require the older public `acquisition/`, `status/`,
+`calls/finalized/`, `cds.fna`, or `proteins.faa` artifacts for v2 imports.
+Matched sequence/protein bodies are read from
+`tables/matched_sequences.tsv.nucleotide_sequence` and
+`tables/matched_proteins.tsv.amino_acid_sequence`.
+
+Large v2 imports require PostgreSQL. SQLite is only a lightweight development
+and parser-test fallback and does not support the v2 production import path.
+
 Manual import:
 
 ```bash
