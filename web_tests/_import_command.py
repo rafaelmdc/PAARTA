@@ -30,7 +30,11 @@ from apps.browser.models import (
 )
 from apps.imports.models import CatalogVersion, ImportBatch
 
-from .support import add_finalized_codon_usage_artifact, build_minimal_publish_root, build_multibatch_publish_root
+from .support import (
+    add_finalized_codon_usage_artifact,
+    build_minimal_v2_publish_root as build_minimal_publish_root,
+    build_multibatch_v2_publish_root as build_multibatch_publish_root,
+)
 
 
 class ImportRunCommandTests(TestCase):
@@ -147,12 +151,12 @@ class ImportRunCommandTests(TestCase):
                 "call_invalid\tpure\tgenome_1\t9606\tseq_1\tprot_1\t30\t40\t11\tQ\t11\t0\t1.0\tQQQQQQQQQQQ\t\tcodon_ratio\tnot-a-number\t\t\t\t\n",
                 encoding="utf-8",
             )
-            (publish_root / "status" / "accession_status.tsv").write_text(
+            (publish_root / "tables" / "accession_status.tsv").write_text(
                 "assembly_accession\tbatch_id\tdownload_status\tnormalize_status\ttranslate_status\tdetect_status\tfinalize_status\tterminal_status\tfailure_stage\tfailure_reason\tn_genomes\tn_proteins\tn_repeat_calls\tnotes\n"
                 "GCF_000001405.40\tbatch_0001\tsuccess\tsuccess\tsuccess\tsuccess\tsuccess\tcompleted\t\t\t1\t1\t2\t\n",
                 encoding="utf-8",
             )
-            (publish_root / "status" / "accession_call_counts.tsv").write_text(
+            (publish_root / "tables" / "accession_call_counts.tsv").write_text(
                 "assembly_accession\tbatch_id\tmethod\trepeat_residue\tdetect_status\tfinalize_status\tn_repeat_calls\n"
                 "GCF_000001405.40\tbatch_0001\tpure\tQ\tsuccess\tsuccess\t2\n",
                 encoding="utf-8",
@@ -318,7 +322,27 @@ class ImportRunCommandTests(TestCase):
                 "pure\tQ\tmin_repeat_count\t6\n",
                 encoding="utf-8",
             )
-            (publish_root / "status" / "accession_call_counts.tsv").write_text(
+            (publish_root / "tables" / "repeat_call_codon_usage.tsv").write_text(
+                "call_id\tmethod\trepeat_residue\tsequence_id\tprotein_id\tamino_acid\tcodon\tcodon_count\tcodon_fraction\n"
+                "call_1\tpure\tQ\tseq_1\tprot_1\tQ\tCAG\t11\t1.0\n",
+                encoding="utf-8",
+            )
+            (publish_root / "tables" / "repeat_context.tsv").write_text(
+                "call_id\tprotein_id\tsequence_id\taa_left_flank\taa_right_flank\tnt_left_flank\tnt_right_flank\taa_context_window_size\tnt_context_window_size\n"
+                "call_1\tprot_1\tseq_1\tM\tA\tATG\tGCT\t12\t36\n",
+                encoding="utf-8",
+            )
+            (publish_root / "tables" / "matched_sequences.tsv").write_text(
+                "batch_id\tsequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\tnucleotide_sequence\n"
+                f"batch_0001\tseq_1\tgenome_1\tNM_000001.1\t90\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\t{'CAG' * 30}\n",
+                encoding="utf-8",
+            )
+            (publish_root / "tables" / "matched_proteins.tsv").write_text(
+                "batch_id\tprotein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\tamino_acid_sequence\n"
+                f"batch_0001\tprot_1\tseq_1\tgenome_1\tNP_000001.1\t30\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\t{'Q' * 30}\n",
+                encoding="utf-8",
+            )
+            (publish_root / "tables" / "accession_call_counts.tsv").write_text(
                 "assembly_accession\tbatch_id\tmethod\trepeat_residue\tdetect_status\tfinalize_status\tn_repeat_calls\n"
                 "GCF_000001405.40\tbatch_0001\tpure\tQ\tsuccess\tsuccess\t1\n",
                 encoding="utf-8",
@@ -334,7 +358,7 @@ class ImportRunCommandTests(TestCase):
             self.assertEqual(DownloadManifestEntry.objects.count(), 2)
             self.assertEqual(NormalizationWarning.objects.count(), 1)
             self.assertEqual(Genome.objects.get(genome_id="genome_1").analyzed_protein_count, 1)
-            self.assertEqual(Genome.objects.get(genome_id="genome_2").analyzed_protein_count, 1)
+            self.assertEqual(Genome.objects.get(genome_id="genome_2").analyzed_protein_count, 0)
             self.assertEqual(
                 set(Sequence.objects.values_list("genome__genome_id", flat=True)),
                 {"genome_1"},
@@ -367,9 +391,9 @@ class ImportRunCommandTests(TestCase):
             stdout = StringIO()
             call_command("import_run", publish_root=str(publish_root), stdout=stdout)
 
-            (publish_root / "acquisition" / "batches" / "batch_0001" / "genomes.tsv").write_text(
-                "genome_id\tsource\taccession\tgenome_name\tassembly_type\ttaxon_id\tassembly_level\tspecies_name\tnotes\n"
-                "genome_1\tncbi_datasets\tGCF_000001405.40\tReplacement genome\thaploid\t9606\tChromosome\tHomo sapiens\tupdated\n",
+            (publish_root / "tables" / "genomes.tsv").write_text(
+                "batch_id\tgenome_id\tsource\taccession\tgenome_name\tassembly_type\ttaxon_id\tassembly_level\tspecies_name\tnotes\n"
+                "batch_0001\tgenome_1\tncbi_datasets\tGCF_000001405.40\tReplacement genome\thaploid\t9606\tChromosome\tHomo sapiens\tupdated\n",
                 encoding="utf-8",
             )
             (publish_root / "calls" / "repeat_calls.tsv").write_text(
@@ -382,17 +406,27 @@ class ImportRunCommandTests(TestCase):
                 "seed_extend\tA\tseed_window_size\t8\n",
                 encoding="utf-8",
             )
-            (publish_root / "acquisition" / "batches" / "batch_0001" / "download_manifest.tsv").write_text(
+            (publish_root / "tables" / "repeat_call_codon_usage.tsv").write_text(
+                "call_id\tmethod\trepeat_residue\tsequence_id\tprotein_id\tamino_acid\tcodon\tcodon_count\tcodon_fraction\n"
+                "call_2\tseed_extend\tA\tseq_1\tprot_1\tA\tGCT\t11\t1.0\n",
+                encoding="utf-8",
+            )
+            (publish_root / "tables" / "repeat_context.tsv").write_text(
+                "call_id\tprotein_id\tsequence_id\taa_left_flank\taa_right_flank\tnt_left_flank\tnt_right_flank\taa_context_window_size\tnt_context_window_size\n"
+                "call_2\tprot_1\tseq_1\tM\tA\tATG\tGCT\t12\t36\n",
+                encoding="utf-8",
+            )
+            (publish_root / "tables" / "download_manifest.tsv").write_text(
                 "batch_id\tassembly_accession\tdownload_status\tpackage_mode\tdownload_path\trehydrated_path\tchecksum\tfile_size_bytes\tdownload_started_at\tdownload_finished_at\tnotes\n"
                 "batch_0001\tGCF_000001405.40\trehydrated\tdirect_zip\t\t\t\t106807993\t\t\treplaced\n",
                 encoding="utf-8",
             )
-            (publish_root / "acquisition" / "batches" / "batch_0001" / "normalization_warnings.tsv").write_text(
+            (publish_root / "tables" / "normalization_warnings.tsv").write_text(
                 "warning_code\twarning_scope\twarning_message\tbatch_id\tgenome_id\tsequence_id\tprotein_id\tassembly_accession\tsource_file\tsource_record_id\n"
                 "partial_cds\tsequence\tCDS is partial\tbatch_0001\tgenome_1\tseq_1\t\tGCF_000001405.40\t/source/path\tcds-1\n",
                 encoding="utf-8",
             )
-            (publish_root / "status" / "accession_call_counts.tsv").write_text(
+            (publish_root / "tables" / "accession_call_counts.tsv").write_text(
                 "assembly_accession\tbatch_id\tmethod\trepeat_residue\tdetect_status\tfinalize_status\tn_repeat_calls\n"
                 "GCF_000001405.40\tbatch_0001\tseed_extend\tA\tsuccess\tsuccess\t1\n",
                 encoding="utf-8",
@@ -435,7 +469,7 @@ class ImportRunCommandTests(TestCase):
                         "sequences": 1,
                         "proteins": 1,
                         "repeat_calls": 1,
-                "repeat_call_contexts": 0,
+                        "repeat_call_contexts": 1,
                         "accession_status_rows": 1,
                         "accession_call_count_rows": 1,
                         "download_manifest_entries": 1,
@@ -482,7 +516,7 @@ class ImportRunCommandTests(TestCase):
                         "sequences": 1,
                         "proteins": 1,
                         "repeat_calls": 1,
-                "repeat_call_contexts": 0,
+                        "repeat_call_contexts": 1,
                         "accession_status_rows": 1,
                         "accession_call_count_rows": 1,
                         "download_manifest_entries": 1,
@@ -517,20 +551,32 @@ class ImportRunCommandTests(TestCase):
                 "pure\tQ\tmin_repeat_count\t6\n",
                 encoding="utf-8",
             )
-            (publish_root / "acquisition" / "batches" / "batch_0002" / "proteins.tsv").write_text(
-                "protein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\n",
+            (publish_root / "tables" / "repeat_call_codon_usage.tsv").write_text(
+                "call_id\tmethod\trepeat_residue\tsequence_id\tprotein_id\tamino_acid\tcodon\tcodon_count\tcodon_fraction\n"
+                "call_1\tpure\tQ\tseq_1\tprot_1\tQ\tCAG\t11\t1.0\n",
                 encoding="utf-8",
             )
-            (publish_root / "acquisition" / "batches" / "batch_0002" / "proteins.faa").write_text(
-                "",
+            (publish_root / "tables" / "repeat_context.tsv").write_text(
+                "call_id\tprotein_id\tsequence_id\taa_left_flank\taa_right_flank\tnt_left_flank\tnt_right_flank\taa_context_window_size\tnt_context_window_size\n"
+                "call_1\tprot_1\tseq_1\tM\tA\tATG\tGCT\t12\t36\n",
                 encoding="utf-8",
             )
-            (publish_root / "status" / "accession_status.tsv").write_text(
+            (publish_root / "tables" / "matched_sequences.tsv").write_text(
+                "batch_id\tsequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\tnucleotide_sequence\n"
+                f"batch_0001\tseq_1\tgenome_1\tNM_000001.1\t90\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\t{'CAG' * 30}\n",
+                encoding="utf-8",
+            )
+            (publish_root / "tables" / "matched_proteins.tsv").write_text(
+                "batch_id\tprotein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\tamino_acid_sequence\n"
+                f"batch_0001\tprot_1\tseq_1\tgenome_1\tNP_000001.1\t30\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\t{'Q' * 30}\n",
+                encoding="utf-8",
+            )
+            (publish_root / "tables" / "accession_status.tsv").write_text(
                 "assembly_accession\tbatch_id\tdownload_status\tnormalize_status\ttranslate_status\tdetect_status\tfinalize_status\tterminal_status\tfailure_stage\tfailure_reason\tn_genomes\tn_proteins\tn_repeat_calls\tnotes\n"
                 "GCF_000001405.40\tbatch_0001\tsuccess\tsuccess\tsuccess\tsuccess\tsuccess\tcompleted\t\t\t1\t1\t1\t\n",
                 encoding="utf-8",
             )
-            (publish_root / "status" / "accession_call_counts.tsv").write_text(
+            (publish_root / "tables" / "accession_call_counts.tsv").write_text(
                 "assembly_accession\tbatch_id\tmethod\trepeat_residue\tdetect_status\tfinalize_status\tn_repeat_calls\n"
                 "GCF_000001405.40\tbatch_0001\tpure\tQ\tsuccess\tsuccess\t1\n",
                 encoding="utf-8",
@@ -557,25 +603,34 @@ class ImportRunCommandTests(TestCase):
             publish_root_beta = build_minimal_publish_root(Path(tempdir_beta), run_id="run-latest-beta")
             stdout = StringIO()
 
-            (publish_root_beta / "acquisition" / "batches" / "batch_0001" / "genomes.tsv").write_text(
-                "genome_id\tsource\taccession\tgenome_name\tassembly_type\ttaxon_id\tassembly_level\tspecies_name\tnotes\n"
-                "genome_1\tncbi_datasets\tGCF_000001405.40\tGenome beta\thaploid\t9606\tChromosome\tHomo sapiens\t\n",
+            (publish_root_beta / "tables" / "genomes.tsv").write_text(
+                "batch_id\tgenome_id\tsource\taccession\tgenome_name\tassembly_type\ttaxon_id\tassembly_level\tspecies_name\tnotes\n"
+                "batch_0001\tgenome_1\tncbi_datasets\tGCF_000001405.40\tGenome beta\thaploid\t9606\tChromosome\tHomo sapiens\t\n",
                 encoding="utf-8",
             )
-            (publish_root_beta / "acquisition" / "batches" / "batch_0001" / "sequences.tsv").write_text(
-                "sequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\n"
-                "seq_1\tgenome_1\tNM_BETA.1\t90\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\n"
-                "seq_2\tgenome_1\tNM_000002.1\t84\tGENE2\tNM_000002.1\tNP_000002.1\tGCF_000001405.40\t9606\tcds-2\tNP_000002.1\t1\tGENE2\tgff\t\n",
+            (publish_root_beta / "tables" / "matched_sequences.tsv").write_text(
+                "batch_id\tsequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\tnucleotide_sequence\n"
+                f"batch_0001\tseq_1\tgenome_1\tNM_BETA.1\t90\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\t{'CAG' * 30}\n",
                 encoding="utf-8",
             )
-            (publish_root_beta / "acquisition" / "batches" / "batch_0001" / "proteins.tsv").write_text(
-                "protein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\n"
-                "prot_1\tseq_1\tgenome_1\tNP_BETA.1\t30\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\n",
+            (publish_root_beta / "tables" / "matched_proteins.tsv").write_text(
+                "batch_id\tprotein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\tamino_acid_sequence\n"
+                f"batch_0001\tprot_1\tseq_1\tgenome_1\tNP_BETA.1\t30\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\t{'Q' * 30}\n",
                 encoding="utf-8",
             )
             (publish_root_beta / "calls" / "repeat_calls.tsv").write_text(
                 "call_id\tmethod\tgenome_id\ttaxon_id\tsequence_id\tprotein_id\tstart\tend\tlength\trepeat_residue\trepeat_count\tnon_repeat_count\tpurity\taa_sequence\tcodon_sequence\tcodon_metric_name\tcodon_metric_value\twindow_definition\ttemplate_name\tmerge_rule\tscore\n"
                 "call_beta\tpure\tgenome_1\t9606\tseq_1\tprot_1\t12\t24\t13\tQ\t13\t0\t1.0\tQQQQQQQQQQQQQ\t\t\t\t\t\t\t\n",
+                encoding="utf-8",
+            )
+            (publish_root_beta / "tables" / "repeat_call_codon_usage.tsv").write_text(
+                "call_id\tmethod\trepeat_residue\tsequence_id\tprotein_id\tamino_acid\tcodon\tcodon_count\tcodon_fraction\n"
+                "call_beta\tpure\tQ\tseq_1\tprot_1\tQ\tCAG\t13\t1.0\n",
+                encoding="utf-8",
+            )
+            (publish_root_beta / "tables" / "repeat_context.tsv").write_text(
+                "call_id\tprotein_id\tsequence_id\taa_left_flank\taa_right_flank\tnt_left_flank\tnt_right_flank\taa_context_window_size\tnt_context_window_size\n"
+                "call_beta\tprot_1\tseq_1\tM\tA\tATG\tGCT\t12\t36\n",
                 encoding="utf-8",
             )
 
@@ -601,9 +656,9 @@ class ImportRunCommandTests(TestCase):
         with TemporaryDirectory() as tempdir:
             publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-broken")
             stdout = StringIO()
-            (publish_root / "acquisition" / "batches" / "batch_0001" / "sequences.tsv").write_text(
-                "sequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\n"
-                "seq_1\tmissing_genome\tNM_000001.1\t900\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\n",
+            (publish_root / "tables" / "matched_sequences.tsv").write_text(
+                "batch_id\tsequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\tnucleotide_sequence\n"
+                f"batch_0001\tseq_1\tmissing_genome\tNM_000001.1\t900\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\t{'CAG' * 30}\n",
                 encoding="utf-8",
             )
 
@@ -625,14 +680,79 @@ class ImportRunCommandTests(TestCase):
             self.assertEqual(ImportBatch.objects.count(), 1)
             self.assertEqual(ImportBatch.objects.get().status, ImportBatch.Status.FAILED)
 
+    def test_import_run_fails_when_codon_usage_references_missing_call(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-bad-codon-usage")
+            stdout = StringIO()
+            (publish_root / "tables" / "repeat_call_codon_usage.tsv").write_text(
+                "call_id\tmethod\trepeat_residue\tsequence_id\tprotein_id\tamino_acid\tcodon\tcodon_count\tcodon_fraction\n"
+                "missing_call\tpure\tQ\tseq_1\tprot_1\tQ\tCAG\t11\t1.0\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(CommandError):
+                call_command("import_run", publish_root=str(publish_root), stdout=stdout)
+
+            self.assertFalse(PipelineRun.objects.filter(run_id="run-bad-codon-usage").exists())
+            self.assertEqual(ImportBatch.objects.get().status, ImportBatch.Status.FAILED)
+
+    def test_import_run_fails_when_repeat_call_references_missing_matched_protein(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-missing-protein")
+            stdout = StringIO()
+            (publish_root / "calls" / "repeat_calls.tsv").write_text(
+                "call_id\tmethod\tgenome_id\ttaxon_id\tsequence_id\tprotein_id\tstart\tend\tlength\trepeat_residue\trepeat_count\tnon_repeat_count\tpurity\taa_sequence\tcodon_sequence\tcodon_metric_name\tcodon_metric_value\twindow_definition\ttemplate_name\tmerge_rule\tscore\n"
+                "call_1\tpure\tgenome_1\t9606\tseq_1\tmissing_prot\t10\t20\t11\tQ\t11\t0\t1.0\tQQQQQQQQQQQ\t\t\t\t\t\t\t\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(CommandError):
+                call_command("import_run", publish_root=str(publish_root), stdout=stdout)
+
+            self.assertFalse(PipelineRun.objects.filter(run_id="run-missing-protein").exists())
+            self.assertEqual(ImportBatch.objects.get().status, ImportBatch.Status.FAILED)
+
+    def test_import_run_fails_on_duplicate_v2_entity_keys(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-duplicate-sequence")
+            stdout = StringIO()
+            (publish_root / "tables" / "matched_sequences.tsv").write_text(
+                "batch_id\tsequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\tnucleotide_sequence\n"
+                f"batch_0001\tseq_1\tgenome_1\tNM_000001.1\t90\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\t{'CAG' * 30}\n"
+                f"batch_0001\tseq_1\tgenome_1\tNM_000001.2\t90\tGENE1\tNM_000001.2\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1b\tNP_000001.1\t1\tGENE1\tgff\t\t{'CAG' * 30}\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(CommandError):
+                call_command("import_run", publish_root=str(publish_root), stdout=stdout)
+
+            self.assertFalse(PipelineRun.objects.filter(run_id="run-duplicate-sequence").exists())
+            self.assertEqual(ImportBatch.objects.get().status, ImportBatch.Status.FAILED)
+
+    def test_import_run_fails_when_taxonomy_parent_is_missing(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-missing-tax-parent")
+            stdout = StringIO()
+            (publish_root / "tables" / "taxonomy.tsv").write_text(
+                "taxon_id\ttaxon_name\tparent_taxon_id\trank\tsource\n"
+                "9606\tHomo sapiens\t1\tspecies\ttest\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(CommandError):
+                call_command("import_run", publish_root=str(publish_root), stdout=stdout)
+
+            self.assertFalse(PipelineRun.objects.filter(run_id="run-missing-tax-parent").exists())
+            self.assertEqual(ImportBatch.objects.get().status, ImportBatch.Status.FAILED)
+
     def test_import_run_still_validates_unreferenced_inventory_rows(self):
         with TemporaryDirectory() as tempdir:
             publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-bad-protein")
             stdout = StringIO()
-            (publish_root / "acquisition" / "batches" / "batch_0001" / "proteins.tsv").write_text(
-                "protein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\n"
-                "prot_1\tseq_1\tgenome_1\tNP_000001.1\t300\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\n"
-                "prot_2\tmissing_seq\tgenome_1\tNP_000002.1\t280\tGENE2\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE2\tNP_000002.1\n",
+            (publish_root / "tables" / "matched_proteins.tsv").write_text(
+                "batch_id\tprotein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\tamino_acid_sequence\n"
+                f"batch_0001\tprot_1\tseq_1\tgenome_1\tNP_000001.1\t300\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\t{'Q' * 30}\n"
+                f"batch_0001\tprot_2\tmissing_seq\tgenome_1\tNP_000002.1\t280\tGENE2\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE2\tNP_000002.1\t{'A' * 280}\n",
                 encoding="utf-8",
             )
 
@@ -653,7 +773,7 @@ class ImportRunCommandTests(TestCase):
         with TemporaryDirectory() as tempdir:
             publish_root = build_minimal_publish_root(Path(tempdir), run_id="run-taxonomy-compact")
             stdout = StringIO()
-            (publish_root / "acquisition" / "batches" / "batch_0001" / "taxonomy.tsv").write_text(
+            (publish_root / "tables" / "taxonomy.tsv").write_text(
                 "taxon_id\ttaxon_name\tparent_taxon_id\trank\tsource\n"
                 "1\troot\t\tno rank\ttest\n"
                 "131567\tcellular organisms\t1\tno rank\ttest\n"
@@ -794,14 +914,9 @@ class ImportRunCommandTests(TestCase):
 
         self.assertIn("Imported run run-progress", stdout.getvalue())
         self.assertTrue(
-            any(payload.get("message") == "Importing retained sequence rows." for payload in recorded_payloads)
+            any(payload.get("message") == "Staging v2 run-level tables locally." for payload in recorded_payloads)
         )
-        self.assertTrue(
-            any(payload.get("message") == "Importing retained protein rows." for payload in recorded_payloads)
-        )
-        self.assertTrue(
-            any(payload.get("message") == "Importing repeat-call rows." for payload in recorded_payloads)
-        )
+        self.assertTrue(any(payload.get("message") == "Importing v2 rows locally." for payload in recorded_payloads))
         self.assertTrue(
             any(payload.get("message") == "Syncing canonical catalog rows." for payload in recorded_payloads)
         )

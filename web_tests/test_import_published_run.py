@@ -133,10 +133,10 @@ class PublishedRunImportServiceTests(SimpleTestCase):
 
             self.assertEqual(sequence_rows[0]["batch_id"], "batch_0001")
             self.assertEqual(sequence_rows[0]["sequence_id"], "seq_1")
-            self.assertEqual(sequence_rows[0]["nucleotide_sequence"], "CAGCAGCAG")
+            self.assertEqual(sequence_rows[0]["nucleotide_sequence"], "CAG" * 30)
             self.assertEqual(protein_rows[0]["batch_id"], "batch_0001")
             self.assertEqual(protein_rows[0]["protein_id"], "prot_1")
-            self.assertEqual(protein_rows[0]["amino_acid_sequence"], "QQQQQQQQQQQ")
+            self.assertEqual(protein_rows[0]["amino_acid_sequence"], "Q" * 30)
 
     def test_v2_repeat_context_iterator_parses_flanks_and_window_sizes(self):
         with TemporaryDirectory() as tempdir:

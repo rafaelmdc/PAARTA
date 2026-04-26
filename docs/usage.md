@@ -70,8 +70,9 @@ Matched sequence/protein bodies are read from
 `tables/matched_sequences.tsv.nucleotide_sequence` and
 `tables/matched_proteins.tsv.amino_acid_sequence`.
 
-Large v2 imports require PostgreSQL. SQLite is only a lightweight development
-and parser-test fallback and does not support the v2 production import path.
+Large v2 imports require PostgreSQL. SQLite remains a lightweight development
+fallback for compact fixtures and local smoke checks; it does not exercise the
+production `COPY` staging path.
 
 Manual import:
 

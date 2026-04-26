@@ -190,3 +190,59 @@ No end-to-end PostgreSQL v2 import was run in this session.
 ## Next step
 
 Install dependencies or use the project environment where `celery` is available, then run targeted tests and a PostgreSQL v2 fixture import before continuing to Phase 6.
+
+---
+
+## Later correction — v2 migration status and local validation fix
+
+**Date:** 2026-04-26
+
+### Objective
+- Verify whether the earlier Phase 1-5 handoff was stale and fix the remaining
+  local validation issues short of running a real PostgreSQL pipeline publish.
+
+### What happened
+- Confirmed the earlier handoff was stale: Phase 6 canonical sync/body-field
+  parity and durable v2 documentation had already been implemented.
+- Found the actual remaining problem: import command/view tests still used old
+  v1 publish fixtures, while the importer now validates only v2 manifests.
+- Added a compact local v2 importer for SQLite/local fixtures so management
+  command and import view tests can still exercise the real command flow without
+  requiring a PostgreSQL service.
+- Kept PostgreSQL as the production/large-run path; the local importer is for
+  compact fixtures and smoke validation only.
+- Updated v2 fixtures and import tests to use `tables/` artifacts, matched
+  sequence/protein body columns, run-level codon usage, and repeat context.
+- Added v2 failure coverage for missing codon-call references, missing matched
+  protein references, duplicate entity keys, and missing taxonomy parents.
+- Updated docs to describe SQLite as a compact-fixture fallback rather than a
+  production v2 import path.
+
+### Files touched
+- `apps/imports/services/import_run/api.py`: dispatches to PostgreSQL importer
+  on PostgreSQL and local v2 importer elsewhere.
+- `apps/imports/services/import_run/local.py`: new compact local v2 import path.
+- `web_tests/support.py`: expanded v2 fixtures and codon-usage helper.
+- `web_tests/_import_command.py`, `web_tests/test_import_process_run.py`,
+  `web_tests/test_import_views.py`, `web_tests/test_import_published_run.py`:
+  updated stale v1 assumptions and added v2 error coverage.
+- `docs/usage.md`, `docs/operations.md`, `docs/development.md`: clarified
+  PostgreSQL vs SQLite/local fixture behavior.
+
+### Validation
+- `python3 manage.py test web_tests` — 393 tests passed.
+- `python3 manage.py check` — passed.
+- `python3 -m py_compile ...` for touched Python files — passed.
+- `git diff --check` — passed.
+
+### Current status
+- Local test and fixture validation is fixed.
+- No real PostgreSQL v2 publish-root import was run in this correction pass.
+
+### Open issues
+- A real v2 publish root from the pipeline still needs PostgreSQL import
+  validation and source-vs-imported row count comparison.
+
+### Next step
+- Run the real v2 publish import in the Compose/PostgreSQL stack and compare
+  source table counts against raw/canonical counts.

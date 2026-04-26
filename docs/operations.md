@@ -115,10 +115,10 @@ Manual browser checks should cover:
 
 ## Database Notes
 
-PostgreSQL is the production-like path. Publish contract v2 imports require
-PostgreSQL because large run-level TSVs are streamed into temporary tables with
-`COPY` and joined in SQL. SQLite remains useful for lightweight local tests and
-parser checks but does not support the v2 production import path or exercise
+PostgreSQL is the production-like path. Large publish contract v2 imports should
+use PostgreSQL because run-level TSVs are streamed into temporary tables with
+`COPY` and joined in SQL. SQLite remains useful for compact local fixtures and
+parser checks, but it does not exercise the production staging path or
 PostgreSQL-specific SQL rollup paths.
 
 When changing raw SQL rollups, validate both:

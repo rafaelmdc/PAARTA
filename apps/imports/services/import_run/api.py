@@ -21,6 +21,7 @@ from apps.imports.models import ImportBatch
 from apps.imports.services.published_run import ImportContractError, inspect_published_run
 
 from .copy import _analyze_models
+from .local import _import_inspected_run_local
 from .postgresql import _import_inspected_run_postgresql
 from .state import (
     ImportPhase,
@@ -98,23 +99,29 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
             },
             reporter=reporter,
         )
-        if connection.vendor != "postgresql":
-            raise ImportContractError("Publish contract v2 imports require PostgreSQL.")
         _set_batch_state(
             batch,
             phase=ImportPhase.IMPORTING,
             progress_payload={
-                "message": "Writing staged rows into PostgreSQL.",
+                "message": "Writing staged rows into the database.",
             },
             reporter=reporter,
         )
         with transaction.atomic():
-            pipeline_run, counts = _import_inspected_run_postgresql(
-                batch,
-                inspected,
-                replace_existing=batch.replace_existing,
-                reporter=reporter,
-            )
+            if connection.vendor == "postgresql":
+                pipeline_run, counts = _import_inspected_run_postgresql(
+                    batch,
+                    inspected,
+                    replace_existing=batch.replace_existing,
+                    reporter=reporter,
+                )
+            else:
+                pipeline_run, counts = _import_inspected_run_local(
+                    batch,
+                    inspected,
+                    replace_existing=batch.replace_existing,
+                    reporter=reporter,
+                )
             pipeline_run.browser_metadata = build_browser_metadata(
                 pipeline_run,
                 raw_counts=counts,

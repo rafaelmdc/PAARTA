@@ -56,6 +56,22 @@ def add_finalized_codon_usage_artifact(
     batch_id: str,
     rows: list[dict[str, object]],
 ) -> Path:
+    v2_path = publish_root / "tables" / "repeat_call_codon_usage.tsv"
+    if v2_path.parent.is_dir():
+        header = (
+            "call_id\tmethod\trepeat_residue\tsequence_id\tprotein_id\tamino_acid\tcodon\tcodon_count\tcodon_fraction\n"
+        )
+        body = "".join(
+            (
+                f"{row['call_id']}\t{row.get('method', method)}\t{row.get('repeat_residue', repeat_residue)}\t"
+                f"{row['sequence_id']}\t{row['protein_id']}\t{row['amino_acid']}\t{row['codon']}\t"
+                f"{row['codon_count']}\t{row['codon_fraction']}\n"
+            )
+            for row in rows
+        )
+        v2_path.write_text(header + body, encoding="utf-8")
+        return v2_path
+
     artifact_dir = publish_root / "calls" / "finalized" / method / repeat_residue / batch_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact_path = artifact_dir / f"final_{method}_{repeat_residue}_{batch_id}_codon_usage.tsv"
@@ -283,12 +299,12 @@ def build_minimal_v2_publish_root(
     )
     (publish_root / "tables" / "matched_sequences.tsv").write_text(
         "batch_id\tsequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\tnucleotide_sequence\n"
-        "batch_0001\tseq_1\tgenome_1\tNM_000001.1\t90\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\tCAGCAGCAG\n",
+        f"batch_0001\tseq_1\tgenome_1\tNM_000001.1\t90\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\t{'CAG' * 30}\n",
         encoding="utf-8",
     )
     (publish_root / "tables" / "matched_proteins.tsv").write_text(
         "batch_id\tprotein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\tamino_acid_sequence\n"
-        "batch_0001\tprot_1\tseq_1\tgenome_1\tNP_000001.1\t30\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\tQQQQQQQQQQQ\n",
+        f"batch_0001\tprot_1\tseq_1\tgenome_1\tNP_000001.1\t30\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\t{'Q' * 30}\n",
         encoding="utf-8",
     )
     (publish_root / "tables" / "repeat_call_codon_usage.tsv").write_text(
@@ -441,84 +457,37 @@ def build_no_call_v2_publish_root(
     return publish_root
 
 
-def build_multibatch_publish_root(base_dir: Path, *, run_id: str = "run-multi-batch") -> Path:
-    publish_root = build_minimal_publish_root(base_dir, run_id=run_id)
-    batch_root = publish_root / "acquisition" / "batches" / "batch_0002"
-    batch_root.mkdir(parents=True)
-
-    (batch_root / "taxonomy.tsv").write_text(
+def build_multibatch_v2_publish_root(base_dir: Path, *, run_id: str = "run-multi-batch") -> Path:
+    publish_root = build_minimal_v2_publish_root(base_dir, run_id=run_id)
+    (publish_root / "tables" / "taxonomy.tsv").write_text(
         "taxon_id\ttaxon_name\tparent_taxon_id\trank\tsource\n"
         "1\troot\t\tno rank\ttest\n"
+        "9606\tHomo sapiens\t1\tspecies\ttest\n"
         "10090\tMus musculus\t1\tspecies\ttest\n",
         encoding="utf-8",
     )
-    (batch_root / "genomes.tsv").write_text(
-        "genome_id\tsource\taccession\tgenome_name\tassembly_type\ttaxon_id\tassembly_level\tspecies_name\tnotes\n"
-        "genome_2\tncbi_datasets\tGCF_000001635.27\tMouse genome\thaploid\t10090\tChromosome\tMus musculus\t\n",
+    (publish_root / "tables" / "genomes.tsv").write_text(
+        "batch_id\tgenome_id\tsource\taccession\tgenome_name\tassembly_type\ttaxon_id\tassembly_level\tspecies_name\tnotes\n"
+        "batch_0001\tgenome_1\tncbi_datasets\tGCF_000001405.40\tExample genome\thaploid\t9606\tChromosome\tHomo sapiens\t\n"
+        "batch_0002\tgenome_2\tncbi_datasets\tGCF_000001635.27\tMouse genome\thaploid\t10090\tChromosome\tMus musculus\t\n",
         encoding="utf-8",
     )
-    (batch_root / "sequences.tsv").write_text(
-        "sequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\n"
-        "seq_3\tgenome_2\tNM_000003.1\t72\tGENE3\tNM_000003.1\tNP_000003.1\tGCF_000001635.27\t10090\tcds-3\tNP_000003.1\t1\tGENE3\tgff\t\n",
+    (publish_root / "tables" / "matched_sequences.tsv").write_text(
+        "batch_id\tsequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\tnucleotide_sequence\n"
+        f"batch_0001\tseq_1\tgenome_1\tNM_000001.1\t90\tGENE1\tNM_000001.1\tNP_000001.1\tGCF_000001405.40\t9606\tcds-1\tNP_000001.1\t1\tGENE1\tgff\t\t{'CAG' * 30}\n"
+        f"batch_0002\tseq_3\tgenome_2\tNM_000003.1\t72\tGENE3\tNM_000003.1\tNP_000003.1\tGCF_000001635.27\t10090\tcds-3\tNP_000003.1\t1\tGENE3\tgff\t\tATG{'CAG' * 23}\n",
         encoding="utf-8",
     )
-    (batch_root / "proteins.tsv").write_text(
-        "protein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\n"
-        "prot_3\tseq_3\tgenome_2\tNP_000003.1\t24\tGENE3\ttranslated\ttranslated\tGCF_000001635.27\t10090\tGENE3\tNP_000003.1\n",
+    (publish_root / "tables" / "matched_proteins.tsv").write_text(
+        "batch_id\tprotein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\tamino_acid_sequence\n"
+        f"batch_0001\tprot_1\tseq_1\tgenome_1\tNP_000001.1\t30\tGENE1\ttranslated\ttranslated\tGCF_000001405.40\t9606\tGENE1\tNP_000001.1\t{'Q' * 30}\n"
+        f"batch_0002\tprot_3\tseq_3\tgenome_2\tNP_000003.1\t24\tGENE3\ttranslated\ttranslated\tGCF_000001635.27\t10090\tGENE3\tNP_000003.1\tM{'Q' * 23}\n",
         encoding="utf-8",
     )
-    (batch_root / "cds.fna").write_text(
-        ">seq_3\nATG" + ("CAG" * 23) + "\n",
-        encoding="utf-8",
-    )
-    (batch_root / "proteins.faa").write_text(
-        ">prot_3\nM" + ("Q" * 23) + "\n",
-        encoding="utf-8",
-    )
-    (batch_root / "download_manifest.tsv").write_text(
-        "batch_id\tassembly_accession\tdownload_status\tpackage_mode\tdownload_path\trehydrated_path\tchecksum\tfile_size_bytes\tdownload_started_at\tdownload_finished_at\tnotes\n"
-        "batch_0002\tGCF_000001635.27\tdownloaded\tdirect_zip\t\t\t\t123456\t\t\t\n",
-        encoding="utf-8",
-    )
-    (batch_root / "normalization_warnings.tsv").write_text(
-        "warning_code\twarning_scope\twarning_message\tbatch_id\tgenome_id\tsequence_id\tprotein_id\tassembly_accession\tsource_file\tsource_record_id\n"
-        "partial_cds\tsequence\tCDS is partial\tbatch_0002\tgenome_2\tseq_3\t\tGCF_000001635.27\t/source/path\tcds-3\n",
-        encoding="utf-8",
-    )
-    (batch_root / "acquisition_validation.json").write_text(
-        json.dumps(
-            {
-                "batch_id": "batch_0002",
-                "status": "warn",
-                "scope": "batch",
-                "counts": {
-                    "n_selected_assemblies": 1,
-                    "n_downloaded_packages": 1,
-                    "n_genomes": 1,
-                    "n_sequences": 1,
-                    "n_proteins": 1,
-                    "n_warning_rows": 1,
-                },
-                "checks": {
-                    "all_genomes_have_taxids": True,
-                    "all_proteins_belong_to_genomes": True,
-                    "all_retained_proteins_trace_to_cds": True,
-                    "all_selected_accessions_accounted_for": True,
-                },
-                "failed_accessions": [],
-                "warning_summary": {"partial_cds": 1},
-                "notes": [],
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
     (publish_root / "calls" / "repeat_calls.tsv").write_text(
         "call_id\tmethod\tgenome_id\ttaxon_id\tsequence_id\tprotein_id\tstart\tend\tlength\trepeat_residue\trepeat_count\tnon_repeat_count\tpurity\taa_sequence\tcodon_sequence\tcodon_metric_name\tcodon_metric_value\twindow_definition\ttemplate_name\tmerge_rule\tscore\n"
-        "call_1\tpure\tgenome_1\t9606\tseq_1\tprot_1\t10\t20\t11\tQ\t11\t0\t1.0\tQQQQQQQQQQQ\t\t\t\t\t\t\t\n"
-        "call_2\tthreshold\tgenome_2\t10090\tseq_3\tprot_3\t2\t11\t10\tQ\t9\t1\t0.9\tQQQQQQQQQA\t\t\t\tQ9/10\t\t\t\n",
+        "call_1\tpure\tgenome_1\t9606\tseq_1\tprot_1\t10\t20\t11\tQ\t11\t0\t1.0\tQQQQQQQQQQQ\tCAGCAGCAGCAGCAGCAGCAGCAGCAGCAGCAG\tcodon_ratio\t1.0\t\t\t\t\n"
+        "call_2\tthreshold\tgenome_2\t10090\tseq_3\tprot_3\t2\t11\t10\tQ\t9\t1\t0.9\tQQQQQQQQQA\tCAGCAGCAGCAGCAGCAGCAGCAGCAGGCT\tcodon_ratio\t1.0\tQ9/10\t\t\t\n",
         encoding="utf-8",
     )
     (publish_root / "calls" / "run_params.tsv").write_text(
@@ -527,20 +496,46 @@ def build_multibatch_publish_root(base_dir: Path, *, run_id: str = "run-multi-ba
         "threshold\tQ\tmin_target_count\t9\n",
         encoding="utf-8",
     )
-    (publish_root / "status" / "accession_status.tsv").write_text(
+    (publish_root / "tables" / "repeat_call_codon_usage.tsv").write_text(
+        "call_id\tmethod\trepeat_residue\tsequence_id\tprotein_id\tamino_acid\tcodon\tcodon_count\tcodon_fraction\n"
+        "call_1\tpure\tQ\tseq_1\tprot_1\tQ\tCAG\t11\t1.0\n"
+        "call_2\tthreshold\tQ\tseq_3\tprot_3\tQ\tCAG\t9\t1.0\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "repeat_context.tsv").write_text(
+        "call_id\tprotein_id\tsequence_id\taa_left_flank\taa_right_flank\tnt_left_flank\tnt_right_flank\taa_context_window_size\tnt_context_window_size\n"
+        "call_1\tprot_1\tseq_1\tM\tA\tATG\tGCT\t12\t36\n"
+        "call_2\tprot_3\tseq_3\tM\tA\tATG\tGCT\t12\t36\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "download_manifest.tsv").write_text(
+        "batch_id\tassembly_accession\tdownload_status\tpackage_mode\tdownload_path\trehydrated_path\tchecksum\tfile_size_bytes\tdownload_started_at\tdownload_finished_at\tnotes\n"
+        "batch_0001\tGCF_000001405.40\tdownloaded\tdirect_zip\t\t\t\t106807993\t\t\t\n"
+        "batch_0002\tGCF_000001635.27\tdownloaded\tdirect_zip\t\t\t\t123456\t\t\t\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "normalization_warnings.tsv").write_text(
+        "warning_code\twarning_scope\twarning_message\tbatch_id\tgenome_id\tsequence_id\tprotein_id\tassembly_accession\tsource_file\tsource_record_id\n"
+        "partial_cds\tsequence\tCDS is partial\tbatch_0002\tgenome_2\tseq_3\t\tGCF_000001635.27\t/source/path\tcds-3\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "accession_status.tsv").write_text(
         "assembly_accession\tbatch_id\tdownload_status\tnormalize_status\ttranslate_status\tdetect_status\tfinalize_status\tterminal_status\tfailure_stage\tfailure_reason\tn_genomes\tn_proteins\tn_repeat_calls\tnotes\n"
         "GCF_000001405.40\tbatch_0001\tsuccess\tsuccess\tsuccess\tsuccess\tsuccess\tcompleted\t\t\t1\t1\t1\t\n"
         "GCF_000001635.27\tbatch_0002\tsuccess\tsuccess\tsuccess\tsuccess\tsuccess\tcompleted\t\t\t1\t1\t1\t\n",
         encoding="utf-8",
     )
-    (publish_root / "status" / "accession_call_counts.tsv").write_text(
+    (publish_root / "tables" / "accession_call_counts.tsv").write_text(
         "assembly_accession\tbatch_id\tmethod\trepeat_residue\tdetect_status\tfinalize_status\tn_repeat_calls\n"
         "GCF_000001405.40\tbatch_0001\tpure\tQ\tsuccess\tsuccess\t1\n"
         "GCF_000001635.27\tbatch_0002\tthreshold\tQ\tsuccess\tsuccess\t1\n",
         encoding="utf-8",
     )
-
     return publish_root
+
+
+def build_multibatch_publish_root(base_dir: Path, *, run_id: str = "run-multi-batch") -> Path:
+    return build_multibatch_v2_publish_root(base_dir, run_id=run_id)
 
 
 def create_imported_run_fixture(
