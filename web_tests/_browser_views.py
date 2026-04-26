@@ -340,10 +340,10 @@ class BrowserViewTests(TestCase):
             source_path=pipeline_run.publish_root,
             status=ImportBatch.Status.RUNNING,
             replace_existing=True,
-            phase="loading_fasta",
+            phase="staging_tables",
             heartbeat_at=timezone.now(),
             progress_payload={
-                "message": "Loading FASTA payloads.",
+                "message": "Staging import tables.",
                 "batch_id": "batch_0002",
                 "inserted_sequences": 42,
             },
@@ -355,7 +355,7 @@ class BrowserViewTests(TestCase):
         self.assertContains(response, "Publish mode: raw")
         self.assertContains(response, "Acquisition publish mode")
         self.assertContains(response, "Heartbeat and provenance visibility")
-        self.assertContains(response, "Loading FASTA payloads.")
+        self.assertContains(response, "Staging import tables.")
         self.assertContains(response, "Inserted sequences")
         self.assertContains(response, "batch_0002")
         self.assertContains(response, "partial_cds")

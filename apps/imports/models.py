@@ -52,7 +52,7 @@ class ImportBatch(models.Model):
         ("queued", "Queued"),
         ("parsing_contract", "Check"),
         ("preparing_import", "Prepare"),
-        ("loading_fasta", "FASTA"),
+        ("staging_tables", "Stage"),
         ("importing_rows", "Rows"),
         ("syncing_canonical_catalog", "Catalog"),
         ("completed", "Done"),

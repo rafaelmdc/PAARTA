@@ -53,6 +53,22 @@ def iter_genome_rows(path: Path, *, batch_id: str):
         }
 
 
+def iter_run_level_genome_rows(path: Path):
+    for row in _iter_tsv(path, [*GENOME_REQUIRED_COLUMNS, "batch_id"]):
+        yield {
+            "genome_id": _require_row_value(row, "genome_id", path),
+            "batch_id": _require_row_value(row, "batch_id", path),
+            "source": _require_row_value(row, "source", path),
+            "accession": _require_row_value(row, "accession", path),
+            "genome_name": _require_row_value(row, "genome_name", path),
+            "assembly_type": _require_row_value(row, "assembly_type", path),
+            "taxon_id": _parse_int(row, "taxon_id", path),
+            "assembly_level": _string_value(row.get("assembly_level")),
+            "species_name": _string_value(row.get("species_name")),
+            "notes": _string_value(row.get("notes")),
+        }
+
+
 def iter_sequence_rows(path: Path, *, batch_id: str):
     for row in _iter_tsv(path, SEQUENCE_REQUIRED_COLUMNS):
         yield {
@@ -164,6 +180,35 @@ def iter_download_manifest_rows(path: Path, *, batch_id: str):
         }
 
 
+def iter_run_level_download_manifest_rows(path: Path):
+    for row in _iter_tsv(path, DOWNLOAD_MANIFEST_REQUIRED_COLUMNS):
+        yield _normalize_download_manifest_row(row, path)
+
+
+def _normalize_download_manifest_row(row: dict[str, str], path: Path) -> dict[str, object]:
+    return {
+        "batch_id": _require_row_value(row, "batch_id", path),
+        "assembly_accession": _require_row_value(row, "assembly_accession", path),
+        "download_status": _require_row_value(row, "download_status", path),
+        "package_mode": _require_row_value(row, "package_mode", path),
+        "download_path": _string_value(row.get("download_path")),
+        "rehydrated_path": _string_value(row.get("rehydrated_path")),
+        "checksum": _string_value(row.get("checksum")),
+        "file_size_bytes": _parse_optional_int_value(row.get("file_size_bytes"), "file_size_bytes", path),
+        "download_started_at": _parse_optional_timestamp(
+            row.get("download_started_at"),
+            "download_started_at",
+            path,
+        ),
+        "download_finished_at": _parse_optional_timestamp(
+            row.get("download_finished_at"),
+            "download_finished_at",
+            path,
+        ),
+        "notes": _string_value(row.get("notes")),
+    }
+
+
 def iter_normalization_warning_rows(path: Path, *, batch_id: str):
     for row in _iter_tsv(path, NORMALIZATION_WARNING_REQUIRED_COLUMNS):
         row_batch_id = _require_row_value(row, "batch_id", path)
@@ -173,6 +218,22 @@ def iter_normalization_warning_rows(path: Path, *, batch_id: str):
             "warning_scope": _require_row_value(row, "warning_scope", path),
             "warning_message": _require_row_value(row, "warning_message", path),
             "batch_id": row_batch_id,
+            "genome_id": _string_value(row.get("genome_id")),
+            "sequence_id": _string_value(row.get("sequence_id")),
+            "protein_id": _string_value(row.get("protein_id")),
+            "assembly_accession": _string_value(row.get("assembly_accession")),
+            "source_file": _string_value(row.get("source_file")),
+            "source_record_id": _string_value(row.get("source_record_id")),
+        }
+
+
+def iter_run_level_normalization_warning_rows(path: Path):
+    for row in _iter_tsv(path, NORMALIZATION_WARNING_REQUIRED_COLUMNS):
+        yield {
+            "warning_code": _require_row_value(row, "warning_code", path),
+            "warning_scope": _require_row_value(row, "warning_scope", path),
+            "warning_message": _require_row_value(row, "warning_message", path),
+            "batch_id": _require_row_value(row, "batch_id", path),
             "genome_id": _string_value(row.get("genome_id")),
             "sequence_id": _string_value(row.get("sequence_id")),
             "protein_id": _string_value(row.get("protein_id")),

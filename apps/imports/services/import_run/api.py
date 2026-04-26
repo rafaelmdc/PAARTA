@@ -18,7 +18,7 @@ from apps.browser.models.genomes import Protein, Sequence
 from apps.browser.models.operations import NormalizationWarning
 from apps.browser.models.repeat_calls import RepeatCall, RepeatCallCodonUsage
 from apps.imports.models import ImportBatch
-from apps.imports.services.published_run import ImportContractError, inspect_published_run
+from apps.imports.services.published_run import ImportContractError, V2ArtifactPaths, inspect_published_run
 
 from .copy import _analyze_models
 from .orchestrator import _import_inspected_run
@@ -92,12 +92,14 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
             reporter=reporter,
         )
         inspected = inspect_published_run(batch.source_path)
+        is_v2_import = isinstance(inspected.artifact_paths, V2ArtifactPaths)
+        batch_count = _inspected_batch_count(inspected)
         _set_batch_state(
             batch,
             phase=ImportPhase.PREPARING,
             progress_payload={
                 "message": "Preparing repeat-linked import rows.",
-                "batch_count": len(inspected.artifact_paths.acquisition_batches),
+                "batch_count": batch_count,
             },
             reporter=reporter,
         )
@@ -107,7 +109,7 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
                 phase=ImportPhase.IMPORTING,
                 progress_payload={
                     "message": "Writing staged rows into PostgreSQL.",
-                    "batch_count": len(inspected.artifact_paths.acquisition_batches),
+                    "batch_count": batch_count,
                 },
                 reporter=reporter,
             )
@@ -126,6 +128,8 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
                 batch.pipeline_run = pipeline_run
                 batch.save(update_fields=["pipeline_run"])
         else:
+            if is_v2_import:
+                raise ImportContractError("Publish contract v2 imports currently require PostgreSQL.")
             prepared = _prepare_streamed_import_data(batch, inspected, reporter=reporter)
             _set_batch_state(
                 batch,
@@ -206,3 +210,9 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
         return ImportRunResult(batch=batch, pipeline_run=pipeline_run, counts=counts)
     finally:
         reporter.close()
+
+
+def _inspected_batch_count(inspected) -> int:
+    if isinstance(inspected.artifact_paths, V2ArtifactPaths):
+        return 0
+    return len(inspected.artifact_paths.acquisition_batches)
