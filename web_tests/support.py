@@ -211,6 +211,7 @@ def build_minimal_v2_publish_root(
     *,
     run_id: str = "run-alpha-v2",
     acquisition_publish_mode: str = "raw",
+    include_merged_side_artifacts: bool = False,
 ) -> Path:
     publish_root = base_dir / "publish"
     (publish_root / "calls").mkdir(parents=True)
@@ -334,6 +335,92 @@ def build_minimal_v2_publish_root(
                     "n_genomes": 1,
                     "n_sequences": 1,
                     "n_proteins": 1,
+                    "n_warning_rows": 0,
+                },
+                "checks": {
+                    "all_genomes_have_taxids": True,
+                    "all_proteins_belong_to_genomes": True,
+                    "all_retained_proteins_trace_to_cds": True,
+                    "all_selected_accessions_accounted_for": True,
+                },
+                "failed_accessions": [],
+                "warning_summary": {},
+                "notes": [],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    if include_merged_side_artifacts:
+        (publish_root / "reports").mkdir(parents=True, exist_ok=True)
+        (publish_root / "databases").mkdir(parents=True, exist_ok=True)
+        (publish_root / "reports" / "summary.html").write_text("<html></html>\n", encoding="utf-8")
+        (publish_root / "databases" / "homorepeat.sqlite").write_bytes(b"ignored optional v2 artifact\n")
+    return publish_root
+
+
+def build_no_call_v2_publish_root(
+    base_dir: Path,
+    *,
+    run_id: str = "run-no-calls-v2",
+    acquisition_publish_mode: str = "raw",
+) -> Path:
+    publish_root = build_minimal_v2_publish_root(
+        base_dir,
+        run_id=run_id,
+        acquisition_publish_mode=acquisition_publish_mode,
+    )
+    manifest_path = publish_root / "metadata" / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["status"] = "success"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    (publish_root / "calls" / "repeat_calls.tsv").write_text(
+        "call_id\tmethod\tgenome_id\ttaxon_id\tsequence_id\tprotein_id\tstart\tend\tlength\trepeat_residue\trepeat_count\tnon_repeat_count\tpurity\taa_sequence\tcodon_sequence\tcodon_metric_name\tcodon_metric_value\twindow_definition\ttemplate_name\tmerge_rule\tscore\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "matched_sequences.tsv").write_text(
+        "batch_id\tsequence_id\tgenome_id\tsequence_name\tsequence_length\tgene_symbol\ttranscript_id\tisoform_id\tassembly_accession\ttaxon_id\tsource_record_id\tprotein_external_id\ttranslation_table\tgene_group\tlinkage_status\tpartial_status\tnucleotide_sequence\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "matched_proteins.tsv").write_text(
+        "batch_id\tprotein_id\tsequence_id\tgenome_id\tprotein_name\tprotein_length\tgene_symbol\ttranslation_method\ttranslation_status\tassembly_accession\ttaxon_id\tgene_group\tprotein_external_id\tamino_acid_sequence\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "repeat_call_codon_usage.tsv").write_text(
+        "call_id\tmethod\trepeat_residue\tsequence_id\tprotein_id\tamino_acid\tcodon\tcodon_count\tcodon_fraction\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "repeat_context.tsv").write_text(
+        "call_id\tprotein_id\tsequence_id\taa_left_flank\taa_right_flank\tnt_left_flank\tnt_right_flank\taa_context_window_size\tnt_context_window_size\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "accession_status.tsv").write_text(
+        "assembly_accession\tbatch_id\tdownload_status\tnormalize_status\ttranslate_status\tdetect_status\tfinalize_status\tterminal_status\tfailure_stage\tfailure_reason\tn_genomes\tn_proteins\tn_repeat_calls\tnotes\n"
+        "GCF_000001405.40\tbatch_0001\tsuccess\tsuccess\tsuccess\tsuccess\tsuccess\tcompleted_no_calls\t\t\t1\t0\t0\t\n",
+        encoding="utf-8",
+    )
+    (publish_root / "tables" / "accession_call_counts.tsv").write_text(
+        "assembly_accession\tbatch_id\tmethod\trepeat_residue\tdetect_status\tfinalize_status\tn_repeat_calls\n"
+        "GCF_000001405.40\tbatch_0001\tpure\tQ\tsuccess\tsuccess\t0\n",
+        encoding="utf-8",
+    )
+    (publish_root / "summaries" / "status_summary.json").write_text(
+        json.dumps({"status": "success", "terminal_status": "completed_no_calls"}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (publish_root / "summaries" / "acquisition_validation.json").write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "scope": "run",
+                "counts": {
+                    "n_selected_assemblies": 1,
+                    "n_downloaded_packages": 1,
+                    "n_genomes": 1,
+                    "n_sequences": 0,
+                    "n_proteins": 0,
                     "n_warning_rows": 0,
                 },
                 "checks": {

@@ -27,7 +27,7 @@ from .manifest import (
 def inspect_published_run(publish_root: Path | str) -> InspectedPublishedRun:
     root = Path(publish_root).resolve()
     manifest = _read_manifest(root / "metadata" / "run_manifest.json")
-    if "publish_contract_version" in manifest:
+    if "publish_contract_version" in manifest or (root / "tables").is_dir():
         _ensure_v2_contract(manifest)
         artifact_paths = resolve_v2_artifacts(root)
         return InspectedPublishedRun(

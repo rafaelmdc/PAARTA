@@ -33,6 +33,7 @@ from .support import (
     build_minimal_publish_root,
     build_minimal_v2_publish_root,
     build_multibatch_publish_root,
+    build_no_call_v2_publish_root,
 )
 
 
@@ -189,12 +190,40 @@ class PublishedRunImportServiceTests(SimpleTestCase):
             publish_root = build_minimal_v2_publish_root(
                 Path(tempdir),
                 acquisition_publish_mode="merged",
+                include_merged_side_artifacts=True,
             )
 
             inspected = inspect_published_run(publish_root)
 
             self.assertEqual(inspected.manifest["acquisition_publish_mode"], "merged")
             self.assertEqual(inspected.manifest["publish_contract_version"], 2)
+            self.assertTrue((publish_root / "reports" / "summary.html").is_file())
+            self.assertTrue((publish_root / "databases" / "homorepeat.sqlite").is_file())
+
+    def test_inspect_published_run_accepts_v2_no_call_fixture(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_no_call_v2_publish_root(Path(tempdir))
+
+            inspected = inspect_published_run(publish_root)
+
+            self.assertEqual(inspected.manifest["publish_contract_version"], 2)
+            self.assertEqual(list(iter_repeat_call_rows(inspected.artifact_paths.repeat_calls_tsv)), [])
+            self.assertEqual(list(iter_matched_sequence_rows(inspected.artifact_paths.matched_sequences_tsv)), [])
+            self.assertEqual(list(iter_matched_protein_rows(inspected.artifact_paths.matched_proteins_tsv)), [])
+            self.assertEqual(list(iter_codon_usage_rows(inspected.artifact_paths.repeat_call_codon_usage_tsv)), [])
+            self.assertEqual(list(iter_repeat_context_rows(inspected.artifact_paths.repeat_context_tsv)), [])
+            self.assertEqual(
+                list(iter_accession_status_rows(inspected.artifact_paths.accession_status_tsv))[0][
+                    "terminal_status"
+                ],
+                "completed_no_calls",
+            )
+            self.assertEqual(
+                list(iter_accession_call_count_rows(inspected.artifact_paths.accession_call_counts_tsv))[0][
+                    "n_repeat_calls"
+                ],
+                0,
+            )
 
     def test_inspect_published_run_rejects_v2_missing_required_file(self):
         with TemporaryDirectory() as tempdir:
@@ -202,6 +231,17 @@ class PublishedRunImportServiceTests(SimpleTestCase):
             (publish_root / "tables" / "repeat_call_codon_usage.tsv").unlink()
 
             with self.assertRaisesRegex(ImportContractError, "repeat_call_codon_usage.tsv"):
+                inspect_published_run(publish_root)
+
+    def test_inspect_published_run_rejects_v2_manifest_missing_contract_version(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_v2_publish_root(Path(tempdir))
+            manifest_path = publish_root / "metadata" / "run_manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest.pop("publish_contract_version")
+            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ImportContractError, "publish_contract_version"):
                 inspect_published_run(publish_root)
 
     def test_inspect_published_run_rejects_unsupported_v2_contract_version(self):
