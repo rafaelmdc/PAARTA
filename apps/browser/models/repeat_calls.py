@@ -177,3 +177,42 @@ class RepeatCallCodonUsage(TimestampedModel):
 
     def __str__(self):
         return f"{self.repeat_call.call_id}:{self.amino_acid}:{self.codon}"
+
+
+class RepeatCallContext(TimestampedModel):
+    repeat_call = models.OneToOneField(
+        RepeatCall,
+        on_delete=models.CASCADE,
+        related_name="context",
+    )
+    pipeline_run = models.ForeignKey(
+        "PipelineRun",
+        on_delete=models.CASCADE,
+        related_name="repeat_call_contexts",
+    )
+    protein_id = models.CharField(max_length=255)
+    sequence_id = models.CharField(max_length=255)
+    aa_left_flank = models.TextField(blank=True)
+    aa_right_flank = models.TextField(blank=True)
+    nt_left_flank = models.TextField(blank=True)
+    nt_right_flank = models.TextField(blank=True)
+    aa_context_window_size = models.PositiveIntegerField()
+    nt_context_window_size = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["repeat_call_id"]
+        verbose_name = "imported repeat-call context"
+        verbose_name_plural = "imported repeat-call contexts"
+        indexes = [
+            models.Index(
+                fields=["pipeline_run", "protein_id"],
+                name="brw_rcctx_run_prot_idx",
+            ),
+            models.Index(
+                fields=["pipeline_run", "sequence_id"],
+                name="brw_rcctx_run_seq_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.repeat_call.call_id}:context"

@@ -13,7 +13,7 @@ from .payloads import PayloadBuild
 from .runs import AcquisitionBatch, PipelineRun
 from .taxonomy import Taxon, TaxonClosure
 from .genomes import Genome, Protein, Sequence
-from .repeat_calls import RepeatCall, RepeatCallCodonUsage, RunParameter
+from .repeat_calls import RepeatCall, RepeatCallCodonUsage, RepeatCallContext, RunParameter
 from .operations import (
     AccessionCallCount,
     AccessionStatus,
@@ -41,6 +41,7 @@ __all__ = [
     "Protein",
     "RepeatCall",
     "RepeatCallCodonUsage",
+    "RepeatCallContext",
     "RunParameter",
     "Sequence",
     "Taxon",

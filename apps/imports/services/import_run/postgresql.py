@@ -9,7 +9,7 @@ from apps.browser.models.operations import (
     DownloadManifestEntry,
     NormalizationWarning,
 )
-from apps.browser.models.repeat_calls import RepeatCall, RepeatCallCodonUsage
+from apps.browser.models.repeat_calls import RepeatCall, RepeatCallCodonUsage, RepeatCallContext
 from apps.browser.models.runs import AcquisitionBatch, PipelineRun
 from apps.browser.models.taxonomy import Taxon
 from apps.imports.models import ImportBatch
@@ -26,6 +26,7 @@ from apps.imports.services.published_run import (
     iter_matched_protein_rows,
     iter_matched_sequence_rows,
     iter_protein_rows,
+    iter_repeat_context_rows,
     iter_repeat_call_rows,
     iter_run_parameter_rows,
     iter_run_level_download_manifest_rows,
@@ -59,6 +60,7 @@ _TMP_RETAINED_PROTEINS = "tmp_homorepeat_import_retained_proteins"
 _TMP_CODON_USAGE = "tmp_homorepeat_import_codon_usage"
 _TMP_DOWNLOAD_MANIFEST = "tmp_homorepeat_import_dl_manifest"
 _TMP_NORMALIZATION_WARNINGS = "tmp_homorepeat_import_norm_warnings"
+_TMP_REPEAT_CONTEXT = "tmp_homorepeat_import_repeat_context"
 
 
 def _import_inspected_run_postgresql(
@@ -211,6 +213,7 @@ def _import_inspected_run_v2_postgresql(
     protein_stage_count = _stage_v2_matched_protein_rows(paths)
     download_manifest_stage_count = _stage_v2_download_manifest_rows(paths)
     normalization_warning_stage_count = _stage_v2_normalization_warning_rows(paths)
+    repeat_context_stage_count = _stage_v2_repeat_context_rows(paths)
     batch_count = _create_v2_acquisition_batches_from_staged_tables(pipeline_run, paths)
     batch_by_batch_id = {
         item.batch_id: item
@@ -258,6 +261,12 @@ def _import_inspected_run_v2_postgresql(
         normalization_warning_stage_count,
     )
     repeat_call_count = _create_repeat_calls_postgresql(batch, pipeline_run, reporter=reporter)
+    repeat_call_context_count = _create_v2_repeat_call_contexts_postgresql(
+        batch,
+        pipeline_run,
+        repeat_context_stage_count,
+        reporter=reporter,
+    )
     repeat_call_codon_usage_count = _create_v2_repeat_call_codon_usages_postgresql(
         batch,
         pipeline_run,
@@ -287,6 +296,7 @@ def _import_inspected_run_v2_postgresql(
         "accession_call_count_rows": accession_call_count,
         "run_parameters": run_parameter_count,
         "repeat_calls": repeat_call_count,
+        "repeat_call_contexts": repeat_call_context_count,
         "repeat_call_codon_usages": repeat_call_codon_usage_count,
     }
     return pipeline_run, counts
@@ -724,6 +734,67 @@ def _stage_v2_normalization_warning_rows(paths: V2ArtifactPaths) -> int:
     )
     with connection.cursor() as cursor:
         cursor.execute(f"CREATE INDEX {_TMP_NORMALIZATION_WARNINGS}_batch_id_idx ON {_TMP_NORMALIZATION_WARNINGS} (batch_id)")
+    return count
+
+
+def _stage_v2_repeat_context_rows(paths: V2ArtifactPaths) -> int:
+    _create_temp_table(
+        _TMP_REPEAT_CONTEXT,
+        """
+        call_id text NOT NULL,
+        protein_id text NOT NULL,
+        sequence_id text NOT NULL,
+        aa_left_flank text NOT NULL,
+        aa_right_flank text NOT NULL,
+        nt_left_flank text NOT NULL,
+        nt_right_flank text NOT NULL,
+        aa_context_window_size integer NOT NULL,
+        nt_context_window_size integer NOT NULL
+        """,
+    )
+    count = _copy_or_raise(
+        _TMP_REPEAT_CONTEXT,
+        [
+            "call_id",
+            "protein_id",
+            "sequence_id",
+            "aa_left_flank",
+            "aa_right_flank",
+            "nt_left_flank",
+            "nt_right_flank",
+            "aa_context_window_size",
+            "nt_context_window_size",
+        ],
+        (
+            (
+                str(row["call_id"]),
+                str(row["protein_id"]),
+                str(row["sequence_id"]),
+                str(row.get("aa_left_flank", "")),
+                str(row.get("aa_right_flank", "")),
+                str(row.get("nt_left_flank", "")),
+                str(row.get("nt_right_flank", "")),
+                int(row["aa_context_window_size"]),
+                int(row["nt_context_window_size"]),
+            )
+            for row in iter_repeat_context_rows(paths.repeat_context_tsv)
+        ),
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE INDEX {_TMP_REPEAT_CONTEXT}_call_id_idx ON {_TMP_REPEAT_CONTEXT} (call_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_REPEAT_CONTEXT}_protein_id_idx ON {_TMP_REPEAT_CONTEXT} (protein_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_REPEAT_CONTEXT}_sequence_id_idx ON {_TMP_REPEAT_CONTEXT} (sequence_id)")
+    _raise_if_rows(
+        f"""
+        SELECT call_id
+        FROM {_TMP_REPEAT_CONTEXT}
+        GROUP BY call_id
+        HAVING COUNT(*) > 1
+        LIMIT 5
+        """,
+        [],
+        "Duplicate repeat-context rows in repeat_context.tsv",
+    )
     return count
 
 
@@ -1588,6 +1659,99 @@ def _create_repeat_call_codon_usages_postgresql(
         raise ImportContractError(
             f"Inserted {inserted} repeat-call codon-usage rows, expected {count} staged rows"
         )
+    return inserted
+
+
+def _create_v2_repeat_call_contexts_postgresql(
+    batch: ImportBatch,
+    pipeline_run: PipelineRun,
+    expected_count: int,
+    *,
+    reporter: _ImportBatchStateReporter | None = None,
+) -> int:
+    _set_batch_state(
+        batch,
+        phase=ImportPhase.IMPORTING,
+        progress_payload={
+            "message": "Validating repeat-call context rows.",
+            "current": 0,
+            "total": expected_count,
+            "unit": "repeat-context rows",
+        },
+        reporter=reporter,
+        force=True,
+    )
+    _raise_if_rows(
+        f"""
+        SELECT staged.call_id
+        FROM {_TMP_REPEAT_CONTEXT} staged
+        LEFT JOIN {_TMP_REPEAT_CALLS} repeat_call ON repeat_call.call_id = staged.call_id
+        WHERE repeat_call.call_id IS NULL
+        LIMIT 5
+        """,
+        [],
+        "Repeat-context rows reference missing staged repeat-call IDs",
+    )
+    _raise_if_rows(
+        f"""
+        SELECT staged.call_id
+        FROM {_TMP_REPEAT_CONTEXT} staged
+        JOIN {_TMP_REPEAT_CALLS} repeat_call ON repeat_call.call_id = staged.call_id
+        WHERE staged.protein_id <> repeat_call.protein_id
+           OR staged.sequence_id <> repeat_call.sequence_id
+        LIMIT 5
+        """,
+        [],
+        "Repeat-context rows do not match their repeat-call sequence/protein IDs",
+    )
+    _raise_if_rows(
+        f"""
+        SELECT staged.call_id
+        FROM {_TMP_REPEAT_CONTEXT} staged
+        LEFT JOIN {RepeatCall._meta.db_table} repeat_call
+          ON repeat_call.pipeline_run_id = %s AND repeat_call.call_id = staged.call_id
+        WHERE repeat_call.id IS NULL
+        LIMIT 5
+        """,
+        [pipeline_run.pk],
+        "Repeat-context rows reference missing imported repeat-call IDs",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            INSERT INTO {RepeatCallContext._meta.db_table}
+                (created_at, updated_at, repeat_call_id, pipeline_run_id, protein_id,
+                 sequence_id, aa_left_flank, aa_right_flank, nt_left_flank, nt_right_flank,
+                 aa_context_window_size, nt_context_window_size)
+            SELECT
+                NOW(), NOW(), repeat_call.id, %s, staged.protein_id, staged.sequence_id,
+                staged.aa_left_flank, staged.aa_right_flank, staged.nt_left_flank,
+                staged.nt_right_flank, staged.aa_context_window_size,
+                staged.nt_context_window_size
+            FROM {_TMP_REPEAT_CONTEXT} staged
+            JOIN {RepeatCall._meta.db_table} repeat_call
+              ON repeat_call.pipeline_run_id = %s AND repeat_call.call_id = staged.call_id
+            """,
+            [pipeline_run.pk, pipeline_run.pk],
+        )
+        inserted = int(cursor.rowcount or 0)
+    if inserted != expected_count:
+        raise ImportContractError(
+            f"Inserted {inserted} repeat-call context rows, expected {expected_count} staged rows"
+        )
+    _set_batch_state(
+        batch,
+        phase=ImportPhase.IMPORTING,
+        progress_payload={
+            "message": "Imported repeat-call context rows.",
+            "current": inserted,
+            "total": expected_count,
+            "unit": "repeat-context rows",
+            "repeat_call_contexts": inserted,
+        },
+        reporter=reporter,
+        force=True,
+    )
     return inserted
 
 
