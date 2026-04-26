@@ -12,6 +12,7 @@ BROWSER_METADATA_RAW_COUNT_KEYS = (
     "sequences",
     "proteins",
     "repeat_calls",
+    "repeat_call_contexts",
     "accession_status_rows",
     "accession_call_count_rows",
     "download_manifest_entries",

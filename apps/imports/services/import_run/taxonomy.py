@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from apps.browser.models.taxonomy import Taxon, TaxonClosure
-from apps.imports.services.published_run import ImportContractError, InspectedPublishedRun, iter_taxonomy_rows
+from apps.imports.services.published_run import (
+    ImportContractError,
+    InspectedPublishedRun,
+    V2ArtifactPaths,
+    iter_taxonomy_rows,
+)
 
 from .copy import BULK_CREATE_BATCH_SIZE
 
@@ -10,8 +15,16 @@ def _load_taxonomy_rows(inspected: InspectedPublishedRun) -> list[dict[str, obje
     merged_by_taxon_id: dict[int, dict[str, object]] = {}
     ordered_taxon_ids: list[int] = []
 
-    for batch_paths in inspected.artifact_paths.acquisition_batches:
-        for row in iter_taxonomy_rows(batch_paths.taxonomy_tsv):
+    if isinstance(inspected.artifact_paths, V2ArtifactPaths):
+        row_sources = (iter_taxonomy_rows(inspected.artifact_paths.taxonomy_tsv),)
+    else:
+        row_sources = (
+            iter_taxonomy_rows(batch_paths.taxonomy_tsv)
+            for batch_paths in inspected.artifact_paths.acquisition_batches
+        )
+
+    for rows in row_sources:
+        for row in rows:
             taxon_id = int(row["taxon_id"])
             existing = merged_by_taxon_id.get(taxon_id)
             if existing is None:

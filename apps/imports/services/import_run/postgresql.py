@@ -1,35 +1,42 @@
 from __future__ import annotations
 
-from pathlib import Path
+import logging
+from collections.abc import Callable
+from time import monotonic
 
 from django.db import connection
 
 from apps.browser.models.genomes import Genome, Protein, Sequence
-from apps.browser.models.repeat_calls import RepeatCall
+from apps.browser.models.operations import (
+    DownloadManifestEntry,
+    NormalizationWarning,
+)
+from apps.browser.models.repeat_calls import RepeatCall, RepeatCallCodonUsage, RepeatCallContext
 from apps.browser.models.runs import AcquisitionBatch, PipelineRun
 from apps.browser.models.taxonomy import Taxon
 from apps.imports.models import ImportBatch
 from apps.imports.services.published_run import (
-    BatchArtifactPaths,
     ImportContractError,
     InspectedPublishedRun,
+    V2ArtifactPaths,
     iter_accession_call_count_rows,
     iter_accession_status_rows,
-    iter_codon_usage_artifact_rows,
-    iter_genome_rows,
-    iter_protein_rows,
+    iter_codon_usage_rows,
+    iter_matched_protein_rows,
+    iter_matched_sequence_rows,
+    iter_repeat_context_rows,
     iter_repeat_call_rows,
     iter_run_parameter_rows,
-    iter_sequence_rows,
+    iter_run_level_download_manifest_rows,
+    iter_run_level_genome_rows,
+    iter_run_level_normalization_warning_rows,
 )
 
 from .copy import _copy_rows_to_table
-from .entities import _create_acquisition_batches, _parse_codon_ratio_value
+from .entities import _parse_codon_ratio_value
 from .operational import (
     _create_accession_call_count_rows_streamed,
     _create_accession_status_rows_streamed,
-    _create_download_manifest_entries_streamed,
-    _create_normalization_warning_rows_streamed,
     _create_run_parameters_streamed,
 )
 from .orchestrator import _upsert_pipeline_run
@@ -41,10 +48,14 @@ _TMP_REPEAT_CALLS = "tmp_homorepeat_import_repeat_calls"
 _TMP_GENOMES = "tmp_homorepeat_import_genomes"
 _TMP_SEQUENCES = "tmp_homorepeat_import_sequences"
 _TMP_PROTEINS = "tmp_homorepeat_import_proteins"
-_TMP_FASTA = "tmp_homorepeat_import_fasta"
-_TMP_FASTA_UNIQUE = "tmp_homorepeat_import_fasta_unique"
 _TMP_RETAINED_SEQUENCES = "tmp_homorepeat_import_retained_sequences"
 _TMP_RETAINED_PROTEINS = "tmp_homorepeat_import_retained_proteins"
+_TMP_CODON_USAGE = "tmp_homorepeat_import_codon_usage"
+_TMP_DOWNLOAD_MANIFEST = "tmp_homorepeat_import_dl_manifest"
+_TMP_NORMALIZATION_WARNINGS = "tmp_homorepeat_import_norm_warnings"
+_TMP_REPEAT_CONTEXT = "tmp_homorepeat_import_repeat_context"
+
+logger = logging.getLogger(__name__)
 
 
 def _import_inspected_run_postgresql(
@@ -56,94 +67,234 @@ def _import_inspected_run_postgresql(
 ) -> tuple[PipelineRun, dict[str, int]]:
     if connection.vendor != "postgresql":
         raise ImportContractError("The PostgreSQL streaming importer requires the PostgreSQL backend.")
+    return _import_inspected_run_v2_postgresql(
+        batch,
+        inspected,
+        replace_existing=replace_existing,
+        reporter=reporter,
+    )
+
+
+def _import_inspected_run_v2_postgresql(
+    batch: ImportBatch,
+    inspected: InspectedPublishedRun,
+    *,
+    replace_existing: bool,
+    reporter: _ImportBatchStateReporter | None = None,
+) -> tuple[PipelineRun, dict[str, int]]:
+    paths = inspected.artifact_paths
+    if not isinstance(paths, V2ArtifactPaths):
+        raise ImportContractError("Publish contract v2 importer received non-v2 artifact paths.")
 
     pipeline_run = _upsert_pipeline_run(inspected.pipeline_run, replace_existing=replace_existing)
 
     _set_batch_state(
         batch,
-        phase=ImportPhase.PREPARING,
-        progress_payload={
-            "message": "Staging repeat-call rows in PostgreSQL.",
-            "batch_count": len(inspected.artifact_paths.acquisition_batches),
-        },
+        phase=ImportPhase.STAGING,
+        progress_payload={"message": "Staging v2 run-level tables in PostgreSQL."},
         reporter=reporter,
+        force=True,
     )
-    repeat_call_count = _stage_repeat_call_rows(inspected)
-    retained_sequence_count, retained_protein_count = _create_retained_entity_tables()
+    repeat_call_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="stage repeat calls",
+        message="Staging v2 repeat-call rows.",
+        count_key="repeat_calls",
+        func=lambda: _stage_repeat_call_rows(inspected),
+    )
+    retained_sequence_count, retained_protein_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="derive retained entity tables",
+        message="Deriving retained sequence and protein IDs.",
+        count_key="retained_entities",
+        func=_create_retained_entity_tables,
+    )
+    taxonomy_rows = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="load taxonomy",
+        message="Loading v2 taxonomy rows.",
+        count_key="taxonomy",
+        func=lambda: _load_taxonomy_rows(inspected),
+    )
+    _run_v2_timed_step(
+        batch,
+        reporter,
+        label="upsert taxonomy",
+        message="Upserting taxonomy rows.",
+        count_key="taxonomy",
+        func=lambda: _upsert_taxa(taxonomy_rows),
+    )
+    _run_v2_timed_step(
+        batch,
+        reporter,
+        label="rebuild taxon closure",
+        message="Rebuilding taxon closure rows.",
+        count_key="taxonomy",
+        func=_rebuild_taxon_closure,
+    )
+
+    genome_stage_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="stage genomes",
+        message="Staging v2 genome rows.",
+        count_key="genomes",
+        func=lambda: _stage_v2_genome_rows(paths),
+    )
+    sequence_stage_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="stage matched sequences",
+        message="Staging v2 matched sequence rows.",
+        count_key="sequences",
+        func=lambda: _stage_v2_matched_sequence_rows(paths),
+    )
+    protein_stage_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="stage matched proteins",
+        message="Staging v2 matched protein rows.",
+        count_key="proteins",
+        func=lambda: _stage_v2_matched_protein_rows(paths),
+    )
+    download_manifest_stage_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="stage download manifest",
+        message="Staging v2 download manifest rows.",
+        count_key="download_manifest_entries",
+        func=lambda: _stage_v2_download_manifest_rows(paths),
+    )
+    normalization_warning_stage_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="stage normalization warnings",
+        message="Staging v2 normalization warning rows.",
+        count_key="normalization_warnings",
+        func=lambda: _stage_v2_normalization_warning_rows(paths),
+    )
+    repeat_context_stage_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="stage repeat context",
+        message="Staging v2 repeat-call context rows.",
+        count_key="repeat_call_contexts",
+        func=lambda: _stage_v2_repeat_context_rows(paths),
+    )
+    batch_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="derive acquisition batches",
+        message="Deriving acquisition batches from v2 staged rows.",
+        count_key="acquisition_batches",
+        func=lambda: _create_v2_acquisition_batches_from_staged_tables(pipeline_run, paths),
+    )
+    batch_by_batch_id = {
+        item.batch_id: item
+        for item in AcquisitionBatch.objects.filter(pipeline_run=pipeline_run).only("id", "batch_id")
+    }
+
     _set_batch_state(
         batch,
-        phase=ImportPhase.PREPARING,
+        phase=ImportPhase.IMPORTING,
         progress_payload={
-            "message": "Staged repeat-call rows in PostgreSQL.",
-            "current": repeat_call_count,
-            "total": repeat_call_count,
-            "unit": "repeat calls",
-            "batch_count": len(inspected.artifact_paths.acquisition_batches),
+            "message": "Importing v2 staged genome, sequence, and protein rows.",
+            "batch_count": batch_count,
+            "repeat_calls": repeat_call_count,
             "retained_sequences": retained_sequence_count,
             "retained_proteins": retained_protein_count,
         },
         reporter=reporter,
         force=True,
     )
-
-    taxonomy_rows = _load_taxonomy_rows(inspected)
-    _upsert_taxa(taxonomy_rows)
-    _rebuild_taxon_closure()
-    batch_by_batch_id = _create_acquisition_batches(
-        pipeline_run,
-        inspected.artifact_paths.acquisition_batches,
-    )
-
-    genome_count = _create_genomes_postgresql(batch, pipeline_run, inspected, reporter=reporter)
-
-    sequence_count, protein_count = _create_call_linked_entities_postgresql(
+    genome_count = _run_v2_timed_step(
         batch,
-        pipeline_run,
-        inspected.artifact_paths.acquisition_batches,
-        retained_sequence_count=retained_sequence_count,
-        retained_protein_count=retained_protein_count,
-        reporter=reporter,
+        reporter,
+        label="insert genomes",
+        message="Inserting v2 genome rows.",
+        count_key="genomes",
+        func=lambda: _create_genomes_from_staged_rows(batch, pipeline_run, genome_stage_count, reporter=reporter),
+        phase=ImportPhase.IMPORTING,
+    )
+    sequence_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="insert matched sequences",
+        message="Inserting v2 matched sequence rows.",
+        count_key="sequences",
+        func=lambda: _create_v2_sequences_from_staged_rows(
+            batch,
+            pipeline_run,
+            sequence_stage_count,
+            reporter=reporter,
+        ),
+        phase=ImportPhase.IMPORTING,
+    )
+    protein_count = _run_v2_timed_step(
+        batch,
+        reporter,
+        label="insert matched proteins",
+        message="Inserting v2 matched protein rows.",
+        count_key="proteins",
+        func=lambda: _create_v2_proteins_from_staged_rows(
+            batch,
+            pipeline_run,
+            protein_stage_count,
+            reporter=reporter,
+        ),
+        phase=ImportPhase.IMPORTING,
+    )
+    _run_v2_timed_step(
+        batch,
+        reporter,
+        label="update genome analyzed protein counts",
+        message="Updating genome analyzed-protein counts.",
+        count_key="genomes",
+        func=lambda: _update_genome_analyzed_protein_counts(pipeline_run),
+        phase=ImportPhase.IMPORTING,
     )
 
     run_parameter_count = _create_run_parameters_streamed(
         pipeline_run,
-        iter_run_parameter_rows(inspected.artifact_paths.run_params_tsv),
+        iter_run_parameter_rows(paths.run_params_tsv),
     )
-    download_manifest_count = _create_download_manifest_entries_streamed(
-        batch,
+    download_manifest_count = _create_v2_download_manifest_from_staged_rows(
         pipeline_run,
-        inspected.artifact_paths.acquisition_batches,
-        batch_by_batch_id,
-        reporter=reporter,
+        download_manifest_stage_count,
     )
-    normalization_warning_count = _create_normalization_warning_rows_streamed(
-        batch,
+    normalization_warning_count = _create_v2_normalization_warnings_from_staged_rows(
         pipeline_run,
-        inspected.artifact_paths.acquisition_batches,
-        batch_by_batch_id,
-        reporter=reporter,
+        normalization_warning_stage_count,
     )
-
     repeat_call_count = _create_repeat_calls_postgresql(batch, pipeline_run, reporter=reporter)
-    repeat_call_codon_usage_count = _create_repeat_call_codon_usages_postgresql(
+    repeat_call_context_count = _create_v2_repeat_call_contexts_postgresql(
         batch,
         pipeline_run,
-        inspected,
+        repeat_context_stage_count,
+        reporter=reporter,
+    )
+    repeat_call_codon_usage_count = _create_v2_repeat_call_codon_usages_postgresql(
+        batch,
+        pipeline_run,
+        paths,
         reporter=reporter,
     )
     accession_status_count = _create_accession_status_rows_streamed(
         pipeline_run,
-        iter_accession_status_rows(inspected.artifact_paths.accession_status_tsv),
+        iter_accession_status_rows(paths.accession_status_tsv),
         batch_by_batch_id,
     )
     accession_call_count = _create_accession_call_count_rows_streamed(
         pipeline_run,
-        iter_accession_call_count_rows(inspected.artifact_paths.accession_call_counts_tsv),
+        iter_accession_call_count_rows(paths.accession_call_counts_tsv),
         batch_by_batch_id,
     )
 
     counts = {
-        "acquisition_batches": len(inspected.artifact_paths.acquisition_batches),
+        "acquisition_batches": batch_count,
         "taxonomy": len(taxonomy_rows),
         "genomes": genome_count,
         "sequences": sequence_count,
@@ -154,9 +305,76 @@ def _import_inspected_run_postgresql(
         "accession_call_count_rows": accession_call_count,
         "run_parameters": run_parameter_count,
         "repeat_calls": repeat_call_count,
+        "repeat_call_contexts": repeat_call_context_count,
         "repeat_call_codon_usages": repeat_call_codon_usage_count,
     }
     return pipeline_run, counts
+
+
+def _run_v2_timed_step(
+    batch: ImportBatch,
+    reporter: _ImportBatchStateReporter | None,
+    *,
+    label: str,
+    message: str,
+    count_key: str,
+    func: Callable[[], object],
+    phase: str = ImportPhase.STAGING,
+):
+    _set_batch_state(
+        batch,
+        phase=phase,
+        progress_payload={
+            "message": message,
+            "stage": label,
+        },
+        reporter=reporter,
+        force=True,
+    )
+    started_at = monotonic()
+    result = func()
+    elapsed_seconds = monotonic() - started_at
+    row_count = _v2_step_count(result)
+    logger.info(
+        "v2 PostgreSQL import step completed",
+        extra={
+            "stage": label,
+            "row_count": row_count,
+            "elapsed_seconds": round(elapsed_seconds, 3),
+            "import_batch_id": batch.pk,
+        },
+    )
+    progress_payload = {
+        "message": f"{message} Done.",
+        "stage": label,
+        count_key: row_count,
+        "elapsed_seconds": round(elapsed_seconds, 3),
+    }
+    if isinstance(result, tuple) and count_key == "retained_entities":
+        progress_payload["retained_sequences"] = int(result[0] or 0)
+        progress_payload["retained_proteins"] = int(result[1] or 0)
+    _set_batch_state(
+        batch,
+        phase=phase,
+        progress_payload=progress_payload,
+        reporter=reporter,
+        force=True,
+    )
+    return result
+
+
+def _v2_step_count(result: object) -> int:
+    if result is None:
+        return 0
+    if isinstance(result, int):
+        return result
+    if isinstance(result, tuple):
+        return sum(int(item or 0) for item in result if isinstance(item, int))
+    if isinstance(result, list):
+        return len(result)
+    if isinstance(result, dict):
+        return len(result)
+    return 0
 
 
 def _stage_repeat_call_rows(inspected: InspectedPublishedRun) -> int:
@@ -296,13 +514,7 @@ def _create_retained_entity_tables() -> tuple[int, int]:
     return int(sequence_count or 0), int(protein_count or 0)
 
 
-def _create_genomes_postgresql(
-    batch: ImportBatch,
-    pipeline_run: PipelineRun,
-    inspected: InspectedPublishedRun,
-    *,
-    reporter: _ImportBatchStateReporter | None = None,
-) -> int:
+def _stage_v2_genome_rows(paths: V2ArtifactPaths) -> int:
     _create_temp_table(
         _TMP_GENOMES,
         """
@@ -318,7 +530,7 @@ def _create_genomes_postgresql(
         notes text NOT NULL
         """,
     )
-    _copy_or_raise(
+    count = _copy_or_raise(
         _TMP_GENOMES,
         [
             "batch_id",
@@ -345,10 +557,382 @@ def _create_genomes_postgresql(
                 str(row.get("species_name", "")),
                 str(row.get("notes", "")),
             )
-            for batch_paths in inspected.artifact_paths.acquisition_batches
-            for row in iter_genome_rows(batch_paths.genomes_tsv, batch_id=batch_paths.batch_id)
+            for row in iter_run_level_genome_rows(paths.genomes_tsv)
         ),
     )
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE INDEX {_TMP_GENOMES}_batch_id_idx ON {_TMP_GENOMES} (batch_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_GENOMES}_gid_idx ON {_TMP_GENOMES} (genome_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_GENOMES}_taxon_id_idx ON {_TMP_GENOMES} (taxon_id)")
+    return count
+
+
+def _stage_v2_matched_sequence_rows(paths: V2ArtifactPaths) -> int:
+    _create_temp_table(
+        _TMP_SEQUENCES,
+        """
+        batch_id text NOT NULL,
+        sequence_id text NOT NULL,
+        genome_id text NOT NULL,
+        sequence_name text NOT NULL,
+        sequence_length integer NOT NULL,
+        gene_symbol text NOT NULL,
+        transcript_id text NOT NULL,
+        isoform_id text NOT NULL,
+        assembly_accession text NOT NULL,
+        taxon_id bigint,
+        source_record_id text NOT NULL,
+        protein_external_id text NOT NULL,
+        translation_table text NOT NULL,
+        gene_group text NOT NULL,
+        linkage_status text NOT NULL,
+        partial_status text NOT NULL,
+        nucleotide_sequence text NOT NULL
+        """,
+    )
+    count = _copy_or_raise(
+        _TMP_SEQUENCES,
+        [
+            "batch_id",
+            "sequence_id",
+            "genome_id",
+            "sequence_name",
+            "sequence_length",
+            "gene_symbol",
+            "transcript_id",
+            "isoform_id",
+            "assembly_accession",
+            "taxon_id",
+            "source_record_id",
+            "protein_external_id",
+            "translation_table",
+            "gene_group",
+            "linkage_status",
+            "partial_status",
+            "nucleotide_sequence",
+        ],
+        (
+            (
+                str(row["batch_id"]),
+                str(row["sequence_id"]),
+                str(row["genome_id"]),
+                str(row["sequence_name"]),
+                int(row["sequence_length"]),
+                str(row.get("gene_symbol", "")),
+                str(row.get("transcript_id", "")),
+                str(row.get("isoform_id", "")),
+                str(row.get("assembly_accession", "")),
+                row.get("taxon_id"),
+                str(row.get("source_record_id", "")),
+                str(row.get("protein_external_id", "")),
+                str(row.get("translation_table", "")),
+                str(row.get("gene_group", "")),
+                str(row.get("linkage_status", "")),
+                str(row.get("partial_status", "")),
+                str(row["nucleotide_sequence"]),
+            )
+            for row in iter_matched_sequence_rows(paths.matched_sequences_tsv)
+        ),
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE INDEX {_TMP_SEQUENCES}_batch_id_idx ON {_TMP_SEQUENCES} (batch_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_SEQUENCES}_sid_idx ON {_TMP_SEQUENCES} (sequence_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_SEQUENCES}_gid_idx ON {_TMP_SEQUENCES} (genome_id)")
+    return count
+
+
+def _stage_v2_matched_protein_rows(paths: V2ArtifactPaths) -> int:
+    _create_temp_table(
+        _TMP_PROTEINS,
+        """
+        batch_id text NOT NULL,
+        protein_id text NOT NULL,
+        sequence_id text NOT NULL,
+        genome_id text NOT NULL,
+        protein_name text NOT NULL,
+        protein_length integer NOT NULL,
+        gene_symbol text NOT NULL,
+        translation_method text NOT NULL,
+        translation_status text NOT NULL,
+        assembly_accession text NOT NULL,
+        taxon_id bigint,
+        gene_group text NOT NULL,
+        protein_external_id text NOT NULL,
+        amino_acid_sequence text NOT NULL
+        """,
+    )
+    count = _copy_or_raise(
+        _TMP_PROTEINS,
+        [
+            "batch_id",
+            "protein_id",
+            "sequence_id",
+            "genome_id",
+            "protein_name",
+            "protein_length",
+            "gene_symbol",
+            "translation_method",
+            "translation_status",
+            "assembly_accession",
+            "taxon_id",
+            "gene_group",
+            "protein_external_id",
+            "amino_acid_sequence",
+        ],
+        (
+            (
+                str(row["batch_id"]),
+                str(row["protein_id"]),
+                str(row["sequence_id"]),
+                str(row["genome_id"]),
+                str(row["protein_name"]),
+                int(row["protein_length"]),
+                str(row.get("gene_symbol", "")),
+                str(row.get("translation_method", "")),
+                str(row.get("translation_status", "")),
+                str(row.get("assembly_accession", "")),
+                row.get("taxon_id"),
+                str(row.get("gene_group", "")),
+                str(row.get("protein_external_id", "")),
+                str(row["amino_acid_sequence"]),
+            )
+            for row in iter_matched_protein_rows(paths.matched_proteins_tsv)
+        ),
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE INDEX {_TMP_PROTEINS}_batch_id_idx ON {_TMP_PROTEINS} (batch_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_PROTEINS}_pid_idx ON {_TMP_PROTEINS} (protein_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_PROTEINS}_sid_idx ON {_TMP_PROTEINS} (sequence_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_PROTEINS}_gid_idx ON {_TMP_PROTEINS} (genome_id)")
+    return count
+
+
+def _stage_v2_download_manifest_rows(paths: V2ArtifactPaths) -> int:
+    _create_temp_table(
+        _TMP_DOWNLOAD_MANIFEST,
+        """
+        batch_id text NOT NULL,
+        assembly_accession text NOT NULL,
+        download_status text NOT NULL,
+        package_mode text NOT NULL,
+        download_path text NOT NULL,
+        rehydrated_path text NOT NULL,
+        checksum text NOT NULL,
+        file_size_bytes bigint,
+        download_started_at timestamp with time zone,
+        download_finished_at timestamp with time zone,
+        notes text NOT NULL
+        """,
+    )
+    count = _copy_or_raise(
+        _TMP_DOWNLOAD_MANIFEST,
+        [
+            "batch_id",
+            "assembly_accession",
+            "download_status",
+            "package_mode",
+            "download_path",
+            "rehydrated_path",
+            "checksum",
+            "file_size_bytes",
+            "download_started_at",
+            "download_finished_at",
+            "notes",
+        ],
+        (
+            (
+                str(row["batch_id"]),
+                str(row["assembly_accession"]),
+                str(row.get("download_status", "")),
+                str(row.get("package_mode", "")),
+                str(row.get("download_path", "")),
+                str(row.get("rehydrated_path", "")),
+                str(row.get("checksum", "")),
+                row.get("file_size_bytes"),
+                row.get("download_started_at"),
+                row.get("download_finished_at"),
+                str(row.get("notes", "")),
+            )
+            for row in iter_run_level_download_manifest_rows(paths.download_manifest_tsv)
+        ),
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE INDEX {_TMP_DOWNLOAD_MANIFEST}_batch_id_idx ON {_TMP_DOWNLOAD_MANIFEST} (batch_id)")
+    return count
+
+
+def _stage_v2_normalization_warning_rows(paths: V2ArtifactPaths) -> int:
+    _create_temp_table(
+        _TMP_NORMALIZATION_WARNINGS,
+        """
+        warning_code text NOT NULL,
+        warning_scope text NOT NULL,
+        warning_message text NOT NULL,
+        batch_id text NOT NULL,
+        genome_id text NOT NULL,
+        sequence_id text NOT NULL,
+        protein_id text NOT NULL,
+        assembly_accession text NOT NULL,
+        source_file text NOT NULL,
+        source_record_id text NOT NULL
+        """,
+    )
+    count = _copy_or_raise(
+        _TMP_NORMALIZATION_WARNINGS,
+        [
+            "warning_code",
+            "warning_scope",
+            "warning_message",
+            "batch_id",
+            "genome_id",
+            "sequence_id",
+            "protein_id",
+            "assembly_accession",
+            "source_file",
+            "source_record_id",
+        ],
+        (
+            (
+                str(row["warning_code"]),
+                str(row.get("warning_scope", "")),
+                str(row.get("warning_message", "")),
+                str(row.get("batch_id", "")),
+                str(row.get("genome_id", "")),
+                str(row.get("sequence_id", "")),
+                str(row.get("protein_id", "")),
+                str(row.get("assembly_accession", "")),
+                str(row.get("source_file", "")),
+                str(row.get("source_record_id", "")),
+            )
+            for row in iter_run_level_normalization_warning_rows(paths.normalization_warnings_tsv)
+        ),
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE INDEX {_TMP_NORMALIZATION_WARNINGS}_batch_id_idx ON {_TMP_NORMALIZATION_WARNINGS} (batch_id)")
+    return count
+
+
+def _stage_v2_repeat_context_rows(paths: V2ArtifactPaths) -> int:
+    _create_temp_table(
+        _TMP_REPEAT_CONTEXT,
+        """
+        call_id text NOT NULL,
+        protein_id text NOT NULL,
+        sequence_id text NOT NULL,
+        aa_left_flank text NOT NULL,
+        aa_right_flank text NOT NULL,
+        nt_left_flank text NOT NULL,
+        nt_right_flank text NOT NULL,
+        aa_context_window_size integer NOT NULL,
+        nt_context_window_size integer NOT NULL
+        """,
+    )
+    count = _copy_or_raise(
+        _TMP_REPEAT_CONTEXT,
+        [
+            "call_id",
+            "protein_id",
+            "sequence_id",
+            "aa_left_flank",
+            "aa_right_flank",
+            "nt_left_flank",
+            "nt_right_flank",
+            "aa_context_window_size",
+            "nt_context_window_size",
+        ],
+        (
+            (
+                str(row["call_id"]),
+                str(row["protein_id"]),
+                str(row["sequence_id"]),
+                str(row.get("aa_left_flank", "")),
+                str(row.get("aa_right_flank", "")),
+                str(row.get("nt_left_flank", "")),
+                str(row.get("nt_right_flank", "")),
+                int(row["aa_context_window_size"]),
+                int(row["nt_context_window_size"]),
+            )
+            for row in iter_repeat_context_rows(paths.repeat_context_tsv)
+        ),
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE INDEX {_TMP_REPEAT_CONTEXT}_call_id_idx ON {_TMP_REPEAT_CONTEXT} (call_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_REPEAT_CONTEXT}_protein_id_idx ON {_TMP_REPEAT_CONTEXT} (protein_id)")
+        cursor.execute(f"CREATE INDEX {_TMP_REPEAT_CONTEXT}_sequence_id_idx ON {_TMP_REPEAT_CONTEXT} (sequence_id)")
+    _raise_if_rows(
+        f"""
+        SELECT call_id
+        FROM {_TMP_REPEAT_CONTEXT}
+        GROUP BY call_id
+        HAVING COUNT(*) > 1
+        LIMIT 5
+        """,
+        [],
+        "Duplicate repeat-context rows in repeat_context.tsv",
+    )
+    return count
+
+
+def _create_v2_acquisition_batches_from_staged_tables(
+    pipeline_run: PipelineRun,
+    paths: V2ArtifactPaths,
+) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            INSERT INTO {AcquisitionBatch._meta.db_table}
+                (created_at, updated_at, pipeline_run_id, batch_id)
+            SELECT NOW(), NOW(), %s, batch_id
+            FROM (
+                SELECT batch_id FROM {_TMP_GENOMES}
+                UNION
+                SELECT batch_id FROM {_TMP_SEQUENCES}
+                UNION
+                SELECT batch_id FROM {_TMP_PROTEINS}
+                UNION
+                SELECT batch_id FROM {_TMP_DOWNLOAD_MANIFEST}
+                UNION
+                SELECT batch_id FROM {_TMP_NORMALIZATION_WARNINGS}
+            ) batches
+            WHERE batch_id <> ''
+            GROUP BY batch_id
+            ORDER BY batch_id
+            """,
+            [pipeline_run.pk],
+        )
+
+    existing = {
+        batch.batch_id
+        for batch in AcquisitionBatch.objects.filter(pipeline_run=pipeline_run).only("batch_id")
+    }
+    status_batch_ids = {
+        str(row.get("batch_id") or "")
+        for row in iter_accession_status_rows(paths.accession_status_tsv)
+    } | {
+        str(row.get("batch_id") or "")
+        for row in iter_accession_call_count_rows(paths.accession_call_counts_tsv)
+    }
+    missing_batches = [
+        AcquisitionBatch(pipeline_run=pipeline_run, batch_id=batch_id)
+        for batch_id in sorted(status_batch_ids - existing)
+        if batch_id
+    ]
+    if missing_batches:
+        AcquisitionBatch.objects.bulk_create(missing_batches)
+
+    batch_count = AcquisitionBatch.objects.filter(pipeline_run=pipeline_run).count()
+    if batch_count == 0:
+        raise ImportContractError("No acquisition batch IDs were found in v2 staged tables.")
+    return batch_count
+
+
+def _create_genomes_from_staged_rows(
+    batch: ImportBatch,
+    pipeline_run: PipelineRun,
+    genome_total: int,
+    *,
+    reporter: _ImportBatchStateReporter | None = None,
+) -> int:
     _raise_if_rows(
         f"""
         SELECT staged.batch_id
@@ -384,7 +968,6 @@ def _create_genomes_postgresql(
         [],
         "Conflicting duplicate genome rows",
     )
-    genome_total = _count_sql(f"SELECT COUNT(DISTINCT genome_id) FROM {_TMP_GENOMES}")
     _set_batch_state(
         batch,
         phase=ImportPhase.IMPORTING,
@@ -397,7 +980,6 @@ def _create_genomes_postgresql(
         reporter=reporter,
         force=True,
     )
-
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
@@ -436,83 +1018,37 @@ def _create_genomes_postgresql(
     return inserted
 
 
-def _create_call_linked_entities_postgresql(
+def _create_v2_sequences_from_staged_rows(
     batch: ImportBatch,
     pipeline_run: PipelineRun,
-    batch_paths: tuple[BatchArtifactPaths, ...],
+    sequence_total: int,
     *,
-    retained_sequence_count: int,
-    retained_protein_count: int,
     reporter: _ImportBatchStateReporter | None = None,
-) -> tuple[int, int]:
-    total_sequences = 0
-    total_proteins = 0
-
-    for batch_path in batch_paths:
-        sequence_count = _create_sequences_for_batch_postgresql(pipeline_run, batch_path)
-        total_sequences += sequence_count
-        _set_batch_state(
-            batch,
-            phase=ImportPhase.IMPORTING,
-            progress_payload={
-                "message": "Importing retained sequence rows.",
-                "current": total_sequences,
-                "total": retained_sequence_count,
-                "unit": "sequences",
-                "batch_id": batch_path.batch_id,
-                "inserted_sequences": total_sequences,
-                "inserted_proteins": total_proteins,
-            },
-            reporter=reporter,
-        )
-
-        protein_count = _create_proteins_for_batch_postgresql(
-            batch,
-            pipeline_run,
-            batch_path,
-            inserted_sequences=total_sequences,
-            inserted_proteins=total_proteins,
-            retained_protein_count=retained_protein_count,
-            reporter=reporter,
-        )
-        total_proteins += protein_count
-        _set_batch_state(
-            batch,
-            phase=ImportPhase.IMPORTING,
-            progress_payload={
-                "message": "Importing retained protein rows.",
-                "current": total_proteins,
-                "total": retained_protein_count,
-                "unit": "proteins",
-                "batch_id": batch_path.batch_id,
-                "inserted_sequences": total_sequences,
-                "inserted_proteins": total_proteins,
-            },
-            reporter=reporter,
-        )
-
-    return total_sequences, total_proteins
-
-
-def _create_sequences_for_batch_postgresql(
-    pipeline_run: PipelineRun,
-    batch_path: BatchArtifactPaths,
 ) -> int:
-    _stage_sequence_rows(batch_path)
     _validate_sequence_stage(pipeline_run)
-    _stage_fasta_rows(batch_path.cds_fna, label="CDS")
     _raise_if_rows(
         f"""
         SELECT staged.sequence_id
         FROM {_TMP_SEQUENCES} staged
-        JOIN {_TMP_RETAINED_SEQUENCES} retained
+        LEFT JOIN {_TMP_RETAINED_SEQUENCES} retained
           ON retained.sequence_id = staged.sequence_id
-        LEFT JOIN {_TMP_FASTA_UNIQUE} fasta ON fasta.record_id = staged.sequence_id
-        WHERE fasta.record_id IS NULL
+        WHERE retained.sequence_id IS NULL
         LIMIT 5
         """,
         [],
-        "Missing CDS FASTA records for retained sequence IDs",
+        "Matched sequence rows are not repeat-linked",
+    )
+    _set_batch_state(
+        batch,
+        phase=ImportPhase.IMPORTING,
+        progress_payload={
+            "message": "Importing matched sequence rows.",
+            "current": 0,
+            "total": sequence_total,
+            "unit": "sequences",
+        },
+        reporter=reporter,
+        force=True,
     )
     with connection.cursor() as cursor:
         cursor.execute(
@@ -525,7 +1061,7 @@ def _create_sequences_for_batch_postgresql(
             SELECT
                 NOW(), NOW(), %s, genome.id, COALESCE(taxon.id, genome.taxon_id),
                 staged.sequence_id, staged.sequence_name, staged.sequence_length,
-                fasta.sequence_value, staged.gene_symbol, staged.transcript_id,
+                staged.nucleotide_sequence, staged.gene_symbol, staged.transcript_id,
                 staged.isoform_id, staged.assembly_accession, staged.source_record_id,
                 staged.protein_external_id, staged.translation_table, staged.gene_group,
                 staged.linkage_status, staged.partial_status
@@ -535,125 +1071,44 @@ def _create_sequences_for_batch_postgresql(
             JOIN {Genome._meta.db_table} genome
               ON genome.pipeline_run_id = %s AND genome.genome_id = staged.genome_id
             LEFT JOIN {Taxon._meta.db_table} taxon ON taxon.taxon_id = staged.taxon_id
-            JOIN {_TMP_FASTA_UNIQUE} fasta ON fasta.record_id = staged.sequence_id
             """,
             [pipeline_run.pk, pipeline_run.pk],
         )
-        return int(cursor.rowcount or 0)
+        inserted = int(cursor.rowcount or 0)
+    if inserted != sequence_total:
+        raise ImportContractError(f"Inserted {inserted} matched sequence rows, expected {sequence_total}")
+    return inserted
 
 
-def _set_protein_batch_state(
-    batch: ImportBatch,
-    *,
-    message: str,
-    batch_id: str,
-    inserted_sequences: int,
-    inserted_proteins: int,
-    retained_protein_count: int,
-    reporter: _ImportBatchStateReporter | None = None,
-    force: bool = False,
-) -> None:
-    _set_batch_state(
-        batch,
-        phase=ImportPhase.IMPORTING,
-        progress_payload={
-            "message": message,
-            "current": inserted_proteins,
-            "total": retained_protein_count,
-            "unit": "proteins",
-            "batch_id": batch_id,
-            "inserted_sequences": inserted_sequences,
-            "inserted_proteins": inserted_proteins,
-        },
-        reporter=reporter,
-        force=force,
-    )
-
-
-def _create_proteins_for_batch_postgresql(
+def _create_v2_proteins_from_staged_rows(
     batch: ImportBatch,
     pipeline_run: PipelineRun,
-    batch_path: BatchArtifactPaths,
+    protein_total: int,
     *,
-    inserted_sequences: int,
-    inserted_proteins: int,
-    retained_protein_count: int,
     reporter: _ImportBatchStateReporter | None = None,
 ) -> int:
-    _set_protein_batch_state(
-        batch,
-        message="Staging protein TSV rows.",
-        batch_id=batch_path.batch_id,
-        inserted_sequences=inserted_sequences,
-        inserted_proteins=inserted_proteins,
-        retained_protein_count=retained_protein_count,
-        reporter=reporter,
-        force=True,
-    )
-    _stage_protein_rows(batch_path)
-    _set_protein_batch_state(
-        batch,
-        message="Validating protein references.",
-        batch_id=batch_path.batch_id,
-        inserted_sequences=inserted_sequences,
-        inserted_proteins=inserted_proteins,
-        retained_protein_count=retained_protein_count,
-        reporter=reporter,
-        force=True,
-    )
     _validate_protein_stage(pipeline_run)
-    _set_protein_batch_state(
-        batch,
-        message="Updating genome analyzed-protein counts.",
-        batch_id=batch_path.batch_id,
-        inserted_sequences=inserted_sequences,
-        inserted_proteins=inserted_proteins,
-        retained_protein_count=retained_protein_count,
-        reporter=reporter,
-        force=True,
-    )
-    _update_genome_analyzed_protein_counts(pipeline_run)
-    _set_protein_batch_state(
-        batch,
-        message="Staging protein FASTA rows.",
-        batch_id=batch_path.batch_id,
-        inserted_sequences=inserted_sequences,
-        inserted_proteins=inserted_proteins,
-        retained_protein_count=retained_protein_count,
-        reporter=reporter,
-        force=True,
-    )
-    _stage_fasta_rows(batch_path.proteins_faa, label="protein")
-    _set_protein_batch_state(
-        batch,
-        message="Checking retained protein FASTA coverage.",
-        batch_id=batch_path.batch_id,
-        inserted_sequences=inserted_sequences,
-        inserted_proteins=inserted_proteins,
-        retained_protein_count=retained_protein_count,
-        reporter=reporter,
-        force=True,
-    )
     _raise_if_rows(
         f"""
         SELECT staged.protein_id
         FROM {_TMP_PROTEINS} staged
-        JOIN {_TMP_RETAINED_PROTEINS} retained
+        LEFT JOIN {_TMP_RETAINED_PROTEINS} retained
           ON retained.protein_id = staged.protein_id
-        LEFT JOIN {_TMP_FASTA_UNIQUE} fasta ON fasta.record_id = staged.protein_id
-        WHERE fasta.record_id IS NULL
+        WHERE retained.protein_id IS NULL
         LIMIT 5
         """,
         [],
-        "Missing protein FASTA records for retained protein IDs",
+        "Matched protein rows are not repeat-linked",
     )
-    _set_protein_batch_state(
+    _set_batch_state(
         batch,
-        message="Inserting retained protein rows.",
-        batch_id=batch_path.batch_id,
-        inserted_sequences=inserted_sequences,
-        inserted_proteins=inserted_proteins,
-        retained_protein_count=retained_protein_count,
+        phase=ImportPhase.IMPORTING,
+        progress_payload={
+            "message": "Importing matched protein rows.",
+            "current": 0,
+            "total": protein_total,
+            "unit": "proteins",
+        },
         reporter=reporter,
         force=True,
     )
@@ -669,7 +1124,7 @@ def _create_proteins_for_batch_postgresql(
                 NOW(), NOW(), %s, genome.id, sequence.id, COALESCE(taxon.id, genome.taxon_id),
                 staged.protein_id, staged.protein_name, staged.protein_length,
                 COALESCE(NULLIF(staged.assembly_accession, ''), genome.accession),
-                fasta.sequence_value, staged.gene_symbol, staged.translation_method,
+                staged.amino_acid_sequence, staged.gene_symbol, staged.translation_method,
                 staged.translation_status, staged.assembly_accession, staged.gene_group,
                 staged.protein_external_id, call_counts.repeat_call_count
             FROM {_TMP_PROTEINS} staged
@@ -678,12 +1133,14 @@ def _create_proteins_for_batch_postgresql(
             JOIN {Sequence._meta.db_table} sequence
               ON sequence.pipeline_run_id = %s AND sequence.sequence_id = staged.sequence_id
             LEFT JOIN {Taxon._meta.db_table} taxon ON taxon.taxon_id = staged.taxon_id
-            JOIN {_TMP_FASTA_UNIQUE} fasta ON fasta.record_id = staged.protein_id
             JOIN {_TMP_RETAINED_PROTEINS} call_counts ON call_counts.protein_id = staged.protein_id
             """,
             [pipeline_run.pk, pipeline_run.pk, pipeline_run.pk],
         )
-        return int(cursor.rowcount or 0)
+        inserted = int(cursor.rowcount or 0)
+    if inserted != protein_total:
+        raise ImportContractError(f"Inserted {inserted} matched protein rows, expected {protein_total}")
+    return inserted
 
 
 def _create_repeat_calls_postgresql(
@@ -754,15 +1211,108 @@ def _create_repeat_calls_postgresql(
     return repeat_call_count
 
 
-def _create_repeat_call_codon_usages_postgresql(
+def _create_v2_repeat_call_contexts_postgresql(
     batch: ImportBatch,
     pipeline_run: PipelineRun,
-    inspected: InspectedPublishedRun,
+    expected_count: int,
+    *,
+    reporter: _ImportBatchStateReporter | None = None,
+) -> int:
+    _set_batch_state(
+        batch,
+        phase=ImportPhase.IMPORTING,
+        progress_payload={
+            "message": "Validating repeat-call context rows.",
+            "current": 0,
+            "total": expected_count,
+            "unit": "repeat-context rows",
+        },
+        reporter=reporter,
+        force=True,
+    )
+    _raise_if_rows(
+        f"""
+        SELECT staged.call_id
+        FROM {_TMP_REPEAT_CONTEXT} staged
+        LEFT JOIN {_TMP_REPEAT_CALLS} repeat_call ON repeat_call.call_id = staged.call_id
+        WHERE repeat_call.call_id IS NULL
+        LIMIT 5
+        """,
+        [],
+        "Repeat-context rows reference missing staged repeat-call IDs",
+    )
+    _raise_if_rows(
+        f"""
+        SELECT staged.call_id
+        FROM {_TMP_REPEAT_CONTEXT} staged
+        JOIN {_TMP_REPEAT_CALLS} repeat_call ON repeat_call.call_id = staged.call_id
+        WHERE staged.protein_id <> repeat_call.protein_id
+           OR staged.sequence_id <> repeat_call.sequence_id
+        LIMIT 5
+        """,
+        [],
+        "Repeat-context rows do not match their repeat-call sequence/protein IDs",
+    )
+    _raise_if_rows(
+        f"""
+        SELECT staged.call_id
+        FROM {_TMP_REPEAT_CONTEXT} staged
+        LEFT JOIN {RepeatCall._meta.db_table} repeat_call
+          ON repeat_call.pipeline_run_id = %s AND repeat_call.call_id = staged.call_id
+        WHERE repeat_call.id IS NULL
+        LIMIT 5
+        """,
+        [pipeline_run.pk],
+        "Repeat-context rows reference missing imported repeat-call IDs",
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            INSERT INTO {RepeatCallContext._meta.db_table}
+                (created_at, updated_at, repeat_call_id, pipeline_run_id, protein_id,
+                 sequence_id, aa_left_flank, aa_right_flank, nt_left_flank, nt_right_flank,
+                 aa_context_window_size, nt_context_window_size)
+            SELECT
+                NOW(), NOW(), repeat_call.id, %s, staged.protein_id, staged.sequence_id,
+                staged.aa_left_flank, staged.aa_right_flank, staged.nt_left_flank,
+                staged.nt_right_flank, staged.aa_context_window_size,
+                staged.nt_context_window_size
+            FROM {_TMP_REPEAT_CONTEXT} staged
+            JOIN {RepeatCall._meta.db_table} repeat_call
+              ON repeat_call.pipeline_run_id = %s AND repeat_call.call_id = staged.call_id
+            """,
+            [pipeline_run.pk, pipeline_run.pk],
+        )
+        inserted = int(cursor.rowcount or 0)
+    if inserted != expected_count:
+        raise ImportContractError(
+            f"Inserted {inserted} repeat-call context rows, expected {expected_count} staged rows"
+        )
+    _set_batch_state(
+        batch,
+        phase=ImportPhase.IMPORTING,
+        progress_payload={
+            "message": "Imported repeat-call context rows.",
+            "current": inserted,
+            "total": expected_count,
+            "unit": "repeat-context rows",
+            "repeat_call_contexts": inserted,
+        },
+        reporter=reporter,
+        force=True,
+    )
+    return inserted
+
+
+def _create_v2_repeat_call_codon_usages_postgresql(
+    batch: ImportBatch,
+    pipeline_run: PipelineRun,
+    paths: V2ArtifactPaths,
     *,
     reporter: _ImportBatchStateReporter | None = None,
 ) -> int:
     _create_temp_table(
-        "tmp_homorepeat_import_codon_usage",
+        _TMP_CODON_USAGE,
         """
         call_id text NOT NULL,
         method text NOT NULL,
@@ -776,7 +1326,7 @@ def _create_repeat_call_codon_usages_postgresql(
         """,
     )
     count = _copy_or_raise(
-        "tmp_homorepeat_import_codon_usage",
+        _TMP_CODON_USAGE,
         [
             "call_id",
             "method",
@@ -800,7 +1350,7 @@ def _create_repeat_call_codon_usages_postgresql(
                 int(row["codon_count"]),
                 float(row["codon_fraction"]),
             )
-            for row in iter_codon_usage_artifact_rows(inspected.artifact_paths.codon_usage_artifacts)
+            for row in iter_codon_usage_rows(paths.repeat_call_codon_usage_tsv)
         ),
     )
     _set_batch_state(
@@ -818,7 +1368,7 @@ def _create_repeat_call_codon_usages_postgresql(
     _raise_if_rows(
         f"""
         SELECT staged.call_id
-        FROM tmp_homorepeat_import_codon_usage staged
+        FROM {_TMP_CODON_USAGE} staged
         JOIN {_TMP_REPEAT_CALLS} repeat_call ON repeat_call.call_id = staged.call_id
         WHERE staged.method <> repeat_call.method
            OR staged.repeat_residue <> repeat_call.repeat_residue
@@ -832,7 +1382,7 @@ def _create_repeat_call_codon_usages_postgresql(
     _raise_if_rows(
         f"""
         SELECT staged.call_id
-        FROM tmp_homorepeat_import_codon_usage staged
+        FROM {_TMP_CODON_USAGE} staged
         LEFT JOIN {RepeatCall._meta.db_table} repeat_call
           ON repeat_call.pipeline_run_id = %s AND repeat_call.call_id = staged.call_id
         WHERE repeat_call.id IS NULL
@@ -842,8 +1392,6 @@ def _create_repeat_call_codon_usages_postgresql(
         "Codon usage rows reference missing repeat-call IDs",
     )
     with connection.cursor() as cursor:
-        from apps.browser.models.repeat_calls import RepeatCallCodonUsage
-
         _set_batch_state(
             batch,
             phase=ImportPhase.IMPORTING,
@@ -863,26 +1411,13 @@ def _create_repeat_call_codon_usages_postgresql(
             SELECT
                 NOW(), NOW(), repeat_call.id, staged.amino_acid, staged.codon,
                 staged.codon_count, staged.codon_fraction
-            FROM tmp_homorepeat_import_codon_usage staged
+            FROM {_TMP_CODON_USAGE} staged
             JOIN {RepeatCall._meta.db_table} repeat_call
               ON repeat_call.pipeline_run_id = %s AND repeat_call.call_id = staged.call_id
             """,
             [pipeline_run.pk],
         )
         inserted = int(cursor.rowcount or 0)
-    _set_batch_state(
-        batch,
-        phase=ImportPhase.IMPORTING,
-        progress_payload={
-            "message": "Importing repeat-call codon-usage rows.",
-            "current": inserted,
-            "total": count,
-            "unit": "codon-usage rows",
-            "repeat_call_codon_usages": inserted,
-        },
-        reporter=reporter,
-        force=True,
-    )
     if inserted != count:
         raise ImportContractError(
             f"Inserted {inserted} repeat-call codon-usage rows, expected {count} staged rows"
@@ -890,201 +1425,59 @@ def _create_repeat_call_codon_usages_postgresql(
     return inserted
 
 
-def _stage_sequence_rows(batch_path: BatchArtifactPaths) -> None:
-    _create_temp_table(
-        _TMP_SEQUENCES,
-        """
-        batch_id text NOT NULL,
-        sequence_id text NOT NULL,
-        genome_id text NOT NULL,
-        sequence_name text NOT NULL,
-        sequence_length integer NOT NULL,
-        gene_symbol text NOT NULL,
-        transcript_id text NOT NULL,
-        isoform_id text NOT NULL,
-        assembly_accession text NOT NULL,
-        taxon_id bigint,
-        source_record_id text NOT NULL,
-        protein_external_id text NOT NULL,
-        translation_table text NOT NULL,
-        gene_group text NOT NULL,
-        linkage_status text NOT NULL,
-        partial_status text NOT NULL
-        """,
-    )
-    _copy_or_raise(
-        _TMP_SEQUENCES,
-        [
-            "batch_id",
-            "sequence_id",
-            "genome_id",
-            "sequence_name",
-            "sequence_length",
-            "gene_symbol",
-            "transcript_id",
-            "isoform_id",
-            "assembly_accession",
-            "taxon_id",
-            "source_record_id",
-            "protein_external_id",
-            "translation_table",
-            "gene_group",
-            "linkage_status",
-            "partial_status",
-        ],
-        (
-            (
-                str(row["batch_id"]),
-                str(row["sequence_id"]),
-                str(row["genome_id"]),
-                str(row["sequence_name"]),
-                int(row["sequence_length"]),
-                str(row.get("gene_symbol", "")),
-                str(row.get("transcript_id", "")),
-                str(row.get("isoform_id", "")),
-                str(row.get("assembly_accession", "")),
-                row.get("taxon_id"),
-                str(row.get("source_record_id", "")),
-                str(row.get("protein_external_id", "")),
-                str(row.get("translation_table", "")),
-                str(row.get("gene_group", "")),
-                str(row.get("linkage_status", "")),
-                str(row.get("partial_status", "")),
-            )
-            for row in iter_sequence_rows(batch_path.sequences_tsv, batch_id=batch_path.batch_id)
-        ),
-    )
+def _create_v2_download_manifest_from_staged_rows(
+    pipeline_run: PipelineRun,
+    expected_count: int,
+) -> int:
     with connection.cursor() as cursor:
-        cursor.execute(f"CREATE INDEX {_TMP_SEQUENCES}_sid_idx ON {_TMP_SEQUENCES} (sequence_id)")
-        cursor.execute(f"CREATE INDEX {_TMP_SEQUENCES}_gid_idx ON {_TMP_SEQUENCES} (genome_id)")
-
-
-def _stage_protein_rows(batch_path: BatchArtifactPaths) -> None:
-    _create_temp_table(
-        _TMP_PROTEINS,
-        """
-        batch_id text NOT NULL,
-        protein_id text NOT NULL,
-        sequence_id text NOT NULL,
-        genome_id text NOT NULL,
-        protein_name text NOT NULL,
-        protein_length integer NOT NULL,
-        gene_symbol text NOT NULL,
-        translation_method text NOT NULL,
-        translation_status text NOT NULL,
-        assembly_accession text NOT NULL,
-        taxon_id bigint,
-        gene_group text NOT NULL,
-        protein_external_id text NOT NULL
-        """,
-    )
-    _copy_or_raise(
-        _TMP_PROTEINS,
-        [
-            "batch_id",
-            "protein_id",
-            "sequence_id",
-            "genome_id",
-            "protein_name",
-            "protein_length",
-            "gene_symbol",
-            "translation_method",
-            "translation_status",
-            "assembly_accession",
-            "taxon_id",
-            "gene_group",
-            "protein_external_id",
-        ],
-        (
-            (
-                str(row["batch_id"]),
-                str(row["protein_id"]),
-                str(row["sequence_id"]),
-                str(row["genome_id"]),
-                str(row["protein_name"]),
-                int(row["protein_length"]),
-                str(row.get("gene_symbol", "")),
-                str(row.get("translation_method", "")),
-                str(row.get("translation_status", "")),
-                str(row.get("assembly_accession", "")),
-                row.get("taxon_id"),
-                str(row.get("gene_group", "")),
-                str(row.get("protein_external_id", "")),
-            )
-            for row in iter_protein_rows(batch_path.proteins_tsv, batch_id=batch_path.batch_id)
-        ),
-    )
-    with connection.cursor() as cursor:
-        cursor.execute(f"CREATE INDEX {_TMP_PROTEINS}_pid_idx ON {_TMP_PROTEINS} (protein_id)")
-        cursor.execute(f"CREATE INDEX {_TMP_PROTEINS}_sid_idx ON {_TMP_PROTEINS} (sequence_id)")
-        cursor.execute(f"CREATE INDEX {_TMP_PROTEINS}_gid_idx ON {_TMP_PROTEINS} (genome_id)")
-
-
-def _stage_fasta_rows(path: Path, *, label: str) -> None:
-    _create_temp_table(
-        _TMP_FASTA,
-        """
-        record_id text NOT NULL,
-        sequence_value text NOT NULL
-        """,
-    )
-    _copy_or_raise(
-        _TMP_FASTA,
-        ["record_id", "sequence_value"],
-        _iter_fasta_records(path, label=label),
-    )
-    _raise_if_rows(
-        f"""
-        SELECT record_id
-        FROM {_TMP_FASTA}
-        GROUP BY record_id
-        HAVING COUNT(DISTINCT sequence_value) > 1
-        LIMIT 5
-        """,
-        [],
-        f"Conflicting duplicate {label} FASTA records",
-    )
-    with connection.cursor() as cursor:
-        cursor.execute(f"DROP TABLE IF EXISTS {_TMP_FASTA_UNIQUE}")
         cursor.execute(
             f"""
-            CREATE TEMP TABLE {_TMP_FASTA_UNIQUE} ON COMMIT DROP AS
-            SELECT record_id, MIN(sequence_value) AS sequence_value
-            FROM {_TMP_FASTA}
-            GROUP BY record_id
-            """
+            INSERT INTO {DownloadManifestEntry._meta.db_table}
+                (created_at, updated_at, pipeline_run_id, batch_id, assembly_accession,
+                 download_status, package_mode, download_path, rehydrated_path, checksum,
+                 file_size_bytes, download_started_at, download_finished_at, notes)
+            SELECT
+                NOW(), NOW(), %s, batch.id, staged.assembly_accession,
+                staged.download_status, staged.package_mode, staged.download_path,
+                staged.rehydrated_path, staged.checksum, staged.file_size_bytes,
+                staged.download_started_at, staged.download_finished_at, staged.notes
+            FROM {_TMP_DOWNLOAD_MANIFEST} staged
+            JOIN {AcquisitionBatch._meta.db_table} batch
+              ON batch.pipeline_run_id = %s AND batch.batch_id = staged.batch_id
+            """,
+            [pipeline_run.pk, pipeline_run.pk],
         )
-        cursor.execute(f"CREATE INDEX {_TMP_FASTA_UNIQUE}_record_id_idx ON {_TMP_FASTA_UNIQUE} (record_id)")
+        inserted = int(cursor.rowcount or 0)
+    if inserted != expected_count:
+        raise ImportContractError(f"Inserted {inserted} download manifest rows, expected {expected_count}")
+    return inserted
 
 
-def _iter_fasta_records(path: Path, *, label: str):
-    current_record_id = ""
-    current_chunks: list[str] = []
-
-    def current_record():
-        if not current_record_id:
-            return None
-        return current_record_id, "".join(current_chunks).strip()
-
-    with path.open("r", encoding="utf-8") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line:
-                continue
-            if line.startswith(">"):
-                record = current_record()
-                if record is not None:
-                    yield record
-                current_record_id = line[1:].split()[0]
-                current_chunks = []
-                continue
-            if not current_record_id:
-                raise ImportContractError(f"{path} contains {label} FASTA sequence data before the first header")
-            current_chunks.append(line)
-
-    record = current_record()
-    if record is not None:
-        yield record
+def _create_v2_normalization_warnings_from_staged_rows(
+    pipeline_run: PipelineRun,
+    expected_count: int,
+) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            INSERT INTO {NormalizationWarning._meta.db_table}
+                (created_at, updated_at, pipeline_run_id, batch_id, warning_code,
+                 warning_scope, warning_message, genome_id, sequence_id, protein_id,
+                 assembly_accession, source_file, source_record_id)
+            SELECT
+                NOW(), NOW(), %s, batch.id, staged.warning_code, staged.warning_scope,
+                staged.warning_message, staged.genome_id, staged.sequence_id, staged.protein_id,
+                staged.assembly_accession, staged.source_file, staged.source_record_id
+            FROM {_TMP_NORMALIZATION_WARNINGS} staged
+            JOIN {AcquisitionBatch._meta.db_table} batch
+              ON batch.pipeline_run_id = %s AND batch.batch_id = staged.batch_id
+            """,
+            [pipeline_run.pk, pipeline_run.pk],
+        )
+        inserted = int(cursor.rowcount or 0)
+    if inserted != expected_count:
+        raise ImportContractError(f"Inserted {inserted} normalization warning rows, expected {expected_count}")
+    return inserted
 
 
 def _validate_sequence_stage(pipeline_run: PipelineRun) -> None:

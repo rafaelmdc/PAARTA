@@ -274,7 +274,9 @@ class CatalogSyncTests(TestCase):
         self.assertEqual(canonical_genome.latest_pipeline_run, raw["pipeline_run"])
         self.assertEqual(canonical_genome.latest_import_batch, raw["import_batch"])
         self.assertEqual(canonical_sequence.latest_pipeline_run, raw["pipeline_run"])
+        self.assertEqual(canonical_sequence.nucleotide_sequence, "CAG" * 30)
         self.assertEqual(canonical_protein.latest_import_batch, raw["import_batch"])
+        self.assertEqual(canonical_protein.amino_acid_sequence, "Q" * 30)
         self.assertEqual(canonical_repeat_call.latest_repeat_call, raw["repeat_calls"][0])
         self.assertEqual(canonical_repeat_call.source_call_id, "call_alpha")
         self.assertEqual(raw["pipeline_run"].canonical_sync_batch, raw["import_batch"])
@@ -728,6 +730,7 @@ class CanonicalCatalogBackfillCommandTests(TestCase):
                 "sequences": 1,
                 "proteins": 1,
                 "repeat_calls": 1,
+                "repeat_call_contexts": 0,
                 "accession_status_rows": 0,
                 "accession_call_count_rows": 0,
                 "download_manifest_entries": 0,

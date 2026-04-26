@@ -12,7 +12,8 @@ The browser stores two related data layers.
 
 Raw import layer:
 
-- `Genome`, `Sequence`, `Protein`, `RepeatCall`, `RepeatCallCodonUsage`
+- `Genome`, `Sequence`, `Protein`, `RepeatCall`, `RepeatCallCodonUsage`,
+  `RepeatCallContext`
 - per-run historical observations linked to `PipelineRun`
 - used for provenance and import history
 
@@ -40,8 +41,12 @@ the same query summarize at phylum, class, order, family, genus, or species.
 The import path is:
 
 1. Published pipeline artifacts are validated by
-   `apps/imports/services/published_run/`.
-2. `apps/imports/services/import_run/` writes the raw per-run tables.
+   `apps/imports/services/published_run/`. The supported public contract is
+   publish contract v2, identified by `publish_contract_version: 2` in
+   `metadata/run_manifest.json`.
+2. `apps/imports/services/import_run/` writes the raw per-run tables. The v2
+   PostgreSQL path streams run-level TSVs through temporary tables and `COPY`,
+   then inserts raw rows with SQL joins.
 3. `apps/browser/catalog/sync.py` rebuilds the current canonical catalog from
    the raw import.
 4. Codon composition rollups are rebuilt from canonical codon-usage rows.
@@ -50,6 +55,19 @@ The import path is:
 The import boundary is intentionally file-based. Pipeline code owns computation;
 the web app owns validation, provenance, canonicalization, browsing, and
 statistical summaries.
+
+The v2 public contract is table-first. It imports `calls/repeat_calls.tsv`,
+`calls/run_params.tsv`, run-level tables under `tables/`, summaries under
+`summaries/`, and `metadata/run_manifest.json`. The web app no longer depends on
+older public batch directories, finalized codon-usage fragments, or public FASTA
+files for v2 imports. Full matched sequence and protein bodies come from
+`matched_sequences.tsv.nucleotide_sequence` and
+`matched_proteins.tsv.amino_acid_sequence`.
+
+`tables/repeat_context.tsv` is stored in the raw layer as
+`RepeatCallContext`. It is per-run provenance data linked one-to-one to the raw
+`RepeatCall`; there is no canonical context table unless a future browser
+surface requires current-serving flank context independent of run provenance.
 
 ## View Structure
 

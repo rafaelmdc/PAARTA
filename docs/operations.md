@@ -14,6 +14,18 @@ Import a published run:
 python3 manage.py import_run --publish-root /absolute/path/to/<run>/publish
 ```
 
+The supported published-run import surface is publish contract v2. The manifest
+at `metadata/run_manifest.json` must include `publish_contract_version: 2`.
+The required v2 public files are `calls/repeat_calls.tsv`,
+`calls/run_params.tsv`, the run-level TSVs under `tables/`, run summaries under
+`summaries/`, and the manifest under `metadata/`.
+
+The v2 importer does not read the older public `acquisition/`, `status/`,
+`calls/finalized/`, `cds.fna`, or `proteins.faa` paths. Full sequence/protein
+bodies must be present in the matched TSV columns:
+`matched_sequences.tsv.nucleotide_sequence` and
+`matched_proteins.tsv.amino_acid_sequence`.
+
 Process the oldest queued import:
 
 ```bash
@@ -103,13 +115,28 @@ Manual browser checks should cover:
 
 ## Database Notes
 
-PostgreSQL is the production-like path. SQLite remains useful for lightweight
-local tests but does not exercise PostgreSQL-specific SQL rollup paths.
+PostgreSQL is the production-like path. Large publish contract v2 imports should
+use PostgreSQL because run-level TSVs are streamed into temporary tables with
+`COPY` and joined in SQL. SQLite remains useful for compact local fixtures and
+parser checks, but it does not exercise the production staging path or
+PostgreSQL-specific SQL rollup paths.
 
 When changing raw SQL rollups, validate both:
 
 - PostgreSQL rebuild command in the Compose stack
 - Django tests using the Python/live fallback semantics
+
+For a real v2 import validation, run:
+
+```bash
+docker compose exec web python manage.py import_run \
+  --publish-root /workspace/homorepeat_pipeline/runs/<run-id>/publish
+```
+
+Then compare source table row counts against imported raw counts for repeat
+calls, matched sequences, matched proteins, repeat-call codon usage, repeat
+context, and operational tables. Also confirm canonical sequence/protein bodies
+are populated after sync and codon rollups rebuild successfully.
 
 ## Documentation Rules
 

@@ -9,14 +9,17 @@ from .contracts import (
     ACQUISITION_VALIDATION_REQUIRED_KEYS,
     ImportContractError,
     MANIFEST_REQUIRED_KEYS,
-    RequiredArtifactPaths,
+    V2ArtifactPaths,
+    V2_MANIFEST_REQUIRED_KEYS,
 )
-from .iterators import _ensure_matching_batch_id, _parse_timestamp, _string_value
+from .iterators import _parse_timestamp, _string_value
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ImportContractError(f"Required import artifact is missing: {path}") from exc
     except json.JSONDecodeError as exc:
         raise ImportContractError(f"Malformed run manifest JSON: {path}") from exc
 
@@ -31,7 +34,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
 
 def _normalize_pipeline_run(
     manifest: dict[str, Any],
-    artifact_paths: RequiredArtifactPaths,
+    artifact_paths: V2ArtifactPaths,
 ) -> dict[str, Any]:
     return {
         "run_id": _require_manifest_value(manifest, "run_id"),
@@ -47,15 +50,22 @@ def _normalize_pipeline_run(
     }
 
 
-def _ensure_raw_publish_mode(manifest: dict[str, Any]) -> None:
-    acquisition_publish_mode = _require_manifest_value(manifest, "acquisition_publish_mode")
-    if acquisition_publish_mode != "raw":
+def _ensure_v2_contract(manifest: dict[str, Any]) -> None:
+    missing = [key for key in V2_MANIFEST_REQUIRED_KEYS if key not in manifest]
+    if missing:
         raise ImportContractError(
-            f"Published run uses acquisition_publish_mode={acquisition_publish_mode!r}; only 'raw' is supported."
+            "Run manifest is missing required publish contract v2 keys: "
+            f"{', '.join(missing)}"
+        )
+
+    value = manifest.get("publish_contract_version")
+    if value != 2:
+        raise ImportContractError(
+            f"Unsupported publish_contract_version={value!r}; expected 2."
         )
 
 
-def _read_acquisition_validation_payload(path: Path, *, batch_id: str) -> dict[str, Any]:
+def _read_acquisition_validation_payload(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -80,9 +90,11 @@ def _read_acquisition_validation_payload(path: Path, *, batch_id: str) -> dict[s
             f"Acquisition validation counts are missing required keys: {', '.join(missing_count_keys)}"
         )
 
-    payload_batch_id = _string_value(payload.get("batch_id"))
-    if payload_batch_id:
-        _ensure_matching_batch_id(path, expected_batch_id=batch_id, row_batch_id=payload_batch_id)
+    scope = _string_value(payload.get("scope"))
+    if scope != "run":
+        raise ImportContractError(
+            f"Acquisition validation scope must be 'run' for publish contract v2: {path}"
+        )
     return payload
 
 

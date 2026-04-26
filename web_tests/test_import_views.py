@@ -11,7 +11,7 @@ from apps.browser.models import PipelineRun
 from apps.imports.models import ImportBatch
 from apps.imports.services import import_published_run
 
-from .support import build_minimal_publish_root
+from .support import build_minimal_v2_publish_root as build_minimal_publish_root
 
 
 class ImportViewTests(TestCase):

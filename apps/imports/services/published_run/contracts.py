@@ -20,18 +20,22 @@ TAXONOMY_REQUIRED_COLUMNS = [
     "rank",
     "source",
 ]
-SEQUENCE_REQUIRED_COLUMNS = [
+MATCHED_SEQUENCE_REQUIRED_COLUMNS = [
+    "batch_id",
     "sequence_id",
     "genome_id",
     "sequence_name",
     "sequence_length",
+    "nucleotide_sequence",
 ]
-PROTEIN_REQUIRED_COLUMNS = [
+MATCHED_PROTEIN_REQUIRED_COLUMNS = [
+    "batch_id",
     "protein_id",
     "sequence_id",
     "genome_id",
     "protein_name",
     "protein_length",
+    "amino_acid_sequence",
 ]
 DOWNLOAD_MANIFEST_REQUIRED_COLUMNS = [
     "batch_id",
@@ -111,6 +115,17 @@ CODON_USAGE_REQUIRED_COLUMNS = [
     "codon_count",
     "codon_fraction",
 ]
+REPEAT_CONTEXT_REQUIRED_COLUMNS = [
+    "call_id",
+    "protein_id",
+    "sequence_id",
+    "aa_left_flank",
+    "aa_right_flank",
+    "nt_left_flank",
+    "nt_right_flank",
+    "aa_context_window_size",
+    "nt_context_window_size",
+]
 MANIFEST_REQUIRED_KEYS = [
     "run_id",
     "status",
@@ -126,6 +141,7 @@ MANIFEST_REQUIRED_KEYS = [
     "repeat_residues",
     "artifacts",
 ]
+V2_MANIFEST_REQUIRED_KEYS = [*MANIFEST_REQUIRED_KEYS, "publish_contract_version"]
 ACQUISITION_VALIDATION_REQUIRED_KEYS = [
     "status",
     "scope",
@@ -151,43 +167,27 @@ class ImportContractError(ValueError):
 
 
 @dataclass(frozen=True)
-class BatchArtifactPaths:
-    batch_id: str
-    batch_root: Path
+class V2ArtifactPaths:
+    publish_root: Path
+    manifest: Path
+    repeat_calls_tsv: Path
+    run_params_tsv: Path
     genomes_tsv: Path
     taxonomy_tsv: Path
-    sequences_tsv: Path
-    proteins_tsv: Path
-    cds_fna: Path
-    proteins_faa: Path
+    matched_sequences_tsv: Path
+    matched_proteins_tsv: Path
+    repeat_call_codon_usage_tsv: Path
+    repeat_context_tsv: Path
     download_manifest_tsv: Path
     normalization_warnings_tsv: Path
+    accession_status_tsv: Path
+    accession_call_counts_tsv: Path
+    status_summary_json: Path
     acquisition_validation_json: Path
 
 
 @dataclass(frozen=True)
-class CodonUsageArtifactPath:
-    batch_id: str
-    method: str
-    repeat_residue: str
-    codon_usage_tsv: Path
-
-
-@dataclass(frozen=True)
-class RequiredArtifactPaths:
-    publish_root: Path
-    manifest: Path
-    acquisition_batches_root: Path
-    acquisition_batches: tuple[BatchArtifactPaths, ...]
-    codon_usage_artifacts: tuple[CodonUsageArtifactPath, ...]
-    accession_status_tsv: Path
-    accession_call_counts_tsv: Path
-    run_params_tsv: Path
-    repeat_calls_tsv: Path
-
-
-@dataclass(frozen=True)
 class InspectedPublishedRun:
-    artifact_paths: RequiredArtifactPaths
+    artifact_paths: V2ArtifactPaths
     manifest: dict[str, Any]
     pipeline_run: dict[str, Any]

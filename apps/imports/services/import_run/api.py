@@ -21,9 +21,8 @@ from apps.imports.models import ImportBatch
 from apps.imports.services.published_run import ImportContractError, inspect_published_run
 
 from .copy import _analyze_models
-from .orchestrator import _import_inspected_run
+from .local import _import_inspected_run_local
 from .postgresql import _import_inspected_run_postgresql
-from .prepare import _prepare_streamed_import_data
 from .state import (
     ImportPhase,
     ImportRunResult,
@@ -97,64 +96,39 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
             phase=ImportPhase.PREPARING,
             progress_payload={
                 "message": "Preparing repeat-linked import rows.",
-                "batch_count": len(inspected.artifact_paths.acquisition_batches),
             },
             reporter=reporter,
         )
-        if connection.vendor == "postgresql":
-            _set_batch_state(
-                batch,
-                phase=ImportPhase.IMPORTING,
-                progress_payload={
-                    "message": "Writing staged rows into PostgreSQL.",
-                    "batch_count": len(inspected.artifact_paths.acquisition_batches),
-                },
-                reporter=reporter,
-            )
-            with transaction.atomic():
+        _set_batch_state(
+            batch,
+            phase=ImportPhase.IMPORTING,
+            progress_payload={
+                "message": "Writing staged rows into the database.",
+            },
+            reporter=reporter,
+        )
+        with transaction.atomic():
+            if connection.vendor == "postgresql":
                 pipeline_run, counts = _import_inspected_run_postgresql(
                     batch,
                     inspected,
                     replace_existing=batch.replace_existing,
                     reporter=reporter,
                 )
-                pipeline_run.browser_metadata = build_browser_metadata(
-                    pipeline_run,
-                    raw_counts=counts,
-                )
-                pipeline_run.save(update_fields=["browser_metadata"])
-                batch.pipeline_run = pipeline_run
-                batch.save(update_fields=["pipeline_run"])
-        else:
-            prepared = _prepare_streamed_import_data(batch, inspected, reporter=reporter)
-            _set_batch_state(
-                batch,
-                phase=ImportPhase.IMPORTING,
-                progress_payload={
-                    "message": "Writing streamed rows into the database transaction.",
-                    "batch_count": len(inspected.artifact_paths.acquisition_batches),
-                    "retained_sequences": len(prepared.retained_sequence_ids),
-                    "retained_proteins": len(prepared.retained_protein_ids),
-                    "repeat_calls": prepared.total_repeat_calls,
-                },
-                reporter=reporter,
-            )
-            with transaction.atomic():
-                pipeline_run, counts = _import_inspected_run(
+            else:
+                pipeline_run, counts = _import_inspected_run_local(
                     batch,
                     inspected,
-                    prepared,
                     replace_existing=batch.replace_existing,
                     reporter=reporter,
                 )
-                pipeline_run.browser_metadata = build_browser_metadata(
-                    pipeline_run,
-                    raw_counts=counts,
-                )
-                pipeline_run.save(update_fields=["browser_metadata"])
-                batch.pipeline_run = pipeline_run
-                batch.save(update_fields=["pipeline_run"])
-            del prepared
+            pipeline_run.browser_metadata = build_browser_metadata(
+                pipeline_run,
+                raw_counts=counts,
+            )
+            pipeline_run.save(update_fields=["browser_metadata"])
+            batch.pipeline_run = pipeline_run
+            batch.save(update_fields=["pipeline_run"])
         _set_batch_state(
             batch,
             phase=ImportPhase.CATALOG_SYNC,

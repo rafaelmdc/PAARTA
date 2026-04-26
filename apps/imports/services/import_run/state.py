@@ -25,7 +25,7 @@ class ImportPhase:
     QUEUED = "queued"
     PARSING = "parsing_contract"
     PREPARING = "preparing_import"
-    LOADING_FASTA = "loading_fasta"
+    STAGING = "staging_tables"
     IMPORTING = "importing_rows"
     CATALOG_SYNC = "syncing_canonical_catalog"
     COMPLETED = "completed"

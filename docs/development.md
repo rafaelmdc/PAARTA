@@ -40,8 +40,9 @@ docker compose up web worker postgres
 docker compose exec web python manage.py test web_tests
 ```
 
-SQLite is fine for many unit and view tests, but it does not exercise
-PostgreSQL-specific raw SQL in the rollup rebuild paths.
+SQLite is fine for many unit, view, and compact import-fixture tests, but it
+does not exercise PostgreSQL-specific staging SQL or raw SQL rollup rebuild
+paths.
 
 ## Code Organization
 
