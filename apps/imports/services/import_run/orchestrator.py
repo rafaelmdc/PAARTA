@@ -7,6 +7,7 @@ from apps.imports.models import ImportBatch
 from apps.imports.services.published_run import (
     ImportContractError,
     InspectedPublishedRun,
+    V2ArtifactPaths,
     iter_codon_usage_artifact_rows,
     iter_accession_call_count_rows,
     iter_accession_status_rows,
@@ -63,6 +64,9 @@ def _import_inspected_run(
     replace_existing: bool,
     reporter: _ImportBatchStateReporter | None = None,
 ) -> tuple[PipelineRun, dict[str, int]]:
+    if isinstance(inspected.artifact_paths, V2ArtifactPaths):
+        raise ImportContractError("Publish contract v2 imports currently require PostgreSQL.")
+
     pipeline_run = _upsert_pipeline_run(inspected.pipeline_run, replace_existing=replace_existing)
 
     taxonomy_rows = _load_taxonomy_rows(inspected)

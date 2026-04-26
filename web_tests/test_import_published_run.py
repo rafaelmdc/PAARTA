@@ -295,6 +295,37 @@ class PublishedRunImportServiceTests(SimpleTestCase):
             with self.assertRaisesRegex(ImportContractError, "DNA codon"):
                 list(iter_codon_usage_rows(path))
 
+    def test_v2_streamed_prepare_path_requires_postgresql(self):
+        from apps.imports.services.import_run.prepare import _prepare_streamed_import_data
+
+        with TemporaryDirectory() as tempdir:
+            inspected = inspect_published_run(build_minimal_v2_publish_root(Path(tempdir)))
+
+            with self.assertRaisesRegex(ImportContractError, "requires PostgreSQL"):
+                _prepare_streamed_import_data(object(), inspected)
+
+    def test_v2_orm_import_path_requires_postgresql(self):
+        from apps.imports.services.import_run.orchestrator import _import_inspected_run
+        from apps.imports.services.import_run.prepare import PreparedStreamedImportData
+
+        with TemporaryDirectory() as tempdir:
+            inspected = inspect_published_run(build_minimal_v2_publish_root(Path(tempdir)))
+            prepared = PreparedStreamedImportData(
+                retained_genome_ids=frozenset(),
+                retained_sequence_ids=frozenset(),
+                retained_protein_ids=frozenset(),
+                repeat_call_counts_by_protein={},
+                total_repeat_calls=0,
+            )
+
+            with self.assertRaisesRegex(ImportContractError, "requires PostgreSQL"):
+                _import_inspected_run(
+                    object(),
+                    inspected,
+                    prepared,
+                    replace_existing=False,
+                )
+
     def test_inspect_published_run_exposes_real_small_raw_run_with_streaming_iterators(self):
         publish_root = _sibling_publish_root(SMALL_REAL_RUN_ID)
         if not publish_root.exists():

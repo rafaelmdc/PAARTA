@@ -7,6 +7,7 @@ from apps.imports.models import ImportBatch
 from apps.imports.services.published_run import (
     ImportContractError,
     InspectedPublishedRun,
+    V2ArtifactPaths,
     iter_repeat_call_rows,
 )
 
@@ -29,6 +30,9 @@ def _prepare_streamed_import_data(
     *,
     reporter: _ImportBatchStateReporter | None = None,
 ) -> PreparedStreamedImportData:
+    if isinstance(inspected.artifact_paths, V2ArtifactPaths):
+        raise ImportContractError("Publish contract v2 imports currently require PostgreSQL.")
+
     retained_genome_ids: set[str] = set()
     retained_sequence_ids: set[str] = set()
     retained_protein_ids: set[str] = set()
