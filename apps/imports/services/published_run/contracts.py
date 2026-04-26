@@ -20,12 +20,6 @@ TAXONOMY_REQUIRED_COLUMNS = [
     "rank",
     "source",
 ]
-SEQUENCE_REQUIRED_COLUMNS = [
-    "sequence_id",
-    "genome_id",
-    "sequence_name",
-    "sequence_length",
-]
 MATCHED_SEQUENCE_REQUIRED_COLUMNS = [
     "batch_id",
     "sequence_id",
@@ -33,13 +27,6 @@ MATCHED_SEQUENCE_REQUIRED_COLUMNS = [
     "sequence_name",
     "sequence_length",
     "nucleotide_sequence",
-]
-PROTEIN_REQUIRED_COLUMNS = [
-    "protein_id",
-    "sequence_id",
-    "genome_id",
-    "protein_name",
-    "protein_length",
 ]
 MATCHED_PROTEIN_REQUIRED_COLUMNS = [
     "batch_id",
@@ -200,43 +187,7 @@ class V2ArtifactPaths:
 
 
 @dataclass(frozen=True)
-class BatchArtifactPaths:
-    batch_id: str
-    batch_root: Path
-    genomes_tsv: Path
-    taxonomy_tsv: Path
-    sequences_tsv: Path
-    proteins_tsv: Path
-    cds_fna: Path
-    proteins_faa: Path
-    download_manifest_tsv: Path
-    normalization_warnings_tsv: Path
-    acquisition_validation_json: Path
-
-
-@dataclass(frozen=True)
-class CodonUsageArtifactPath:
-    batch_id: str
-    method: str
-    repeat_residue: str
-    codon_usage_tsv: Path
-
-
-@dataclass(frozen=True)
-class RequiredArtifactPaths:
-    publish_root: Path
-    manifest: Path
-    acquisition_batches_root: Path
-    acquisition_batches: tuple[BatchArtifactPaths, ...]
-    codon_usage_artifacts: tuple[CodonUsageArtifactPath, ...]
-    accession_status_tsv: Path
-    accession_call_counts_tsv: Path
-    run_params_tsv: Path
-    repeat_calls_tsv: Path
-
-
-@dataclass(frozen=True)
 class InspectedPublishedRun:
-    artifact_paths: RequiredArtifactPaths | V2ArtifactPaths
+    artifact_paths: V2ArtifactPaths
     manifest: dict[str, Any]
     pipeline_run: dict[str, Any]

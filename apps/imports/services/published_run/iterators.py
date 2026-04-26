@@ -16,11 +16,9 @@ from .contracts import (
     MATCHED_PROTEIN_REQUIRED_COLUMNS,
     MATCHED_SEQUENCE_REQUIRED_COLUMNS,
     NORMALIZATION_WARNING_REQUIRED_COLUMNS,
-    PROTEIN_REQUIRED_COLUMNS,
     REPEAT_CONTEXT_REQUIRED_COLUMNS,
     REPEAT_CALL_REQUIRED_COLUMNS,
     RUN_PARAM_REQUIRED_COLUMNS,
-    SEQUENCE_REQUIRED_COLUMNS,
     TAXONOMY_REQUIRED_COLUMNS,
     VALID_METHODS,
 )
@@ -37,22 +35,6 @@ def iter_taxonomy_rows(path: Path):
         }
 
 
-def iter_genome_rows(path: Path, *, batch_id: str):
-    for row in _iter_tsv(path, GENOME_REQUIRED_COLUMNS):
-        yield {
-            "genome_id": _require_row_value(row, "genome_id", path),
-            "batch_id": batch_id,
-            "source": _require_row_value(row, "source", path),
-            "accession": _require_row_value(row, "accession", path),
-            "genome_name": _require_row_value(row, "genome_name", path),
-            "assembly_type": _require_row_value(row, "assembly_type", path),
-            "taxon_id": _parse_int(row, "taxon_id", path),
-            "assembly_level": _string_value(row.get("assembly_level")),
-            "species_name": _string_value(row.get("species_name")),
-            "notes": _string_value(row.get("notes")),
-        }
-
-
 def iter_run_level_genome_rows(path: Path):
     for row in _iter_tsv(path, [*GENOME_REQUIRED_COLUMNS, "batch_id"]):
         yield {
@@ -66,28 +48,6 @@ def iter_run_level_genome_rows(path: Path):
             "assembly_level": _string_value(row.get("assembly_level")),
             "species_name": _string_value(row.get("species_name")),
             "notes": _string_value(row.get("notes")),
-        }
-
-
-def iter_sequence_rows(path: Path, *, batch_id: str):
-    for row in _iter_tsv(path, SEQUENCE_REQUIRED_COLUMNS):
-        yield {
-            "sequence_id": _require_row_value(row, "sequence_id", path),
-            "batch_id": batch_id,
-            "genome_id": _require_row_value(row, "genome_id", path),
-            "sequence_name": _require_row_value(row, "sequence_name", path),
-            "sequence_length": _parse_int(row, "sequence_length", path),
-            "gene_symbol": _string_value(row.get("gene_symbol")),
-            "transcript_id": _string_value(row.get("transcript_id")),
-            "isoform_id": _string_value(row.get("isoform_id")),
-            "assembly_accession": _string_value(row.get("assembly_accession")),
-            "taxon_id": _parse_optional_int(row, "taxon_id", path),
-            "source_record_id": _string_value(row.get("source_record_id")),
-            "protein_external_id": _string_value(row.get("protein_external_id")),
-            "translation_table": _string_value(row.get("translation_table")),
-            "gene_group": _string_value(row.get("gene_group")),
-            "linkage_status": _string_value(row.get("linkage_status")),
-            "partial_status": _string_value(row.get("partial_status")),
         }
 
 
@@ -114,25 +74,6 @@ def iter_matched_sequence_rows(path: Path):
         }
 
 
-def iter_protein_rows(path: Path, *, batch_id: str):
-    for row in _iter_tsv(path, PROTEIN_REQUIRED_COLUMNS):
-        yield {
-            "protein_id": _require_row_value(row, "protein_id", path),
-            "batch_id": batch_id,
-            "sequence_id": _require_row_value(row, "sequence_id", path),
-            "genome_id": _require_row_value(row, "genome_id", path),
-            "protein_name": _require_row_value(row, "protein_name", path),
-            "protein_length": _parse_int(row, "protein_length", path),
-            "gene_symbol": _string_value(row.get("gene_symbol")),
-            "translation_method": _string_value(row.get("translation_method")),
-            "translation_status": _string_value(row.get("translation_status")),
-            "assembly_accession": _string_value(row.get("assembly_accession")),
-            "taxon_id": _parse_optional_int(row, "taxon_id", path),
-            "gene_group": _string_value(row.get("gene_group")),
-            "protein_external_id": _string_value(row.get("protein_external_id")),
-        }
-
-
 def iter_matched_protein_rows(path: Path):
     for row in _iter_tsv(path, MATCHED_PROTEIN_REQUIRED_COLUMNS):
         yield {
@@ -150,33 +91,6 @@ def iter_matched_protein_rows(path: Path):
             "gene_group": _string_value(row.get("gene_group")),
             "protein_external_id": _string_value(row.get("protein_external_id")),
             "amino_acid_sequence": _require_row_value(row, "amino_acid_sequence", path),
-        }
-
-
-def iter_download_manifest_rows(path: Path, *, batch_id: str):
-    for row in _iter_tsv(path, DOWNLOAD_MANIFEST_REQUIRED_COLUMNS):
-        row_batch_id = _require_row_value(row, "batch_id", path)
-        _ensure_matching_batch_id(path, expected_batch_id=batch_id, row_batch_id=row_batch_id)
-        yield {
-            "batch_id": row_batch_id,
-            "assembly_accession": _require_row_value(row, "assembly_accession", path),
-            "download_status": _require_row_value(row, "download_status", path),
-            "package_mode": _require_row_value(row, "package_mode", path),
-            "download_path": _string_value(row.get("download_path")),
-            "rehydrated_path": _string_value(row.get("rehydrated_path")),
-            "checksum": _string_value(row.get("checksum")),
-            "file_size_bytes": _parse_optional_int_value(row.get("file_size_bytes"), "file_size_bytes", path),
-            "download_started_at": _parse_optional_timestamp(
-                row.get("download_started_at"),
-                "download_started_at",
-                path,
-            ),
-            "download_finished_at": _parse_optional_timestamp(
-                row.get("download_finished_at"),
-                "download_finished_at",
-                path,
-            ),
-            "notes": _string_value(row.get("notes")),
         }
 
 
@@ -207,24 +121,6 @@ def _normalize_download_manifest_row(row: dict[str, str], path: Path) -> dict[st
         ),
         "notes": _string_value(row.get("notes")),
     }
-
-
-def iter_normalization_warning_rows(path: Path, *, batch_id: str):
-    for row in _iter_tsv(path, NORMALIZATION_WARNING_REQUIRED_COLUMNS):
-        row_batch_id = _require_row_value(row, "batch_id", path)
-        _ensure_matching_batch_id(path, expected_batch_id=batch_id, row_batch_id=row_batch_id)
-        yield {
-            "warning_code": _require_row_value(row, "warning_code", path),
-            "warning_scope": _require_row_value(row, "warning_scope", path),
-            "warning_message": _require_row_value(row, "warning_message", path),
-            "batch_id": row_batch_id,
-            "genome_id": _string_value(row.get("genome_id")),
-            "sequence_id": _string_value(row.get("sequence_id")),
-            "protein_id": _string_value(row.get("protein_id")),
-            "assembly_accession": _string_value(row.get("assembly_accession")),
-            "source_file": _string_value(row.get("source_file")),
-            "source_record_id": _string_value(row.get("source_record_id")),
-        }
 
 
 def iter_run_level_normalization_warning_rows(path: Path):
@@ -456,13 +352,6 @@ def _parse_timestamp_value(text: str, field_name: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
-
-
-def _ensure_matching_batch_id(path: Path, *, expected_batch_id: str, row_batch_id: str) -> None:
-    if row_batch_id != expected_batch_id:
-        raise ImportContractError(
-            f"{path} contains batch_id={row_batch_id!r}, expected {expected_batch_id!r}"
-        )
 
 
 def _string_value(value: Any) -> str:

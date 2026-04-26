@@ -18,12 +18,10 @@ from apps.browser.models.genomes import Protein, Sequence
 from apps.browser.models.operations import NormalizationWarning
 from apps.browser.models.repeat_calls import RepeatCall, RepeatCallCodonUsage
 from apps.imports.models import ImportBatch
-from apps.imports.services.published_run import ImportContractError, V2ArtifactPaths, inspect_published_run
+from apps.imports.services.published_run import ImportContractError, inspect_published_run
 
 from .copy import _analyze_models
-from .orchestrator import _import_inspected_run
 from .postgresql import _import_inspected_run_postgresql
-from .prepare import _prepare_streamed_import_data
 from .state import (
     ImportPhase,
     ImportRunResult,
@@ -92,73 +90,38 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
             reporter=reporter,
         )
         inspected = inspect_published_run(batch.source_path)
-        is_v2_import = isinstance(inspected.artifact_paths, V2ArtifactPaths)
-        batch_count = _inspected_batch_count(inspected)
         _set_batch_state(
             batch,
             phase=ImportPhase.PREPARING,
             progress_payload={
                 "message": "Preparing repeat-linked import rows.",
-                "batch_count": batch_count,
             },
             reporter=reporter,
         )
-        if connection.vendor == "postgresql":
-            _set_batch_state(
+        if connection.vendor != "postgresql":
+            raise ImportContractError("Publish contract v2 imports require PostgreSQL.")
+        _set_batch_state(
+            batch,
+            phase=ImportPhase.IMPORTING,
+            progress_payload={
+                "message": "Writing staged rows into PostgreSQL.",
+            },
+            reporter=reporter,
+        )
+        with transaction.atomic():
+            pipeline_run, counts = _import_inspected_run_postgresql(
                 batch,
-                phase=ImportPhase.IMPORTING,
-                progress_payload={
-                    "message": "Writing staged rows into PostgreSQL.",
-                    "batch_count": batch_count,
-                },
+                inspected,
+                replace_existing=batch.replace_existing,
                 reporter=reporter,
             )
-            with transaction.atomic():
-                pipeline_run, counts = _import_inspected_run_postgresql(
-                    batch,
-                    inspected,
-                    replace_existing=batch.replace_existing,
-                    reporter=reporter,
-                )
-                pipeline_run.browser_metadata = build_browser_metadata(
-                    pipeline_run,
-                    raw_counts=counts,
-                )
-                pipeline_run.save(update_fields=["browser_metadata"])
-                batch.pipeline_run = pipeline_run
-                batch.save(update_fields=["pipeline_run"])
-        else:
-            if is_v2_import:
-                raise ImportContractError("Publish contract v2 imports currently require PostgreSQL.")
-            prepared = _prepare_streamed_import_data(batch, inspected, reporter=reporter)
-            _set_batch_state(
-                batch,
-                phase=ImportPhase.IMPORTING,
-                progress_payload={
-                    "message": "Writing streamed rows into the database transaction.",
-                    "batch_count": len(inspected.artifact_paths.acquisition_batches),
-                    "retained_sequences": len(prepared.retained_sequence_ids),
-                    "retained_proteins": len(prepared.retained_protein_ids),
-                    "repeat_calls": prepared.total_repeat_calls,
-                },
-                reporter=reporter,
+            pipeline_run.browser_metadata = build_browser_metadata(
+                pipeline_run,
+                raw_counts=counts,
             )
-            with transaction.atomic():
-                pipeline_run, counts = _import_inspected_run(
-                    batch,
-                    inspected,
-                    prepared,
-                    replace_existing=batch.replace_existing,
-                    reporter=reporter,
-                )
-                pipeline_run.browser_metadata = build_browser_metadata(
-                    pipeline_run,
-                    raw_counts=counts,
-                )
-                pipeline_run.save(update_fields=["browser_metadata"])
-                batch.pipeline_run = pipeline_run
-                batch.save(update_fields=["pipeline_run"])
-            del prepared
+            pipeline_run.save(update_fields=["browser_metadata"])
+            batch.pipeline_run = pipeline_run
+            batch.save(update_fields=["pipeline_run"])
         _set_batch_state(
             batch,
             phase=ImportPhase.CATALOG_SYNC,
@@ -210,9 +173,3 @@ def process_import_batch(batch_or_id: ImportBatch | int) -> ImportRunResult:
         return ImportRunResult(batch=batch, pipeline_run=pipeline_run, counts=counts)
     finally:
         reporter.close()
-
-
-def _inspected_batch_count(inspected) -> int:
-    if isinstance(inspected.artifact_paths, V2ArtifactPaths):
-        return 0
-    return len(inspected.artifact_paths.acquisition_batches)
