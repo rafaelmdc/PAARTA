@@ -169,6 +169,7 @@ class BrowserViewTests(TestCase):
                 "sequences": 0,
                 "proteins": 23,
                 "repeat_calls": 31,
+                "repeat_call_contexts": 0,
                 "accession_status_rows": 0,
                 "accession_call_count_rows": 0,
                 "download_manifest_entries": 0,
