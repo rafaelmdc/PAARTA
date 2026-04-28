@@ -104,8 +104,8 @@ in `.env`; inside the container, import paths use
   table.
 - `/browser/runs/`: imported runs and provenance.
 - `/browser/accessions/`, `/browser/genomes/`, `/browser/sequences/`,
-  `/browser/proteins/`, `/browser/calls/`: supporting canonical catalog and
-  technical repeat-call browsers.
+  `/browser/proteins/`, `/browser/calls/`, `/browser/codon-usage-rows/`:
+  supporting canonical catalog and technical repeat/codon browsers.
 - `/browser/lengths/`: repeat length statistics.
 - `/browser/codon-ratios/`: residue-scoped codon composition.
 - `/browser/codon-composition-length/`: residue-scoped codon composition across

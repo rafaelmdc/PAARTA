@@ -1,6 +1,7 @@
 from importlib import import_module
 
 from django.db.models import Exists, OuterRef, Prefetch
+from django.db.models import Q
 from django.http import Http404
 from django.urls import reverse
 from django.views.generic import TemplateView
@@ -394,6 +395,220 @@ class CodonUsageListView(HomorepeatListView):
         if codon_usage_profiles is not None:
             for codon_usage_profile in codon_usage_profiles:
                 _attach_codon_usage_display_fields(codon_usage_profile)
+        return context
+
+
+CODON_USAGE_ROW_LIST_FIELDS = (
+    "id",
+    "repeat_call_id",
+    "amino_acid",
+    "codon",
+    "codon_count",
+    "codon_fraction",
+    "repeat_call__id",
+    "repeat_call__latest_pipeline_run_id",
+    "repeat_call__latest_pipeline_run__id",
+    "repeat_call__latest_pipeline_run__run_id",
+    "repeat_call__latest_repeat_call_id",
+    "repeat_call__latest_repeat_call__id",
+    "repeat_call__latest_repeat_call__call_id",
+    "repeat_call__latest_repeat_call__protein_id",
+    "repeat_call__latest_repeat_call__genome_id",
+    "repeat_call__latest_repeat_call__sequence_id",
+    "repeat_call__taxon_id",
+    "repeat_call__taxon__id",
+    "repeat_call__taxon__taxon_id",
+    "repeat_call__taxon__taxon_name",
+    "repeat_call__source_call_id",
+    "repeat_call__method",
+    "repeat_call__accession",
+    "repeat_call__gene_symbol",
+    "repeat_call__protein_name",
+    "repeat_call__start",
+    "repeat_call__end",
+    "repeat_call__length",
+    "repeat_call__repeat_residue",
+    "repeat_call__purity",
+)
+
+
+class CodonUsageRowListView(BrowserTSVExportMixin, VirtualScrollListView):
+    model = CanonicalRepeatCallCodonUsage
+    template_name = "browser/codon_usage_row_list.html"
+    context_object_name = "codon_usage_rows"
+    virtual_scroll_row_template_name = "browser/includes/codon_usage_row_list_rows.html"
+    virtual_scroll_colspan = 11
+    tsv_filename_slug = "codon_usage_rows"
+    download_tsv_label = "Download Codon Usage Rows TSV"
+    tsv_columns = (
+        TSVColumn("Organism", "repeat_call.taxon.taxon_name"),
+        TSVColumn("Genome / Assembly", "repeat_call.accession"),
+        TSVColumn("Gene", "repeat_call.gene_symbol"),
+        TSVColumn("Protein", "repeat_call.protein_name"),
+        TSVColumn("Repeat class", "repeat_call.repeat_residue"),
+        TSVColumn("Amino acid", "amino_acid"),
+        TSVColumn("Codon", "codon"),
+        TSVColumn("Codon count", "codon_count"),
+        TSVColumn("Codon fraction", "codon_fraction"),
+        TSVColumn("Method", "repeat_call.method"),
+        TSVColumn("Source call", lambda codon_usage: repeat_call_source_id(codon_usage.repeat_call)),
+        TSVColumn("Start", "repeat_call.start"),
+        TSVColumn("End", "repeat_call.end"),
+        TSVColumn("Latest run", "repeat_call.latest_pipeline_run.run_id"),
+    )
+    ordering_map = {
+        "organism": ("repeat_call__taxon__taxon_name", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "-organism": ("-repeat_call__taxon__taxon_name", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "genome": ("repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "-genome": ("-repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "gene_symbol": ("repeat_call__gene_symbol", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "-gene_symbol": ("-repeat_call__gene_symbol", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "residue": ("repeat_call__repeat_residue", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "-residue": ("-repeat_call__repeat_residue", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "amino_acid": ("amino_acid", "codon", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "id"),
+        "-amino_acid": ("-amino_acid", "codon", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "id"),
+        "codon": ("codon", "amino_acid", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "id"),
+        "-codon": ("-codon", "amino_acid", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "id"),
+        "count": ("codon_count", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "-count": ("-codon_count", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "fraction": ("codon_fraction", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "-fraction": ("-codon_fraction", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "method": ("repeat_call__method", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "-method": ("-repeat_call__method", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "run": ("repeat_call__latest_pipeline_run__run_id", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+        "-run": ("-repeat_call__latest_pipeline_run__run_id", "repeat_call__accession", "repeat_call__protein_name", "repeat_call__start", "amino_acid", "codon", "id"),
+    }
+    default_ordering = (
+        "repeat_call__latest_pipeline_run_id",
+        "repeat_call__accession",
+        "repeat_call__protein_name",
+        "repeat_call__start",
+        "amino_acid",
+        "codon",
+        "id",
+    )
+
+    def include_virtual_scroll_count(self, *, context=None, page_obj=None):
+        return False
+
+    def use_cursor_pagination(self, queryset):
+        return hasattr(queryset, "filter") and self.uses_fast_default_ordering()
+
+    def _load_filter_state(self):
+        self.current_run = _resolve_current_run(self.request)
+        self.branch_scope = _resolve_branch_scope(self.request)
+        self.selected_branch_taxon = self.branch_scope["selected_branch_taxon"]
+        self.current_accession = self.request.GET.get("accession", "").strip()
+        self.current_method = self.request.GET.get("method", "").strip()
+        self.current_residue = self.request.GET.get("residue", "").strip().upper()
+        self.current_gene_symbol = self.request.GET.get("gene_symbol", "").strip()
+        self.current_length_min = self.request.GET.get("length_min", "").strip()
+        self.current_length_max = self.request.GET.get("length_max", "").strip()
+        self.current_purity_min = self.request.GET.get("purity_min", "").strip()
+        self.current_purity_max = self.request.GET.get("purity_max", "").strip()
+        self.current_genome = self.request.GET.get("genome", "").strip()
+        self.current_sequence = self.request.GET.get("sequence", "").strip()
+        self.current_protein = self.request.GET.get("protein", "").strip()
+        self.current_amino_acid = self.request.GET.get("amino_acid", "").strip().upper()
+        self.current_codon = self.request.GET.get("codon", "").strip().upper()
+
+    def get_queryset(self):
+        self._load_filter_state()
+        queryset = CanonicalRepeatCallCodonUsage.objects.select_related(
+            "repeat_call",
+            "repeat_call__latest_pipeline_run",
+            "repeat_call__latest_repeat_call",
+            "repeat_call__taxon",
+        )
+        query = self.get_search_query()
+        if query:
+            queryset = queryset.filter(
+                Q(repeat_call__source_call_id__istartswith=query)
+                | Q(repeat_call__accession__istartswith=query)
+                | Q(repeat_call__protein_name__istartswith=query)
+                | Q(repeat_call__gene_symbol__istartswith=query)
+                | Q(codon__istartswith=query)
+            )
+        if self.current_run is not None:
+            queryset = queryset.filter(repeat_call__latest_pipeline_run=self.current_run)
+        if self.current_accession:
+            queryset = queryset.filter(repeat_call__accession__istartswith=self.current_accession)
+        if self.current_genome:
+            queryset = queryset.filter(repeat_call__genome__genome_id=self.current_genome)
+        if self.current_sequence:
+            queryset = queryset.filter(repeat_call__sequence__sequence_id=self.current_sequence)
+        if self.current_protein:
+            queryset = queryset.filter(repeat_call__protein__protein_id=self.current_protein)
+        if self.current_method:
+            queryset = queryset.filter(repeat_call__method=self.current_method)
+        if self.current_residue:
+            queryset = queryset.filter(repeat_call__repeat_residue=self.current_residue)
+        if self.current_gene_symbol:
+            queryset = queryset.filter(repeat_call__gene_symbol__istartswith=self.current_gene_symbol)
+        if self.current_length_min:
+            length_min = _parse_positive_int(self.current_length_min)
+            if length_min is not None:
+                queryset = queryset.filter(repeat_call__length__gte=length_min)
+        if self.current_length_max:
+            length_max = _parse_positive_int(self.current_length_max)
+            if length_max is not None:
+                queryset = queryset.filter(repeat_call__length__lte=length_max)
+        if self.current_purity_min:
+            purity_min = _parse_float(self.current_purity_min)
+            if purity_min is not None:
+                queryset = queryset.filter(repeat_call__purity__gte=purity_min)
+        if self.current_purity_max:
+            purity_max = _parse_float(self.current_purity_max)
+            if purity_max is not None:
+                queryset = queryset.filter(repeat_call__purity__lte=purity_max)
+        if self.current_amino_acid:
+            queryset = queryset.filter(amino_acid__iexact=self.current_amino_acid)
+        if self.current_codon:
+            queryset = queryset.filter(codon__istartswith=self.current_codon)
+        if self.branch_scope["branch_taxa_ids"] is not None:
+            queryset = queryset.filter(repeat_call__taxon_id__in=self.branch_scope["branch_taxa_ids"])
+
+        ordering = self.get_ordering()
+        if ordering:
+            queryset = queryset.order_by(*ordering)
+        return queryset.only(*CODON_USAGE_ROW_LIST_FIELDS)
+
+    def prepare_tsv_queryset(self, queryset):
+        return queryset.only(*CODON_USAGE_ROW_LIST_FIELDS)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if self.is_virtual_scroll_fragment_request():
+            return context
+        current_run = getattr(self, "current_run", None)
+        run_choices = PipelineRun.objects.order_by("-imported_at", "run_id")
+        facet_choices = resolve_browser_facets(
+            pipeline_run=current_run,
+            pipeline_runs=run_choices,
+        )
+
+        context["current_run"] = current_run
+        context["current_run_id"] = current_run.run_id if current_run else ""
+        context["run_choices"] = run_choices
+        _update_branch_scope_context(context, getattr(self, "branch_scope", _resolve_branch_scope(self.request)))
+        context["current_accession"] = getattr(self, "current_accession", "")
+        context["current_method"] = getattr(self, "current_method", "")
+        context["current_residue"] = getattr(self, "current_residue", "")
+        context["current_gene_symbol"] = getattr(self, "current_gene_symbol", "")
+        context["current_length_min"] = getattr(self, "current_length_min", "")
+        context["current_length_max"] = getattr(self, "current_length_max", "")
+        context["current_purity_min"] = getattr(self, "current_purity_min", "")
+        context["current_purity_max"] = getattr(self, "current_purity_max", "")
+        context["current_genome"] = getattr(self, "current_genome", "")
+        context["current_sequence"] = getattr(self, "current_sequence", "")
+        context["current_protein"] = getattr(self, "current_protein", "")
+        context["current_amino_acid"] = getattr(self, "current_amino_acid", "")
+        context["current_codon"] = getattr(self, "current_codon", "")
+        context["selected_genome"] = _resolve_genome_filter(current_run, context["current_genome"])
+        context["selected_sequence"] = _resolve_sequence_filter(current_run, context["current_sequence"])
+        context["selected_protein"] = _resolve_protein_filter(current_run, context["current_protein"])
+        context["method_choices"] = facet_choices["methods"]
+        context["residue_choices"] = facet_choices["residues"]
         return context
 
 
