@@ -62,6 +62,13 @@ The Compose boundary is intentional:
 - no normal browser request depends on direct runtime reads of pipeline files
 
 With the Compose stack running, you can:
+=======
+- [Usage](docs/usage.md) — local setup, imports, routes, and tests
+- [Configuration](docs/configuration.md) — all environment variables and their defaults
+- [Architecture](docs/architecture.md) — app structure, data model, and view hierarchy
+- [Statistics](docs/statistics.md) — filter definitions and biological semantics
+- [Operations](docs/operations.md) — management commands, cache behaviour, and maintenance
+- [Development](docs/development.md) — contributor workflow and testing strategy
 
 - use `/imports/` to queue a run from the detected sibling pipeline outputs and let the `worker` service process it automatically
 - process the oldest queued batch manually with `docker compose exec web python manage.py import_run --next-pending`

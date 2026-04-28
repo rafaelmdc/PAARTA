@@ -28,3 +28,11 @@ describe the current system contract.
 - Document current behavior, not intended future behavior.
 - Put transient planning and debugging notes in `journal/`, not in evergreen
   docs.
+=======
+- [Usage](usage.md) — local setup, imports, routes, and tests
+- [Configuration](configuration.md) — all environment variables and their defaults
+- [Architecture](architecture.md) — app structure, data model, view hierarchy, and workers
+- [Statistics](statistics.md) — filter definitions and biological semantics
+- [Operations](operations.md) — management commands, cache behaviour, and maintenance
+- [Development](development.md) — contributor workflow, code organisation, and testing strategy
+- [Journal](journal/) — dated session notes (project history, not current guidance)

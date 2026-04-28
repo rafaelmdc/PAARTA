@@ -1,0 +1,98 @@
+# Configuration
+
+The app is configured via environment variables. Docker Compose reads `.env` from the repo root automatically.
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` before running `docker compose up`. For direct `python3 manage.py ...` commands outside Compose, export the relevant variables in your shell or source the file first.
+
+---
+
+## Django
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DJANGO_SECRET_KEY` | `replace-me` | Django secret key. Set a long random string in production. |
+| `DJANGO_DEBUG` | `0` | Enable debug mode (`1`/`true`/`yes`). Disable in production. |
+| `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated list of allowed hostnames. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated list of trusted origins for CSRF, e.g. `https://yourdomain.com`. Required when running behind a reverse proxy. |
+| `DJANGO_TIME_ZONE` | `UTC` | Django timezone, e.g. `Europe/London`. |
+
+---
+
+## Database
+
+If `DATABASE_ENGINE` is not set, Django falls back to a local `db.sqlite3` file. SQLite is fine for development but does not exercise the production import path.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_ENGINE` | _(unset → SQLite)_ | Set to `django.db.backends.postgresql` to use PostgreSQL. |
+| `DATABASE_NAME` | `homorepeat` | Database name. |
+| `DATABASE_USER` | `homorepeat` | Database user. |
+| `DATABASE_PASSWORD` | `homorepeat` | Database password. |
+| `DATABASE_HOST` | `postgres` | Database host. Inside Compose this matches the `postgres` service name. |
+| `DATABASE_PORT` | `5432` | Database port. |
+
+The `postgres` Compose service reads its own set of variables that must match the above:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `POSTGRES_DB` | `homorepeat` | PostgreSQL database name (must equal `DATABASE_NAME`). |
+| `POSTGRES_USER` | `homorepeat` | PostgreSQL user (must equal `DATABASE_USER`). |
+| `POSTGRES_PASSWORD` | `homorepeat` | PostgreSQL password (must equal `DATABASE_PASSWORD`). |
+
+---
+
+## Redis
+
+If `REDIS_URL` is not set, Celery uses an in-memory broker and the cache uses Django's local-memory backend. Both fall back gracefully but are not suitable for multi-process or multi-container deployments.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_URL` | _(unset)_ | Redis connection URL, e.g. `redis://redis:6379`. Inside Compose, the `redis` service is used automatically. |
+
+---
+
+## Runs and Imports
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HOMOREPEAT_RUNS_ROOT` | _(empty)_ | Host path to the directory containing published pipeline run folders. Compose mounts this read-only at `/workspace/homorepeat_pipeline/runs` inside the web and worker containers. When set, the import queue UI at `/imports/` will auto-detect runs in that directory. |
+
+---
+
+## Application Tuning
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HOMOREPEAT_BROWSER_STATS_CACHE_TTL` | `60` | Cache TTL in seconds for stats bundles and taxonomy gutter payloads. |
+| `CELERY_TASK_ALWAYS_EAGER` | `0` | Run Celery tasks synchronously in the calling process. Useful for local debugging without a running worker. |
+
+---
+
+## Internal Services
+
+These are set automatically in `compose.yaml` and rarely need to be changed.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FLOWER_INTERNAL_URL` | `http://flower:5555` | Internal URL the web service uses to proxy requests to the Flower Celery monitor. |
+
+---
+
+## Postgres Tuning (Compose only)
+
+These control the `postgres` container's server config. The defaults are sized for a development workstation. For large imports, increase `POSTGRES_SHM_SIZE` and `POSTGRES_WORK_MEM`.
+
+| Variable | Default |
+|----------|---------|
+| `POSTGRES_SHM_SIZE` | `1gb` |
+| `POSTGRES_MAX_WAL_SIZE` | `8GB` |
+| `POSTGRES_MIN_WAL_SIZE` | `1GB` |
+| `POSTGRES_CHECKPOINT_TIMEOUT` | `30min` |
+| `POSTGRES_CHECKPOINT_COMPLETION_TARGET` | `0.9` |
+| `POSTGRES_WAL_COMPRESSION` | `on` |
+| `POSTGRES_WORK_MEM` | `64MB` |
+| `POSTGRES_MAINTENANCE_WORK_MEM` | `256MB` |
