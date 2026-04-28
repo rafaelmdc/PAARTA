@@ -15,6 +15,7 @@ from apps.browser.models import (
     NormalizationWarning,
     Protein,
     RepeatCall,
+    RepeatCallCodonUsage,
     RunParameter,
     Sequence,
 )
@@ -141,6 +142,29 @@ class BrowserViewTests(TestCase):
             replace_all_repeat_call_methods=True,
         )
         return {"sequence": sequence, "protein": protein, "repeat_call": repeat_call}
+
+    def _set_repeat_call_codon_usages(self, run_data, *, repeat_call=None, rows):
+        target_repeat_call = repeat_call or run_data["repeat_call"]
+        RepeatCallCodonUsage.objects.filter(repeat_call=target_repeat_call).delete()
+        RepeatCallCodonUsage.objects.bulk_create(
+            [
+                RepeatCallCodonUsage(
+                    repeat_call=target_repeat_call,
+                    amino_acid=row["amino_acid"],
+                    codon=row["codon"],
+                    codon_count=row["codon_count"],
+                    codon_fraction=row["codon_fraction"],
+                )
+                for row in rows
+            ]
+        )
+        sync_canonical_catalog_for_run(
+            target_repeat_call.pipeline_run,
+            import_batch=target_repeat_call.pipeline_run.canonical_sync_batch,
+            last_seen_at=timezone.now(),
+            replace_all_repeat_call_methods=True,
+        )
+        return target_repeat_call
 
     def test_browser_home_shows_counts_and_recent_runs(self):
         response = self.client.get(reverse("browser:home"))
@@ -2361,6 +2385,117 @@ class BrowserViewTests(TestCase):
         )
         self.assertNotContains(response, "page=1&amp;download=tsv")
         self.assertNotContains(response, "fragment=virtual-scroll&amp;download=tsv")
+
+    def test_codon_usage_list_renders_row_level_profiles(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 0.72},
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 3, "codon_fraction": 0.28},
+                {"amino_acid": "A", "codon": "GCT", "codon_count": 1, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(reverse("browser:codon-usage-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Codon Usage")
+        self.assertContains(response, "Codon coverage")
+        self.assertContains(response, "Codon profile")
+        self.assertContains(response, "Codon counts")
+        self.assertContains(response, "Dominant codon")
+        self.assertContains(response, "Homo sapiens")
+        self.assertContains(response, "11Q")
+        self.assertContains(response, "11/11")
+        self.assertContains(response, "CAG 73%, CAA 27%")
+        self.assertContains(response, "CAG 8 / CAA 3")
+        self.assertContains(response, "CAG")
+        self.assertNotContains(response, "GCT")
+
+    def test_codon_usage_list_only_shows_calls_with_target_codon_usage(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 11, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(reverse("browser:codon-usage-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "GCF_ALPHA")
+        self.assertNotContains(response, "GCF_BETA")
+
+    def test_codon_usage_list_uses_count_derived_percentages(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 5, "codon_fraction": 0.1},
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 5, "codon_fraction": 0.9},
+            ],
+        )
+
+        response = self.client.get(reverse("browser:codon-usage-list"), {"run": "run-alpha"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "CAA 50%, CAG 50%")
+        self.assertContains(response, "CAA 5 / CAG 5")
+        self.assertContains(response, ">CAA</td>")
+
+    def test_codon_usage_list_tsv_export_includes_sequences_and_parseable_counts(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 8, "codon_fraction": 0.72},
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 3, "codon_fraction": 0.28},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-usage-list"),
+            {
+                "run": "run-alpha",
+                "download": "tsv",
+                "page": "2",
+                "fragment": "virtual-scroll",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="homorepeat_codon_usage.tsv"')
+        body = b"".join(response.streaming_content).decode("utf-8")
+        self.assertIn(
+            "Organism\tGenome / Assembly\tProtein\tGene\tRepeat class\tLength\tPattern\tCodon coverage",
+            body,
+        )
+        self.assertIn("Parseable codon counts\tParseable codon fractions", body)
+        self.assertIn("CAG=8;CAA=3", body)
+        self.assertIn("CAG=0.727;CAA=0.273", body)
+        self.assertIn("QQQQQQQQQQQ", body)
+        self.assertIn("CAGCAGCAGCAGCAGCAGCAGCAGCAGCAGCAG", body)
+
+    def test_codon_usage_list_virtual_scroll_fragment_returns_profiles(self):
+        self._set_repeat_call_codon_usages(
+            self.alpha,
+            rows=[
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 11, "codon_fraction": 1.0},
+            ],
+        )
+
+        response = self.client.get(
+            reverse("browser:codon-usage-list"),
+            {"run": "run-alpha", "fragment": "virtual-scroll"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("rows_html", payload)
+        self.assertIn("CAG 100%", payload["rows_html"])
+        self.assertEqual(payload["row_count"], 1)
+        self.assertNotIn("count", payload)
+        self.assertEqual(payload["next_query"], "")
 
     def test_sequence_list_virtual_scroll_fragment_returns_rows_without_count(self):
         response = self.client.get(
