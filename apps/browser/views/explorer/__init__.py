@@ -8,7 +8,7 @@ from .operations import (
     NormalizationWarningListView,
 )
 from .proteins import ProteinDetailView, ProteinListView
-from .repeat_calls import HomorepeatListView, RepeatCallDetailView, RepeatCallListView
+from .repeat_calls import CodonUsageListView, HomorepeatListView, RepeatCallDetailView, RepeatCallListView
 from .runs import RunDetailView, RunListView
 from .sequences import SequenceDetailView, SequenceListView
 from .taxonomy import TaxonDetailView, TaxonListView
@@ -19,6 +19,7 @@ __all__ = [
     "AccessionStatusListView",
     "AccessionsListView",
     "BrowserHomeView",
+    "CodonUsageListView",
     "DownloadManifestEntryListView",
     "GenomeDetailView",
     "GenomeListView",

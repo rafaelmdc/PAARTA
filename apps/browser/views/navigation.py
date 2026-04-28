@@ -47,6 +47,11 @@ def _browser_directory_sections():
                     count=CanonicalRepeatCall.objects.count(),
                 ),
                 _nav_item(
+                    "Codon Usage",
+                    "Row-level repeat codon profiles with coverage, codon counts, profile percentages, and dominant codon.",
+                    url_name="browser:codon-usage-list",
+                ),
+                _nav_item(
                     "Accessions",
                     "Canonical accession records with current counts and supporting import history.",
                     url_name="browser:accession-list",

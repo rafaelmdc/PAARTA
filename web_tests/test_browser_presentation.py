@@ -1,6 +1,10 @@
 from unittest import TestCase
 
-from apps.browser.presentation import format_protein_position, format_repeat_pattern
+from apps.browser.presentation import (
+    format_protein_position,
+    format_repeat_pattern,
+    summarize_target_codon_usage,
+)
 
 
 class BrowserPresentationTests(TestCase):
@@ -29,3 +33,34 @@ class BrowserPresentationTests(TestCase):
     def test_format_protein_position_handles_missing_coordinates(self):
         self.assertEqual(format_protein_position(None, 20, 300), "")
         self.assertEqual(format_protein_position(10, None, 300), "")
+
+    def test_summarize_target_codon_usage_uses_target_residue_counts(self):
+        summary = summarize_target_codon_usage(
+            [
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 20},
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 10},
+                {"amino_acid": "A", "codon": "GCT", "codon_count": 1},
+            ],
+            "Q",
+            30,
+        )
+
+        self.assertEqual(summary["coverage"], "30/30")
+        self.assertEqual(summary["profile"], "CAG 67%, CAA 33%")
+        self.assertEqual(summary["counts"], "CAG 20 / CAA 10")
+        self.assertEqual(summary["dominant_codon"], "CAG")
+        self.assertEqual(summary["parseable_counts"], "CAG=20;CAA=10")
+        self.assertEqual(summary["parseable_fractions"], "CAG=0.667;CAA=0.333")
+
+    def test_summarize_target_codon_usage_breaks_ties_by_codon(self):
+        summary = summarize_target_codon_usage(
+            [
+                {"amino_acid": "Q", "codon": "CAG", "codon_count": 5},
+                {"amino_acid": "Q", "codon": "CAA", "codon_count": 5},
+            ],
+            "Q",
+            10,
+        )
+
+        self.assertEqual(summary["dominant_codon"], "CAA")
+        self.assertEqual(summary["profile"], "CAA 50%, CAG 50%")

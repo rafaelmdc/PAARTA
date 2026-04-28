@@ -8,6 +8,7 @@ from .views import (
     BrowserHomeView,
     CodonCompositionLengthExplorerView,
     CodonRatioExplorerView,
+    CodonUsageListView,
     DownloadBuildStatusView,
     DownloadManifestEntryListView,
     PayloadBuildStatusView,
@@ -41,6 +42,7 @@ urlpatterns = [
     path("runs/", RunListView.as_view(), name="run-list"),
     path("runs/<int:pk>/", RunDetailView.as_view(), name="run-detail"),
     path("homorepeats/", HomorepeatListView.as_view(), name="homorepeat-list"),
+    path("codon-usage/", CodonUsageListView.as_view(), name="codon-usage-list"),
     path("lengths/", RepeatLengthExplorerView.as_view(), name="lengths"),
     path("codon-ratios/", CodonRatioExplorerView.as_view(), name="codon-ratios"),
     path(

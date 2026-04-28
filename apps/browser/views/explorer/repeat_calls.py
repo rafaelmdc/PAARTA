@@ -1,5 +1,6 @@
 from importlib import import_module
 
+from django.db.models import Exists, OuterRef, Prefetch
 from django.http import Http404
 from django.urls import reverse
 from django.views.generic import TemplateView
@@ -8,10 +9,14 @@ from apps.browser.explorer.canonical import (
     build_canonical_repeat_call_detail_context,
     scoped_canonical_repeat_calls,
 )
-from apps.browser.presentation import format_protein_position, format_repeat_pattern
+from apps.browser.presentation import (
+    format_protein_position,
+    format_repeat_pattern,
+    summarize_target_codon_usage,
+)
 
 from ...exports import BrowserTSVExportMixin, TSVColumn
-from ...models import CanonicalRepeatCall, PipelineRun, RepeatCall
+from ...models import CanonicalRepeatCall, CanonicalRepeatCallCodonUsage, PipelineRun, RepeatCall
 from ..filters import (
     _resolve_branch_scope,
     _resolve_current_run,
@@ -74,6 +79,64 @@ BIOLOGICAL_REPEAT_TSV_FIELDS = BIOLOGICAL_REPEAT_LIST_FIELDS + (
 def repeat_call_source_id(repeat_call):
     latest_repeat_call = getattr(repeat_call, "latest_repeat_call", None)
     return repeat_call.source_call_id or getattr(latest_repeat_call, "call_id", "")
+
+
+def _codon_usage_prefetch():
+    return Prefetch(
+        "codon_usages",
+        queryset=CanonicalRepeatCallCodonUsage.objects.only(
+            "id",
+            "repeat_call_id",
+            "amino_acid",
+            "codon",
+            "codon_count",
+            "codon_fraction",
+        ),
+    )
+
+
+def _target_codon_usage_rows(repeat_call):
+    prefetched = getattr(repeat_call, "_prefetched_objects_cache", {}).get("codon_usages")
+    if prefetched is not None:
+        codon_usages = prefetched
+    else:
+        codon_usages = repeat_call.codon_usages.all()
+    target_residue = (repeat_call.repeat_residue or "").upper()
+    return [
+        codon_usage
+        for codon_usage in codon_usages
+        if (codon_usage.amino_acid or "").upper() == target_residue
+    ]
+
+
+def _attach_repeat_display_fields(repeat_call):
+    repeat_call.repeat_pattern = format_repeat_pattern(repeat_call.aa_sequence)
+    repeat_call.protein_position = format_protein_position(
+        repeat_call.start,
+        repeat_call.end,
+        repeat_call.protein_length,
+    )
+    return repeat_call
+
+
+def _attach_codon_usage_display_fields(repeat_call):
+    if hasattr(repeat_call, "codon_profile"):
+        return repeat_call
+    _attach_repeat_display_fields(repeat_call)
+    profile = summarize_target_codon_usage(
+        _target_codon_usage_rows(repeat_call),
+        repeat_call.repeat_residue,
+        repeat_call.repeat_count,
+    )
+    repeat_call.codon_coverage = profile["coverage"]
+    repeat_call.codon_profile = profile["profile"]
+    repeat_call.codon_counts = profile["counts"]
+    repeat_call.dominant_codon = profile["dominant_codon"]
+    repeat_call.codon_counts_export = profile["parseable_counts"]
+    repeat_call.codon_fractions_export = profile["parseable_fractions"]
+    repeat_call.codon_covered_count = profile["covered_count"]
+    repeat_call.target_residue_count = profile["target_count"]
+    return repeat_call
 
 
 class RepeatCallListView(BrowserTSVExportMixin, VirtualScrollListView):
@@ -269,12 +332,61 @@ class HomorepeatListView(RepeatCallListView):
         homorepeats = context.get("homorepeats")
         if homorepeats is not None:
             for homorepeat in homorepeats:
-                homorepeat.repeat_pattern = format_repeat_pattern(homorepeat.aa_sequence)
-                homorepeat.protein_position = format_protein_position(
-                    homorepeat.start,
-                    homorepeat.end,
-                    homorepeat.protein_length,
-                )
+                _attach_repeat_display_fields(homorepeat)
+        return context
+
+
+class CodonUsageListView(HomorepeatListView):
+    template_name = "browser/codon_usage_list.html"
+    context_object_name = "codon_usage_profiles"
+    virtual_scroll_row_template_name = "browser/includes/codon_usage_list_rows.html"
+    virtual_scroll_colspan = 11
+    tsv_filename_slug = "codon_usage"
+    download_tsv_label = "Download Codon Usage TSV"
+    tsv_columns = (
+        TSVColumn("Organism", "taxon.taxon_name"),
+        TSVColumn("Genome / Assembly", "accession"),
+        TSVColumn("Protein", "protein_name"),
+        TSVColumn("Gene", "gene_symbol"),
+        TSVColumn("Repeat class", "repeat_residue"),
+        TSVColumn("Length", "length"),
+        TSVColumn("Pattern", lambda repeat_call: format_repeat_pattern(repeat_call.aa_sequence)),
+        TSVColumn("Codon coverage", lambda repeat_call: _attach_codon_usage_display_fields(repeat_call).codon_coverage),
+        TSVColumn("Codon profile", lambda repeat_call: _attach_codon_usage_display_fields(repeat_call).codon_profile),
+        TSVColumn("Codon counts", lambda repeat_call: _attach_codon_usage_display_fields(repeat_call).codon_counts),
+        TSVColumn("Dominant codon", lambda repeat_call: _attach_codon_usage_display_fields(repeat_call).dominant_codon),
+        TSVColumn("Method", "method"),
+        TSVColumn("Repeat sequence", "aa_sequence"),
+        TSVColumn("Codon sequence", "codon_sequence"),
+        TSVColumn("Parseable codon counts", lambda repeat_call: _attach_codon_usage_display_fields(repeat_call).codon_counts_export),
+        TSVColumn("Parseable codon fractions", lambda repeat_call: _attach_codon_usage_display_fields(repeat_call).codon_fractions_export),
+        TSVColumn("Target residue count", "repeat_count"),
+        TSVColumn("Source call", repeat_call_source_id),
+        TSVColumn("Latest run", "latest_pipeline_run.run_id"),
+    )
+
+    def get_queryset(self):
+        queryset = RepeatCallListView.get_queryset(self)
+        target_codon_usage_exists = CanonicalRepeatCallCodonUsage.objects.filter(
+            repeat_call_id=OuterRef("pk"),
+            amino_acid=OuterRef("repeat_residue"),
+        )
+        return (
+            queryset.annotate(has_target_codon_usage=Exists(target_codon_usage_exists))
+            .filter(has_target_codon_usage=True)
+            .only(*BIOLOGICAL_REPEAT_LIST_FIELDS)
+            .prefetch_related(_codon_usage_prefetch())
+        )
+
+    def prepare_tsv_queryset(self, queryset):
+        return queryset.only(*BIOLOGICAL_REPEAT_TSV_FIELDS)
+
+    def get_context_data(self, **kwargs):
+        context = RepeatCallListView.get_context_data(self, **kwargs)
+        codon_usage_profiles = context.get("codon_usage_profiles")
+        if codon_usage_profiles is not None:
+            for codon_usage_profile in codon_usage_profiles:
+                _attach_codon_usage_display_fields(codon_usage_profile)
         return context
 
 
