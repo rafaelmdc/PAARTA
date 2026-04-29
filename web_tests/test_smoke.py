@@ -18,7 +18,7 @@ class RouteSmokeTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "browser/home.html")
-        self.assertContains(response, "Canonical entity browser with imported runs kept available as provenance.")
+        self.assertContains(response, "Biology-first homorepeat and codon usage browsing.")
 
     def test_imports_home_redirects_anonymous_users_to_login(self):
         response = self.client.get(reverse("imports:home"))

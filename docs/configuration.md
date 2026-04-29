@@ -19,6 +19,7 @@ Edit `.env` before running `docker compose up`. For direct `python3 manage.py ..
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated list of allowed hostnames. |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated list of trusted origins for CSRF, e.g. `https://yourdomain.com`. Required when running behind a reverse proxy. |
 | `DJANGO_TIME_ZONE` | `UTC` | Django timezone, e.g. `Europe/London`. |
+| `no_admin` | `0` | Bypass Django staff/admin login and grant full permissions to every web request. Use only on trusted local machines. |
 
 ---
 
