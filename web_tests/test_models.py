@@ -1,6 +1,8 @@
+from pathlib import Path
+
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.browser.models import (
     AccessionCallCount,
@@ -21,7 +23,7 @@ from apps.browser.models import (
     Taxon,
     TaxonClosure,
 )
-from apps.imports.models import CATALOG_VERSION_CACHE_KEY, CatalogVersion, ImportBatch
+from apps.imports.models import CATALOG_VERSION_CACHE_KEY, CatalogVersion, ImportBatch, UploadedRun
 from apps.imports.services.import_run.state import _normalize_progress_payload
 
 
@@ -150,6 +152,43 @@ class ImportBatchModelTests(TestCase):
         self.assertEqual(states["preparing_import"], "complete")
         self.assertEqual(states["importing_rows"], "failed")
         self.assertEqual(states["syncing_canonical_catalog"], "pending")
+
+
+class UploadedRunModelTests(TestCase):
+    def test_uploaded_run_defaults_to_receiving_status(self):
+        uploaded_run = UploadedRun.objects.create(
+            original_filename="run-alpha.zip",
+            size_bytes=123,
+            total_chunks=1,
+        )
+
+        self.assertEqual(uploaded_run.status, UploadedRun.Status.RECEIVING)
+        self.assertEqual(uploaded_run.received_bytes, 0)
+        self.assertEqual(uploaded_run.chunk_size_bytes, 8 * 1024 * 1024)
+        self.assertEqual(uploaded_run.received_chunks, [])
+        self.assertEqual(uploaded_run.publish_root, "")
+        self.assertEqual(uploaded_run.run_id, "")
+        self.assertIsNone(uploaded_run.import_batch)
+
+    @override_settings(HOMOREPEAT_IMPORTS_ROOT="/tmp/homorepeat-imports")
+    def test_uploaded_run_paths_resolve_against_imports_root(self):
+        uploaded_run = UploadedRun.objects.create(
+            original_filename="run-alpha.zip",
+            run_id="run-alpha",
+        )
+        upload_root = Path("/tmp/homorepeat-imports") / "uploads" / str(uploaded_run.upload_id)
+
+        self.assertEqual(uploaded_run.upload_root, upload_root)
+        self.assertEqual(uploaded_run.chunks_root, upload_root / "chunks")
+        self.assertEqual(uploaded_run.zip_path, upload_root / "source.zip")
+        self.assertEqual(uploaded_run.extracted_root, upload_root / "extracted")
+        self.assertEqual(uploaded_run.library_root, Path("/tmp/homorepeat-imports") / "library" / "run-alpha")
+
+    @override_settings(HOMOREPEAT_IMPORTS_ROOT="/tmp/homorepeat-imports")
+    def test_uploaded_run_library_root_is_empty_until_run_id_is_known(self):
+        uploaded_run = UploadedRun.objects.create(original_filename="run-alpha.zip")
+
+        self.assertIsNone(uploaded_run.library_root)
 
 
 class CatalogVersionModelTests(TestCase):
