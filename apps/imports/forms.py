@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from django import forms
+
+from apps.imports.services.published_run import ImportContractError, inspect_published_run
 
 
 class ImportRunForm(forms.Form):
@@ -38,7 +42,31 @@ class ImportRunForm(forms.Form):
             raise forms.ValidationError(
                 "Choose a detected publish root or enter one manually."
             )
-        cleaned_data["resolved_publish_root"] = resolved_publish_root
+        field_name = "publish_root" if publish_root else "detected_publish_root"
+        resolved_path = Path(resolved_publish_root).expanduser().resolve()
+        manifest_path = resolved_path / "metadata" / "run_manifest.json"
+
+        if not resolved_path.is_dir():
+            self.add_error(
+                field_name,
+                f"Publish root does not exist or is not a directory: {resolved_path}",
+            )
+            return cleaned_data
+
+        if not manifest_path.is_file():
+            self.add_error(
+                field_name,
+                f"Publish root must contain metadata/run_manifest.json: {resolved_path}",
+            )
+            return cleaned_data
+
+        try:
+            inspect_published_run(resolved_path)
+        except ImportContractError as exc:
+            self.add_error(field_name, str(exc))
+            return cleaned_data
+
+        cleaned_data["resolved_publish_root"] = str(resolved_path)
         cleaned_data["publish_root"] = publish_root
         cleaned_data["detected_publish_root"] = detected_publish_root
         return cleaned_data

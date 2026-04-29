@@ -74,6 +74,69 @@ class ImportViewTests(TestCase):
             self.assertEqual(batch.celery_task_id, "task-123")
             self.assertEqual(batch.progress_payload["message"], "Queued for background import.")
 
+    def test_staff_can_import_manual_publish_root_from_home(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_publish_root(Path(tempdir) / "manual-run", run_id="manual-run")
+
+            self.client.force_login(self.staff_user)
+            with patch(
+                "apps.imports.tasks.run_import_batch.delay",
+                return_value=SimpleNamespace(id="task-123"),
+            ):
+                response = self.client.post(
+                    reverse("imports:home"),
+                    {
+                        "detected_publish_root": "",
+                        "publish_root": str(publish_root),
+                        "replace_existing": "",
+                    },
+                    follow=True,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Queued import batch")
+            self.assertEqual(ImportBatch.objects.count(), 1)
+            batch = ImportBatch.objects.get()
+            self.assertEqual(batch.source_path, str(publish_root.resolve()))
+            self.assertEqual(batch.celery_task_id, "task-123")
+
+    def test_staff_imports_home_rejects_missing_manual_publish_root(self):
+        with TemporaryDirectory() as tempdir:
+            missing_publish_root = Path(tempdir) / "missing" / "publish"
+
+            self.client.force_login(self.staff_user)
+            response = self.client.post(
+                reverse("imports:home"),
+                {
+                    "detected_publish_root": "",
+                    "publish_root": str(missing_publish_root),
+                    "replace_existing": "",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Publish root does not exist or is not a directory")
+            self.assertEqual(ImportBatch.objects.count(), 0)
+
+    def test_staff_imports_home_rejects_manual_publish_root_without_manifest(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = Path(tempdir) / "run-alpha" / "publish"
+            publish_root.mkdir(parents=True)
+
+            self.client.force_login(self.staff_user)
+            response = self.client.post(
+                reverse("imports:home"),
+                {
+                    "detected_publish_root": "",
+                    "publish_root": str(publish_root),
+                    "replace_existing": "",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Publish root must contain metadata/run_manifest.json")
+            self.assertEqual(ImportBatch.objects.count(), 0)
+
     def test_imports_home_auto_refreshes_when_recent_batch_is_active(self):
         ImportBatch.objects.create(
             source_path="/tmp/run-alpha/publish",
