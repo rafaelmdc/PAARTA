@@ -176,11 +176,17 @@ class UploadRunCompleteView(StaffOnlyMixin, View):
 
     def post(self, request, upload_id):
         try:
-            uploaded_run = complete_upload(upload_id=upload_id)
+            completed_upload = complete_upload(upload_id=upload_id)
         except UploadedRun.DoesNotExist:
             return _json_error("Upload was not found.", status=404)
         except UploadValidationError as exc:
             return _json_error(str(exc))
+
+        uploaded_run = completed_upload.uploaded_run
+        if completed_upload.completed_now:
+            from apps.imports.tasks import extract_uploaded_run
+
+            extract_uploaded_run.delay(uploaded_run.pk)
 
         return JsonResponse(
             {

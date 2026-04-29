@@ -7,10 +7,11 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.imports.models import ImportBatch
+from apps.imports.models import ImportBatch, UploadedRun
 from apps.imports.services.import_run.api import dispatch_import_batch, process_import_batch
 from apps.imports.services.import_run.state import _mark_batch_stale_failed, _reset_batch_to_pending
 from apps.imports.services.published_run import ImportContractError
+from apps.imports.services.uploads import UploadValidationError, assemble_uploaded_zip
 
 
 IMPORT_BATCH_RETRY_DELAY_SECONDS = 30
@@ -35,6 +36,20 @@ def run_import_batch(self, batch_id: int) -> None:
             )
             raise self.retry(exc=exc, countdown=IMPORT_BATCH_RETRY_DELAY_SECONDS)
         raise
+
+
+@shared_task(bind=True, max_retries=1)
+def extract_uploaded_run(self, uploaded_run_id: int) -> None:
+    try:
+        assemble_uploaded_zip(uploaded_run_id=uploaded_run_id)
+    except UploadedRun.DoesNotExist:
+        return
+    except UploadValidationError as exc:
+        UploadedRun.objects.filter(pk=uploaded_run_id).update(
+            status=UploadedRun.Status.FAILED,
+            error_message=str(exc),
+        )
+        return
 
 
 @shared_task

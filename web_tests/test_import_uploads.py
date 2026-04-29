@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -167,13 +168,15 @@ class ImportUploadApiTests(TestCase):
                 uploaded_run.chunks_root.mkdir(parents=True)
                 (uploaded_run.chunks_root / "0.part").write_bytes(b"abcdefghij")
 
-                response = self.client.post(
-                    reverse("imports:upload-complete", kwargs={"upload_id": uploaded_run.upload_id})
-                )
+                with patch("apps.imports.tasks.extract_uploaded_run.delay") as delay_mock:
+                    response = self.client.post(
+                        reverse("imports:upload-complete", kwargs={"upload_id": uploaded_run.upload_id})
+                    )
 
                 self.assertEqual(response.status_code, 400)
                 self.assertFalse(response.json()["ok"])
                 self.assertIn("missing chunk", response.json()["error"])
+                delay_mock.assert_not_called()
                 uploaded_run.refresh_from_db()
                 self.assertEqual(uploaded_run.status, UploadedRun.Status.RECEIVING)
 
@@ -191,14 +194,16 @@ class ImportUploadApiTests(TestCase):
                 (uploaded_run.chunks_root / "0.part").write_bytes(b"abcdefghij")
                 (uploaded_run.chunks_root / "1.part").write_bytes(b"k")
 
-                response = self.client.post(
-                    reverse("imports:upload-complete", kwargs={"upload_id": uploaded_run.upload_id})
-                )
+                with patch("apps.imports.tasks.extract_uploaded_run.delay") as delay_mock:
+                    response = self.client.post(
+                        reverse("imports:upload-complete", kwargs={"upload_id": uploaded_run.upload_id})
+                    )
 
                 self.assertEqual(response.status_code, 200)
                 payload = response.json()
                 self.assertTrue(payload["ok"])
                 self.assertEqual(payload["status"], UploadedRun.Status.RECEIVED)
+                delay_mock.assert_called_once_with(uploaded_run.pk)
                 uploaded_run.refresh_from_db()
                 self.assertEqual(uploaded_run.status, UploadedRun.Status.RECEIVED)
                 self.assertEqual(uploaded_run.received_chunks, [0, 1])
@@ -217,14 +222,16 @@ class ImportUploadApiTests(TestCase):
                     received_chunks=[0, 1],
                 )
 
-                response = self.client.post(
-                    reverse("imports:upload-complete", kwargs={"upload_id": uploaded_run.upload_id})
-                )
+                with patch("apps.imports.tasks.extract_uploaded_run.delay") as delay_mock:
+                    response = self.client.post(
+                        reverse("imports:upload-complete", kwargs={"upload_id": uploaded_run.upload_id})
+                    )
 
                 self.assertEqual(response.status_code, 200)
                 self.assertTrue(response.json()["ok"])
                 self.assertEqual(response.json()["status"], UploadedRun.Status.RECEIVED)
                 self.assertEqual(response.json()["received_chunks"], [0, 1])
+                delay_mock.assert_not_called()
 
     def test_complete_upload_rejects_byte_total_mismatch(self):
         with TemporaryDirectory() as tempdir:
@@ -239,12 +246,14 @@ class ImportUploadApiTests(TestCase):
                 (uploaded_run.chunks_root / "0.part").write_bytes(b"abc")
                 (uploaded_run.chunks_root / "1.part").write_bytes(b"def")
 
-                response = self.client.post(
-                    reverse("imports:upload-complete", kwargs={"upload_id": uploaded_run.upload_id})
-                )
+                with patch("apps.imports.tasks.extract_uploaded_run.delay") as delay_mock:
+                    response = self.client.post(
+                        reverse("imports:upload-complete", kwargs={"upload_id": uploaded_run.upload_id})
+                    )
 
                 self.assertEqual(response.status_code, 400)
                 self.assertFalse(response.json()["ok"])
                 self.assertIn("expected 11", response.json()["error"])
+                delay_mock.assert_not_called()
                 uploaded_run.refresh_from_db()
                 self.assertEqual(uploaded_run.status, UploadedRun.Status.RECEIVING)

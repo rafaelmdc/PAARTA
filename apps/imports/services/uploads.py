@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import math
 import os
+import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
@@ -14,6 +16,12 @@ from apps.imports.models import UploadedRun
 
 class UploadValidationError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class CompletedUpload:
+    uploaded_run: UploadedRun
+    completed_now: bool
 
 
 def start_upload(
@@ -78,7 +86,7 @@ def store_chunk(
         return locked_upload
 
 
-def complete_upload(*, upload_id: UUID) -> UploadedRun:
+def complete_upload(*, upload_id: UUID) -> CompletedUpload:
     with transaction.atomic():
         uploaded_run = UploadedRun.objects.select_for_update().get(upload_id=upload_id)
         if uploaded_run.status in {
@@ -88,7 +96,7 @@ def complete_upload(*, upload_id: UUID) -> UploadedRun:
             UploadedRun.Status.QUEUED,
             UploadedRun.Status.IMPORTED,
         }:
-            return uploaded_run
+            return CompletedUpload(uploaded_run=uploaded_run, completed_now=False)
         if uploaded_run.status != UploadedRun.Status.RECEIVING:
             raise UploadValidationError("Upload cannot be completed from its current status.")
 
@@ -110,7 +118,54 @@ def complete_upload(*, upload_id: UUID) -> UploadedRun:
         uploaded_run.received_bytes = received_bytes
         uploaded_run.status = UploadedRun.Status.RECEIVED
         uploaded_run.save(update_fields=["received_chunks", "received_bytes", "status", "updated_at"])
-        return uploaded_run
+        return CompletedUpload(uploaded_run=uploaded_run, completed_now=True)
+
+
+def assemble_uploaded_zip(*, uploaded_run_id: int) -> UploadedRun:
+    with transaction.atomic():
+        uploaded_run = UploadedRun.objects.select_for_update().get(pk=uploaded_run_id)
+        if uploaded_run.status in {
+            UploadedRun.Status.READY,
+            UploadedRun.Status.QUEUED,
+            UploadedRun.Status.IMPORTED,
+        }:
+            return uploaded_run
+        if uploaded_run.status == UploadedRun.Status.EXTRACTING and uploaded_run.zip_path.is_file():
+            return uploaded_run
+        if uploaded_run.status not in {UploadedRun.Status.RECEIVED, UploadedRun.Status.EXTRACTING}:
+            raise UploadValidationError("Upload is not ready for extraction.")
+
+        received_chunks = _received_chunk_indexes(uploaded_run.chunks_root)
+        expected_chunks = list(range(uploaded_run.total_chunks))
+        if received_chunks != expected_chunks:
+            missing_chunks = sorted(set(expected_chunks) - set(received_chunks))
+            raise UploadValidationError(
+                f"Upload is missing chunk(s): {', '.join(str(index) for index in missing_chunks)}"
+            )
+
+        received_bytes = _received_chunk_bytes(uploaded_run.chunks_root, received_chunks)
+        if received_bytes != uploaded_run.size_bytes:
+            raise UploadValidationError(
+                f"Uploaded chunk bytes total {received_bytes}, expected {uploaded_run.size_bytes}."
+            )
+
+        uploaded_run.received_chunks = received_chunks
+        uploaded_run.received_bytes = received_bytes
+        uploaded_run.status = UploadedRun.Status.EXTRACTING
+        uploaded_run.save(update_fields=["received_chunks", "received_bytes", "status", "updated_at"])
+
+    temporary_path = uploaded_run.upload_root / f"source.zip.tmp-{os.getpid()}"
+    try:
+        with temporary_path.open("wb") as output:
+            for chunk_index in uploaded_run.received_chunks:
+                with (uploaded_run.chunks_root / f"{chunk_index}.part").open("rb") as source:
+                    shutil.copyfileobj(source, output)
+        temporary_path.replace(uploaded_run.zip_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+    uploaded_run.refresh_from_db()
+    return uploaded_run
 
 
 def _validate_chunk(uploaded_run: UploadedRun, chunk_index: int, chunk: UploadedFile) -> None:

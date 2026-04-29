@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.browser.models import PipelineRun
-from apps.imports.models import ImportBatch
+from apps.imports.models import ImportBatch, UploadedRun
 from apps.imports.services import dispatch_import_batch
 from apps.imports.services.published_run import ImportContractError
-from apps.imports.tasks import reset_stale_import_batches, run_import_batch
+from apps.imports.tasks import extract_uploaded_run, reset_stale_import_batches, run_import_batch
 
 
 class RetryTriggered(Exception):
@@ -80,6 +81,70 @@ class ImportTaskTests(TestCase):
         ):
             with self.assertRaises(ImportContractError):
                 run_import_batch(batch.pk)
+
+    def test_extract_uploaded_run_assembles_zip_and_marks_extracting(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    status=UploadedRun.Status.RECEIVED,
+                    size_bytes=11,
+                    received_bytes=11,
+                    chunk_size_bytes=10,
+                    total_chunks=2,
+                    received_chunks=[0, 1],
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+                (uploaded_run.chunks_root / "0.part").write_bytes(b"abcdefghij")
+                (uploaded_run.chunks_root / "1.part").write_bytes(b"k")
+
+                extract_uploaded_run(uploaded_run.pk)
+
+                uploaded_run.refresh_from_db()
+                self.assertEqual(uploaded_run.status, UploadedRun.Status.EXTRACTING)
+                self.assertEqual(uploaded_run.zip_path.read_bytes(), b"abcdefghijk")
+
+    def test_extract_uploaded_run_is_idempotent_when_zip_already_assembled(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    status=UploadedRun.Status.EXTRACTING,
+                    size_bytes=11,
+                    received_bytes=11,
+                    chunk_size_bytes=10,
+                    total_chunks=2,
+                    received_chunks=[0, 1],
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+                uploaded_run.zip_path.write_bytes(b"already assembled")
+
+                extract_uploaded_run(uploaded_run.pk)
+
+                uploaded_run.refresh_from_db()
+                self.assertEqual(uploaded_run.status, UploadedRun.Status.EXTRACTING)
+                self.assertEqual(uploaded_run.zip_path.read_bytes(), b"already assembled")
+
+    def test_extract_uploaded_run_marks_invalid_upload_failed(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    status=UploadedRun.Status.RECEIVED,
+                    size_bytes=11,
+                    received_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=2,
+                    received_chunks=[0],
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+                (uploaded_run.chunks_root / "0.part").write_bytes(b"abcdefghij")
+
+                extract_uploaded_run(uploaded_run.pk)
+
+                uploaded_run.refresh_from_db()
+                self.assertEqual(uploaded_run.status, UploadedRun.Status.FAILED)
+                self.assertIn("missing chunk", uploaded_run.error_message)
 
     def test_reset_stale_import_batches_requeues_precommit_batch(self):
         batch = ImportBatch.objects.create(
