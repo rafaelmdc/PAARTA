@@ -232,6 +232,33 @@ def extract_uploaded_zip(*, uploaded_run_id: int) -> UploadedRun:
     inspected = inspect_published_run(publish_root)
     uploaded_run.run_id = str(inspected.pipeline_run["run_id"])
     uploaded_run.save(update_fields=["run_id", "updated_at"])
+    return move_to_library(uploaded_run=uploaded_run, publish_root=publish_root)
+
+
+def move_to_library(*, uploaded_run: UploadedRun, publish_root: Path) -> UploadedRun:
+    if not uploaded_run.run_id:
+        raise UploadValidationError("Uploaded run does not have a validated run_id.")
+    library_root = uploaded_run.library_root
+    if library_root is None:
+        raise UploadValidationError("Uploaded run library path could not be resolved.")
+    final_publish_root = library_root / "publish"
+
+    try:
+        library_root.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise UploadValidationError(
+            f"Run {uploaded_run.run_id!r} already exists in the upload library."
+        ) from exc
+
+    try:
+        shutil.copytree(publish_root, final_publish_root)
+    except Exception:
+        shutil.rmtree(library_root, ignore_errors=True)
+        raise
+
+    uploaded_run.publish_root = str(final_publish_root.resolve())
+    uploaded_run.status = UploadedRun.Status.READY
+    uploaded_run.save(update_fields=["publish_root", "status", "updated_at"])
     return uploaded_run
 
 

@@ -129,7 +129,7 @@ class ImportTaskTests(TestCase):
             with self.assertRaises(ImportContractError):
                 run_import_batch(batch.pk)
 
-    def test_extract_uploaded_run_assembles_zip_and_validates_publish_root(self):
+    def test_extract_uploaded_run_moves_validated_publish_root_to_library(self):
         with TemporaryDirectory() as tempdir:
             with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
                 source_root = Path(tempdir) / "source"
@@ -152,12 +152,16 @@ class ImportTaskTests(TestCase):
                 extract_uploaded_run(uploaded_run.pk)
 
                 uploaded_run.refresh_from_db()
-                self.assertEqual(uploaded_run.status, UploadedRun.Status.EXTRACTING)
+                self.assertEqual(uploaded_run.status, UploadedRun.Status.READY)
                 self.assertEqual(uploaded_run.run_id, "run-uploaded")
                 self.assertEqual(uploaded_run.zip_path.read_bytes(), zip_payload)
-                self.assertTrue((uploaded_run.extracted_root / "publish" / "metadata" / "run_manifest.json").is_file())
+                self.assertEqual(
+                    uploaded_run.publish_root,
+                    str((Path(tempdir) / "library" / "run-uploaded" / "publish").resolve()),
+                )
+                self.assertTrue((Path(uploaded_run.publish_root) / "metadata" / "run_manifest.json").is_file())
 
-    def test_extract_uploaded_run_uses_existing_assembled_zip_and_validates_publish_root(self):
+    def test_extract_uploaded_run_uses_existing_assembled_zip_and_moves_to_library(self):
         with TemporaryDirectory() as tempdir:
             with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
                 source_root = Path(tempdir) / "source"
@@ -178,9 +182,28 @@ class ImportTaskTests(TestCase):
                 extract_uploaded_run(uploaded_run.pk)
 
                 uploaded_run.refresh_from_db()
-                self.assertEqual(uploaded_run.status, UploadedRun.Status.EXTRACTING)
+                self.assertEqual(uploaded_run.status, UploadedRun.Status.READY)
                 self.assertEqual(uploaded_run.run_id, "already-assembled")
-                self.assertTrue((uploaded_run.extracted_root / "publish" / "metadata" / "run_manifest.json").is_file())
+                self.assertTrue((Path(uploaded_run.publish_root) / "metadata" / "run_manifest.json").is_file())
+
+    def test_extract_uploaded_run_fails_when_library_run_id_exists(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                source_root = Path(tempdir) / "source"
+                build_minimal_v2_publish_root(source_root, run_id="duplicate-run")
+                existing_library_root = Path(tempdir) / "library" / "duplicate-run"
+                existing_library_root.mkdir(parents=True)
+                uploaded_run = _create_received_upload_from_zip_bytes(
+                    "run.zip",
+                    _zip_directory(source_root),
+                )
+
+                extract_uploaded_run(uploaded_run.pk)
+
+                uploaded_run.refresh_from_db()
+                self.assertEqual(uploaded_run.status, UploadedRun.Status.FAILED)
+                self.assertIn("already exists in the upload library", uploaded_run.error_message)
+                self.assertEqual(uploaded_run.publish_root, "")
 
     def test_extract_uploaded_run_marks_invalid_upload_failed(self):
         with TemporaryDirectory() as tempdir:
