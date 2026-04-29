@@ -115,11 +115,13 @@ services:
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       HOMOREPEAT_RUNS_ROOT: /workspace/homorepeat_pipeline/runs
+      HOMOREPEAT_IMPORTS_ROOT: /data/imports
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       FLOWER_INTERNAL_URL: http://flower:5555
     volumes:
       - .:/app
       - ${HOMOREPEAT_RUNS_ROOT:-../homorepeat_pipeline/runs}:/workspace/homorepeat_pipeline/runs:ro
+      - homorepeat_imports:/data/imports
     ports:
       - "8000:8000"
     depends_on:
@@ -144,10 +146,12 @@ services:
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       HOMOREPEAT_RUNS_ROOT: /workspace/homorepeat_pipeline/runs
+      HOMOREPEAT_IMPORTS_ROOT: /data/imports
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     volumes:
       - .:/app
       - ${HOMOREPEAT_RUNS_ROOT:-../homorepeat_pipeline/runs}:/workspace/homorepeat_pipeline/runs:ro
+      - homorepeat_imports:/data/imports
     depends_on:
       postgres:
         condition: service_healthy
@@ -274,3 +278,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  homorepeat_imports:
