@@ -223,9 +223,22 @@ def _runs_root() -> Path:
     return Path(settings.BASE_DIR) / "runs"
 
 
+def _imports_library_root() -> Path:
+    return Path(settings.HOMOREPEAT_IMPORTS_ROOT) / "library"
+
+
 def _discover_publish_runs() -> list[DetectedPublishRun]:
-    runs_root = _runs_root()
-    return _discover_publish_runs_in(runs_root)
+    detected: list[DetectedPublishRun] = []
+    seen_publish_roots: set[str] = set()
+
+    for root in (_runs_root(), _imports_library_root()):
+        for run in _discover_publish_runs_in(root):
+            if run.publish_root in seen_publish_roots:
+                continue
+            detected.append(run)
+            seen_publish_roots.add(run.publish_root)
+
+    return detected
 
 
 def _discover_publish_runs_in(runs_root: Path) -> list[DetectedPublishRun]:

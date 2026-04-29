@@ -47,6 +47,25 @@ class ImportViewTests(TestCase):
             self.assertContains(response, "Latest import batches")
             self.assertContains(response, "js/import_uploads.js")
 
+    def test_staff_imports_home_lists_mounted_and_library_publish_roots(self):
+        with TemporaryDirectory() as tempdir:
+            runs_root = Path(tempdir) / "runs"
+            imports_root = Path(tempdir) / "imports"
+            build_minimal_publish_root(runs_root / "mounted-run", run_id="mounted-run")
+            build_minimal_publish_root(imports_root / "library" / "uploaded-run", run_id="uploaded-run")
+
+            self.client.force_login(self.staff_user)
+            with override_settings(
+                HOMOREPEAT_RUNS_ROOT=str(runs_root),
+                HOMOREPEAT_IMPORTS_ROOT=str(imports_root),
+            ):
+                response = self.client.get(reverse("imports:home"))
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "mounted-run")
+            self.assertContains(response, "uploaded-run")
+            self.assertContains(response, str((imports_root / "library" / "uploaded-run" / "publish").resolve()))
+
     def test_discover_publish_runs_in_scans_supplied_root(self):
         with TemporaryDirectory() as tempdir:
             runs_root = Path(tempdir) / "runs"
