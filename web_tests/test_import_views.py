@@ -94,6 +94,15 @@ class ImportViewTests(TestCase):
         self.assertContains(response, "Queued")
         self.assertContains(response, "#")
 
+    def test_staff_imports_home_demotes_manual_publish_root_to_advanced_section(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(reverse("imports:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<details", html=False)
+        self.assertContains(response, "Advanced manual publish root")
+        self.assertContains(response, 'name="publish_root"')
+
     def test_discover_publish_runs_in_scans_supplied_root(self):
         with TemporaryDirectory() as tempdir:
             runs_root = Path(tempdir) / "runs"
