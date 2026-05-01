@@ -133,4 +133,4 @@ When a change alters commands, operations, caches, or backfills, update `docs/op
 
 When a change alters module boundaries, update `docs/architecture.md`.
 
-For temporary working notes, add a dated entry in `docs/journal/` rather than creating a new long-lived planning folder.
+For session logs or handoff notes, add a dated entry in `docs/journal/`. Do not create long-lived implementation-plan folders under `docs/`; fold stable guidance into the relevant public guide instead.

@@ -1,22 +1,43 @@
 # PAARTA
 
-**PAARTA** (Poly-Amino Acid Repeat Tract Atlas) is a web application for browsing and analysing homorepeats — runs of consecutive identical or near-identical amino acids — found in proteins across organisms spanning the tree of life. It provides searchable tables, statistical charts, and bulk downloads of repeat observations linked to taxonomy, gene, and codon-usage data.
+**PAARTA** (Poly-Amino Acid Repeat Tract Atlas) is a web application for
+browsing and analysing homorepeats: runs of consecutive identical or
+near-identical amino acids in proteins.
+
+Use it to search imported PAASTA results, inspect repeat calls across organisms,
+compare codon usage, view summary charts, and download tables or FASTA files.
 
 ## Requirements
 
 - [Docker](https://docs.docker.com/get-docker/) with the Compose plugin (included in Docker Desktop)
 
-## Getting Started
+## Quick Start
 
-Clone the repository and start the stack:
+Clone the repository:
 
 ```bash
 git clone <repo-url>
 cd homorepeat
+cp .env.example .env
+```
+
+For a single-user local workstation, you can make the import page available
+without creating a Django login. In `.env`, set:
+
+```bash
+no_admin=1
+```
+
+Do not use `no_admin=1` on a shared, LAN-accessible, or internet-facing server.
+
+Start PAARTA:
+
+```bash
 docker compose up --build
 ```
 
-The first run builds the container image and applies all database migrations automatically. When the stack is ready, open **http://localhost:8000** in your browser.
+The first run builds the container image and applies database migrations. When
+the stack is ready, open **http://localhost:8000**.
 
 On subsequent starts, omit `--build`:
 
@@ -26,32 +47,54 @@ docker compose up
 
 ## Loading Data
 
-The app is empty on first start. Populate it by importing a published PAASTA run. PAARTA ingests PAASTA — the pipeline downloads assemblies, calls repeats, and writes the published output that PAARTA imports.
+The app is empty on first start. Load data by importing a published PAASTA run.
+The run must contain one `publish/metadata/run_manifest.json` file for publish
+contract v2.
 
-**Option 1 — command line:**
+### Option 1: Upload a Zipped Run
+
+Use this when the PAASTA run is on your laptop or workstation and is not mounted
+inside the Docker stack.
+
+1. Zip the run folder. The zip can contain `publish/` at the top level or inside
+   one parent folder, but it must contain exactly one
+   `publish/metadata/run_manifest.json`.
+2. Open **http://localhost:8000/imports/**.
+3. Upload the zip.
+4. Wait for the upload to reach **Ready**.
+5. Click **Import** and monitor progress on the same page or in
+   **http://localhost:8000/imports/history/**.
+
+Uploads are chunked, SHA-256 checked, resumable after a browser interruption,
+and extracted by a background worker before import. The default maximum zip
+size is 5 GB.
+
+### Option 2: Import Mounted Runs
+
+Use this when the PAASTA run directory already exists on the machine running
+Docker.
+
+```bash
+# In .env, point HOMOREPEAT_RUNS_ROOT to your runs directory:
+HOMOREPEAT_RUNS_ROOT=/path/to/paasta/runs
+docker compose up -d
+```
+
+Then open **http://localhost:8000/imports/**. PAARTA detects runs in that
+directory and lets you queue imports from the browser.
+
+### Option 3: Command-Line Import
+
+Use this for scripted or administrative imports:
 
 ```bash
 docker compose exec web python manage.py import_run \
-  --publish-root /absolute/path/to/<run-id>/publish
+  --publish-root /workspace/homorepeat_pipeline/runs/<run-id>/publish
 ```
 
-**Option 2 — import queue UI:**
-
-Set `HOMOREPEAT_RUNS_ROOT` in a `.env` file at the repo root (copy `.env.example` as a starting point):
-
-```bash
-cp .env.example .env
-# Edit HOMOREPEAT_RUNS_ROOT= to point to your runs directory
-```
-
-Then visit **http://localhost:8000/imports/** to queue and monitor imports.
-
-The same page also accepts zipped pipeline runs when the run directory is not
-mounted on the server. Uploads are staff-only, chunked in the browser, verified
-with SHA-256 per chunk, resumable after tab or network interruption, extracted
-by the upload worker, and validated before the run is copied into the
-app-managed import library. When an uploaded run reaches **Ready**, queue it for
-import from the same `/imports/` page.
+The path must be visible inside the container. If you are using
+`HOMOREPEAT_RUNS_ROOT`, the container path is usually
+`/workspace/homorepeat_pipeline/runs/<run-id>/publish`.
 
 ## Browsing
 
@@ -64,11 +107,13 @@ import from the same `/imports/` page.
 | `/browser/codon-composition-length/` | Codon composition across repeat-length bins |
 | `/browser/runs/` | Imported pipeline runs and provenance |
 
-All tables support free-text search and column-level filtering. Downloads are available as TSV (all tables), amino-acid FASTA, and codon DNA FASTA from the homorepeat table.
+All tables support search and column filtering. TSV downloads are available from
+tables. The homorepeat table also supports amino-acid FASTA and codon DNA FASTA
+downloads.
 
 ## Documentation
 
-- [Usage](docs/usage.md) — local setup, imports, routes, and tests
+- [Usage](docs/usage.md) — step-by-step setup, imports, browsing, and downloads
 - [Configuration](docs/configuration.md) — all environment variables and their defaults
 - [Architecture](docs/architecture.md) — app structure, data model, and view hierarchy
 - [Statistics](docs/statistics.md) — filter definitions and biological semantics
