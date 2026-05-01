@@ -230,10 +230,12 @@ Slices:
 
 2. Decide extraction queue routing.
    - Commit: `imports: document upload extraction queueing`
-   - Either keep extraction on the `imports` queue and document the concurrency
-     trade-off, or add a separate `uploads` queue and worker.
-   - If adding a queue, add an explicit Celery task route before the
-     `apps.imports.tasks.*` wildcard.
+   - Current decision: keep extraction on the `imports` queue for the MVP.
+   - Document the concurrency trade-off with `celery-import-worker -c 2`.
+   - Defer a separate `uploads` queue and worker until real usage shows import
+     batches waiting behind large zip extraction.
+   - If a separate queue is added later, add an explicit Celery task route
+     before the `apps.imports.tasks.*` wildcard.
 
 3. Add docs.
    - Commit: `docs: document GUI upload imports`

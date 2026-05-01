@@ -308,6 +308,43 @@ When `batch` completes, the upload row does not need to update immediately for
 MVP because import status is visible through `ImportBatch`. Later, a periodic
 task can mirror `imported`/`failed` onto `UploadedRun`.
 
+### Upload Extraction Queue Routing
+
+Current decision: keep `extract_uploaded_run`, `run_import_batch`, and
+`cleanup_stale_uploaded_runs` on the existing `imports` queue.
+
+The active Celery route is:
+
+```python
+"apps.imports.tasks.*": {"queue": "imports"}
+```
+
+The Compose import worker currently runs:
+
+```text
+celery -A config.celery worker -Q imports -c 2 --prefetch-multiplier 1
+```
+
+This keeps the deployment simple: the existing `celery-import-worker` has the
+same `/data/imports` volume mount needed for chunk assembly, extraction,
+library placement, and the final import. It also avoids introducing a second
+worker service before upload volume and import behavior have settled.
+
+Trade-off: extraction is disk and CPU heavy. Two long extraction tasks can fill
+the two `imports` worker slots and delay `run_import_batch` tasks. For the MVP,
+that is acceptable because uploads are staff-triggered and the worker uses
+`--prefetch-multiplier 1`, so one worker process does not reserve a backlog of
+additional tasks while busy.
+
+Revisit this if real usage shows imports waiting behind large zip extraction.
+The next operational step would be:
+
+1. Add an explicit route for `apps.imports.tasks.extract_uploaded_run` before
+   the `apps.imports.tasks.*` wildcard.
+2. Route extraction to an `uploads` queue.
+3. Add a `celery-upload-worker` service with the same `/data/imports` volume.
+4. Keep `run_import_batch` and stale-batch recovery on the `imports` queue.
+
 ## Import Page Changes
 
 Update `templates/imports/home.html` so the primary page reads as:
@@ -443,13 +480,17 @@ silently wins. `store_chunk()` should write each chunk to a temporary file, atom
 into place, then update `received_chunks` in a short `select_for_update()` transaction. Do not
 hold a database row lock while streaming a large chunk body.
 
-### Issue: `extract_uploaded_run` would share the `imports` Celery queue with `run_import_batch`
+### Decision: `extract_uploaded_run` shares the `imports` Celery queue with `run_import_batch`
 
-`celery-import-worker` runs with `-c 2`. A 5 GB extraction task can occupy a slot for many
-minutes. One extraction and one import can still run together, but two long extractions can occupy
-the whole imports pool and delay actual imports. Consider routing `extract_uploaded_run` to a
-separate queue (e.g. `uploads`) with an explicit Celery route before the existing
-`apps.imports.tasks.*` wildcard, or at minimum document the concurrency trade-off explicitly.
+`celery-import-worker` runs with `-c 2`. A 5 GB extraction task can occupy a
+slot for many minutes. One extraction and one import can still run together,
+but two long extractions can occupy the whole imports pool and delay actual
+imports.
+
+For the MVP this is accepted and documented in
+`Upload Extraction Queue Routing` above. If large uploads become common, split
+`extract_uploaded_run` to a dedicated `uploads` queue with an explicit Celery
+route before the existing `apps.imports.tasks.*` wildcard.
 
 ### Issue: No CSRF handling specified for the JS upload API
 
