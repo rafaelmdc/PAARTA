@@ -132,6 +132,10 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 43200}
 CELERY_TASK_ALWAYS_EAGER = _env_flag("CELERY_TASK_ALWAYS_EAGER", False)
 CELERY_TASK_ROUTES = {
+    # Explicit upload-queue tasks must come before the imports wildcard.
+    "apps.imports.tasks.extract_uploaded_run": {"queue": "uploads"},
+    "apps.imports.tasks.cleanup_stale_uploaded_runs": {"queue": "uploads"},
+    # All remaining imports tasks (run_import_batch, reset_stale_import_batches, …)
     "apps.imports.tasks.*": {"queue": "imports"},
     # Explicit downloads-queue tasks before the wildcard (wildcard → payload_graph).
     "apps.browser.tasks.generate_download_artifact": {"queue": "downloads"},

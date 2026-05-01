@@ -501,3 +501,55 @@ class ImportTaskTests(TestCase):
         )
         self.assertIn("Manual follow-up is required", batch.error_message)
         delay_mock.assert_not_called()
+
+
+class QueueRoutingTests(TestCase):
+    """Verify that tasks are routed to the correct Celery queues."""
+
+    def _resolve_queue(self, task_name: str) -> str | None:
+        import fnmatch
+        for pattern, config in settings.CELERY_TASK_ROUTES.items():
+            if fnmatch.fnmatch(task_name, pattern):
+                return config.get("queue")
+        return None
+
+    def test_extract_uploaded_run_routes_to_uploads(self):
+        self.assertEqual(
+            self._resolve_queue("apps.imports.tasks.extract_uploaded_run"),
+            "uploads",
+        )
+
+    def test_cleanup_stale_uploaded_runs_routes_to_uploads(self):
+        self.assertEqual(
+            self._resolve_queue("apps.imports.tasks.cleanup_stale_uploaded_runs"),
+            "uploads",
+        )
+
+    def test_run_import_batch_routes_to_imports(self):
+        self.assertEqual(
+            self._resolve_queue("apps.imports.tasks.run_import_batch"),
+            "imports",
+        )
+
+    def test_reset_stale_import_batches_routes_to_imports(self):
+        self.assertEqual(
+            self._resolve_queue("apps.imports.tasks.reset_stale_import_batches"),
+            "imports",
+        )
+
+    def test_cleanup_task_is_scheduled_on_uploads_queue(self):
+        entry = settings.CELERY_BEAT_SCHEDULE.get("cleanup-stale-uploaded-runs")
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["task"], "apps.imports.tasks.cleanup_stale_uploaded_runs")
+        # Task is scheduled — queue assignment comes from CELERY_TASK_ROUTES
+        self.assertEqual(
+            self._resolve_queue("apps.imports.tasks.cleanup_stale_uploaded_runs"),
+            "uploads",
+        )
+
+    def test_compose_includes_upload_worker_with_imports_volume(self):
+        compose_path = Path(__file__).resolve().parent.parent / "compose.yaml"
+        content = compose_path.read_text()
+        self.assertIn("celery-upload-worker:", content)
+        # Worker must mount the imports volume so extraction can access /data/imports
+        self.assertIn("homorepeat_imports:/data/imports", content)

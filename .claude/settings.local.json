@@ -5,7 +5,9 @@
       "Bash(python3 -m py_compile apps/imports/services/uploads.py apps/imports/views.py apps/imports/urls.py web_tests/test_import_uploads.py)",
       "Bash(docker compose run *)",
       "Bash(python3 -m py_compile config/settings.py apps/imports/services/uploads.py web_tests/test_import_uploads.py)",
-      "Bash(python3 -m py_compile apps/imports/models.py apps/imports/policy.py apps/imports/services/uploads.py apps/imports/views.py apps/imports/tasks.py config/settings.py web_tests/test_import_uploads.py)"
+      "Bash(python3 -m py_compile apps/imports/models.py apps/imports/policy.py apps/imports/services/uploads.py apps/imports/views.py apps/imports/tasks.py config/settings.py web_tests/test_import_uploads.py)",
+      "Bash(python3 -m py_compile config/settings.py web_tests/test_import_tasks.py)",
+      "Bash(docker compose *)"
     ]
   }
 }
