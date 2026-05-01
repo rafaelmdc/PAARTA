@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Imports{% endblock %}
 {% block body_class %}imports-page{% endblock %}
@@ -14,10 +15,9 @@
       <span class="section-kicker mb-3">Imports</span>
       <h1 class="landing-title mb-3">Staff-only published run imports over the existing TSV contract.</h1>
       <p class="landing-lead mb-0">
-        Choose a detected publish root from the configured published-runs directory
-        or enter one manually, then queue a background import batch. When the
-        Docker worker service is running, queued batches are processed
-        automatically.
+        Choose a detected publish root from configured storage, then queue a
+        background import batch. When the Docker worker service is running,
+        queued batches are processed automatically.
       </p>
     </div>
     <aside class="landing-aside">
@@ -70,18 +70,21 @@
           {% endif %}
         </div>
 
-        <div class="mb-3">
-          <label class="form-label" for="{{ form.publish_root.id_for_label }}">{{ form.publish_root.label }}</label>
-          {{ form.publish_root }}
-          <div class="form-text">Use this when the publish root is outside the detected published-runs directory.</div>
-          {% if form.publish_root.errors %}
-            <div class="text-danger small mt-1">
-              {% for error in form.publish_root.errors %}
-                <div>{{ error }}</div>
-              {% endfor %}
-            </div>
-          {% endif %}
-        </div>
+        <details class="border-top pt-3 mt-3 mb-3" {% if form.publish_root.value or form.publish_root.errors %}open{% endif %}>
+          <summary class="fw-semibold">Advanced manual publish root</summary>
+          <div class="mt-3">
+            <label class="form-label" for="{{ form.publish_root.id_for_label }}">{{ form.publish_root.label }}</label>
+            {{ form.publish_root }}
+            <div class="form-text">Use this when the publish root is outside detected storage.</div>
+            {% if form.publish_root.errors %}
+              <div class="text-danger small mt-1">
+                {% for error in form.publish_root.errors %}
+                  <div>{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        </details>
 
         <div class="form-check mb-4">
           {{ form.replace_existing }}
@@ -137,6 +140,117 @@
         </table>
       </div>
     </article>
+  </div>
+</section>
+
+<section class="surface-card surface-card-wide mb-4">
+  <div class="section-header">
+    <div>
+      <p class="section-kicker mb-2">Upload zipped run</p>
+      <h2>Pipeline run upload</h2>
+    </div>
+  </div>
+
+  <form
+    class="row g-3 align-items-end mb-4"
+    data-import-upload-form
+    data-upload-start-url="{{ upload_start_url }}"
+    data-upload-chunk-url-template="{{ upload_chunk_url_template }}"
+    data-upload-complete-url-template="{{ upload_complete_url_template }}"
+    data-upload-status-url-template="{{ upload_status_url_template }}"
+    data-upload-chunk-size-bytes="{{ upload_chunk_size_bytes }}"
+  >
+    <div class="col-lg-6">
+      <label class="form-label" for="import-upload-file">Zip file</label>
+      <input class="form-control" id="import-upload-file" type="file" accept=".zip,application/zip" data-import-upload-file>
+    </div>
+    <div class="col-lg-3">
+      <label class="form-label" for="import-upload-progress">Progress</label>
+      <progress class="form-control p-0" id="import-upload-progress" value="0" max="100" data-import-upload-progress></progress>
+    </div>
+    <div class="col-lg-3">
+      <button class="btn btn-primary w-100" type="submit">Upload</button>
+    </div>
+    <div class="col-12">
+      <div class="small text-secondary" data-import-upload-status></div>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table align-middle mb-0 data-table">
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Run</th>
+          <th>Status</th>
+          <th>Received</th>
+          <th>Import progress</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for uploaded_run in uploaded_runs %}
+          <tr>
+            <td>{{ uploaded_run.original_filename }}</td>
+            <td>{{ uploaded_run.run_id|default:"-" }}</td>
+            <td>
+              {% with s=uploaded_run.status %}
+                {% if s == "receiving" %}<span class="badge text-bg-secondary">Receiving</span>
+                {% elif s == "received" %}<span class="badge text-bg-info">Received</span>
+                {% elif s == "extracting" %}<span class="badge text-bg-warning text-dark">Extracting</span>
+                {% elif s == "ready" %}<span class="badge text-bg-success">Ready</span>
+                {% elif s == "queued" %}<span class="badge text-bg-primary">Queued</span>
+                {% elif s == "imported" %}<span class="badge text-bg-success">Imported</span>
+                {% elif s == "failed" %}<span class="badge text-bg-danger">Failed</span>
+                {% else %}<span class="badge text-bg-light border">{{ uploaded_run.get_status_display }}</span>
+                {% endif %}
+              {% endwith %}
+              {% if uploaded_run.checksum_error %}
+                <div class="small text-danger mt-1">{{ uploaded_run.checksum_error }}</div>
+              {% elif uploaded_run.error_message %}
+                <div class="small text-danger mt-1">{{ uploaded_run.error_message }}</div>
+              {% endif %}
+            </td>
+            <td>{{ uploaded_run.received_bytes }} / {{ uploaded_run.size_bytes }}</td>
+            <td>
+              {% if uploaded_run.import_batch %}
+                <div class="small text-secondary">#{{ uploaded_run.import_batch.pk }} {{ uploaded_run.import_batch.status }}</div>
+                {% include "imports/includes/progress.html" with batch=uploaded_run.import_batch %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              {% if uploaded_run.status == "ready" %}
+                <form method="post" action="{% url 'imports:upload-import-form' upload_id=uploaded_run.upload_id %}" class="d-inline">
+                  {% csrf_token %}
+                  <button class="btn btn-sm btn-primary" type="submit">Import</button>
+                </form>
+              {% endif %}
+              {% if uploaded_run.can_retry_extraction %}
+                <form method="post" action="{% url 'imports:upload-retry' upload_id=uploaded_run.upload_id %}" class="d-inline ms-1">
+                  {% csrf_token %}
+                  <button class="btn btn-sm btn-warning" type="submit">Retry</button>
+                </form>
+              {% endif %}
+              {% if uploaded_run.can_clear_working_files %}
+                <form method="post" action="{% url 'imports:upload-clear' upload_id=uploaded_run.upload_id %}" class="d-inline ms-1">
+                  {% csrf_token %}
+                  <button class="btn btn-sm btn-outline-danger" type="submit">Clear files</button>
+                </form>
+              {% endif %}
+              {% if not uploaded_run.status == "ready" and not uploaded_run.can_retry_extraction and not uploaded_run.can_clear_working_files %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="empty-cell">No uploaded runs have been recorded yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </section>
 
@@ -199,4 +313,8 @@
     </table>
   </div>
 </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/import_uploads.js' %}"></script>
 {% endblock %}

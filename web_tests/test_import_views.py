@@ -2,14 +2,16 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.browser.models import PipelineRun
-from apps.imports.models import ImportBatch
+from apps.imports.models import ImportBatch, UploadedRun
 from apps.imports.services import import_published_run
+from apps.imports.views import _discover_publish_runs_in
 
 from .support import build_minimal_v2_publish_root as build_minimal_publish_root
 
@@ -43,6 +45,92 @@ class ImportViewTests(TestCase):
             self.assertContains(response, "run-alpha")
             self.assertContains(response, "run-beta")
             self.assertContains(response, "Latest import batches")
+            self.assertContains(response, "js/import_uploads.js")
+
+    def test_staff_imports_home_lists_mounted_and_library_publish_roots(self):
+        with TemporaryDirectory() as tempdir:
+            runs_root = Path(tempdir) / "runs"
+            imports_root = Path(tempdir) / "imports"
+            build_minimal_publish_root(runs_root / "mounted-run", run_id="mounted-run")
+            build_minimal_publish_root(imports_root / "library" / "uploaded-run", run_id="uploaded-run")
+
+            self.client.force_login(self.staff_user)
+            with override_settings(
+                HOMOREPEAT_RUNS_ROOT=str(runs_root),
+                HOMOREPEAT_IMPORTS_ROOT=str(imports_root),
+            ):
+                response = self.client.get(reverse("imports:home"))
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "mounted-run")
+            self.assertContains(response, "uploaded-run")
+            self.assertContains(response, str((imports_root / "library" / "uploaded-run" / "publish").resolve()))
+
+    def test_staff_imports_home_renders_upload_controls_and_uploaded_run_status(self):
+        batch = ImportBatch.objects.create(
+            source_path="/tmp/run-alpha/publish",
+            status=ImportBatch.Status.RUNNING,
+            phase="importing_rows",
+            progress_payload={
+                "message": "Importing uploaded run rows.",
+                "current": 3,
+                "total": 6,
+                "percent": 50,
+                "unit": "rows",
+            },
+        )
+        UploadedRun.objects.create(
+            original_filename="run-alpha.zip",
+            status=UploadedRun.Status.QUEUED,
+            size_bytes=100,
+            received_bytes=100,
+            total_chunks=1,
+            run_id="run-alpha",
+            import_batch=batch,
+        )
+
+        self.client.force_login(self.staff_user)
+        response = self.client.get(reverse("imports:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-import-upload-form")
+        self.assertContains(response, reverse("imports:upload-start"))
+        self.assertContains(response, "/imports/uploads/__upload_id__/chunk/")
+        self.assertContains(response, "/imports/uploads/__upload_id__/complete/")
+        self.assertContains(response, "run-alpha.zip")
+        self.assertContains(response, "Queued")
+        self.assertContains(response, "#")
+        self.assertContains(response, "Importing uploaded run rows.")
+        self.assertContains(response, "50%")
+        self.assertContains(response, "3/6")
+        self.assertContains(response, "import-stepper")
+
+    def test_staff_imports_home_demotes_manual_publish_root_to_advanced_section(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(reverse("imports:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<details", html=False)
+        self.assertContains(response, "Advanced manual publish root")
+        self.assertContains(response, 'name="publish_root"')
+
+    def test_discover_publish_runs_in_scans_supplied_root(self):
+        with TemporaryDirectory() as tempdir:
+            runs_root = Path(tempdir) / "runs"
+            build_minimal_publish_root(runs_root / "run-alpha", run_id="run-alpha")
+            build_minimal_publish_root(runs_root / "run-beta", run_id="run-beta")
+            (runs_root / "not-a-run").mkdir()
+
+            detected_runs = _discover_publish_runs_in(runs_root)
+
+            self.assertEqual([run.run_id for run in detected_runs], ["run-alpha", "run-beta"])
+            self.assertTrue(all(run.publish_root.endswith("/publish") for run in detected_runs))
+
+    def test_discover_publish_runs_in_returns_empty_for_missing_root(self):
+        with TemporaryDirectory() as tempdir:
+            missing_root = Path(tempdir) / "missing"
+
+            self.assertEqual(_discover_publish_runs_in(missing_root), [])
 
     def test_staff_can_import_detected_publish_root_from_home(self):
         with TemporaryDirectory() as tempdir:
@@ -74,6 +162,85 @@ class ImportViewTests(TestCase):
             self.assertEqual(batch.celery_task_id, "task-123")
             self.assertEqual(batch.progress_payload["message"], "Queued for background import.")
 
+    def test_staff_can_import_manual_publish_root_from_home(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_publish_root(Path(tempdir) / "manual-run", run_id="manual-run")
+
+            self.client.force_login(self.staff_user)
+            with patch(
+                "apps.imports.tasks.run_import_batch.delay",
+                return_value=SimpleNamespace(id="task-123"),
+            ):
+                response = self.client.post(
+                    reverse("imports:home"),
+                    {
+                        "detected_publish_root": "",
+                        "publish_root": str(publish_root),
+                        "replace_existing": "",
+                    },
+                    follow=True,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Queued import batch")
+            self.assertEqual(ImportBatch.objects.count(), 1)
+            batch = ImportBatch.objects.get()
+            self.assertEqual(batch.source_path, str(publish_root.resolve()))
+            self.assertEqual(batch.celery_task_id, "task-123")
+
+    def test_staff_imports_home_rejects_missing_manual_publish_root(self):
+        with TemporaryDirectory() as tempdir:
+            missing_publish_root = Path(tempdir) / "missing" / "publish"
+
+            self.client.force_login(self.staff_user)
+            response = self.client.post(
+                reverse("imports:home"),
+                {
+                    "detected_publish_root": "",
+                    "publish_root": str(missing_publish_root),
+                    "replace_existing": "",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Publish root does not exist or is not a directory")
+            self.assertEqual(ImportBatch.objects.count(), 0)
+
+    def test_staff_imports_home_rejects_manual_publish_root_without_manifest(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = Path(tempdir) / "run-alpha" / "publish"
+            publish_root.mkdir(parents=True)
+
+            self.client.force_login(self.staff_user)
+            response = self.client.post(
+                reverse("imports:home"),
+                {
+                    "detected_publish_root": "",
+                    "publish_root": str(publish_root),
+                    "replace_existing": "",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Publish root must contain metadata/run_manifest.json")
+            self.assertEqual(ImportBatch.objects.count(), 0)
+
+    def test_upload_endpoints_require_staff_access(self):
+        upload_id = uuid4()
+        urls = [
+            reverse("imports:upload-start"),
+            reverse("imports:upload-chunk", kwargs={"upload_id": upload_id}),
+            reverse("imports:upload-complete", kwargs={"upload_id": upload_id}),
+            reverse("imports:upload-import", kwargs={"upload_id": upload_id}),
+        ]
+
+        for url in urls:
+            with self.subTest(url=url):
+                response = self.client.post(url)
+
+                self.assertEqual(response.status_code, 302)
+                self.assertIn(reverse("admin:login"), response["Location"])
+
     def test_imports_home_auto_refreshes_when_recent_batch_is_active(self):
         ImportBatch.objects.create(
             source_path="/tmp/run-alpha/publish",
@@ -95,6 +262,55 @@ class ImportViewTests(TestCase):
         self.assertContains(response, "data-import-auto-refresh")
         self.assertContains(response, "import-stepper")
         self.assertContains(response, "10/20")
+
+    def test_imports_home_auto_refreshes_when_uploaded_run_is_active(self):
+        active_statuses = [
+            UploadedRun.Status.RECEIVING,
+            UploadedRun.Status.RECEIVED,
+            UploadedRun.Status.EXTRACTING,
+            UploadedRun.Status.QUEUED,
+        ]
+
+        for status in active_statuses:
+            UploadedRun.objects.all().delete()
+            UploadedRun.objects.create(
+                original_filename=f"{status}.zip",
+                status=status,
+                size_bytes=100,
+                received_bytes=50,
+                total_chunks=1,
+            )
+
+            self.client.force_login(self.staff_user)
+            response = self.client.get(reverse("imports:home"))
+
+            with self.subTest(status=status):
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "data-import-auto-refresh")
+
+    def test_imports_home_does_not_auto_refresh_for_settled_uploaded_runs(self):
+        settled_statuses = [
+            UploadedRun.Status.READY,
+            UploadedRun.Status.IMPORTED,
+            UploadedRun.Status.FAILED,
+        ]
+
+        for status in settled_statuses:
+            UploadedRun.objects.all().delete()
+            UploadedRun.objects.create(
+                original_filename=f"{status}.zip",
+                status=status,
+                size_bytes=100,
+                received_bytes=100,
+                total_chunks=1,
+            )
+
+            self.client.force_login(self.staff_user)
+            response = self.client.get(reverse("imports:home"))
+
+            with self.subTest(status=status):
+                self.assertEqual(response.status_code, 200)
+                self.assertNotContains(response, "data-import-auto-refresh")
 
     def test_import_history_shows_completed_and_failed_batches(self):
         with TemporaryDirectory() as tempdir:

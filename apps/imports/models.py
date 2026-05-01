@@ -1,3 +1,7 @@
+import uuid
+from pathlib import Path
+
+from django.conf import settings
 from django.core.cache import cache
 from django.db import models
 from django.db.models import F, Q
@@ -124,3 +128,133 @@ class ImportBatch(models.Model):
                     state = "active"
             steps.append({"phase": phase, "label": label, "state": state})
         return steps
+
+
+class UploadedRun(models.Model):
+    class Status(models.TextChoices):
+        RECEIVING = "receiving", "Receiving"
+        RECEIVED = "received", "Received"
+        EXTRACTING = "extracting", "Extracting"
+        READY = "ready", "Ready"
+        QUEUED = "queued", "Queued"
+        IMPORTED = "imported", "Imported"
+        FAILED = "failed", "Failed"
+
+    original_filename = models.CharField(max_length=255)
+    upload_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    status = models.CharField(
+        max_length=32,
+        choices=Status.choices,
+        default=Status.RECEIVING,
+        db_index=True,
+    )
+    size_bytes = models.BigIntegerField(default=0)
+    received_bytes = models.BigIntegerField(default=0)
+    chunk_size_bytes = models.PositiveIntegerField(default=8 * 1024 * 1024)
+    total_chunks = models.PositiveIntegerField(default=0)
+    received_chunks = models.JSONField(default=list, blank=True)
+    publish_root = models.CharField(max_length=500, blank=True)
+    run_id = models.CharField(max_length=200, blank=True, db_index=True)
+    error_message = models.TextField(blank=True)
+    file_sha256 = models.CharField(max_length=64, blank=True, null=True)
+    assembled_sha256 = models.CharField(max_length=64, blank=True, null=True)
+    checksum_status = models.CharField(max_length=32, blank=True, null=True)
+    checksum_error = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploads_created",
+    )
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploads_completed",
+    )
+    import_requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploads_import_requested",
+    )
+    actor_label = models.CharField(max_length=255, blank=True, null=True)
+    client_ip = models.CharField(max_length=45, blank=True, null=True)
+    user_agent = models.TextField(blank=True, null=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    failed_at = models.DateTimeField(null=True, blank=True)
+    import_batch = models.ForeignKey(
+        "imports.ImportBatch",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="uploaded_runs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        label = self.run_id or self.original_filename
+        return f"{label} ({self.status})"
+
+    @property
+    def upload_root(self) -> Path:
+        return Path(settings.HOMOREPEAT_IMPORTS_ROOT) / "uploads" / str(self.upload_id)
+
+    @property
+    def chunks_root(self) -> Path:
+        return self.upload_root / "chunks"
+
+    @property
+    def zip_path(self) -> Path:
+        return self.upload_root / "source.zip"
+
+    @property
+    def extracted_root(self) -> Path:
+        return self.upload_root / "extracted"
+
+    @property
+    def library_root(self) -> Path | None:
+        if not self.run_id:
+            return None
+        return Path(settings.HOMOREPEAT_IMPORTS_ROOT) / "library" / self.run_id
+
+    @property
+    def can_retry_extraction(self) -> bool:
+        return (
+            self.status == self.Status.FAILED
+            and self.checksum_status != "failed"
+            and self.upload_root.exists()
+        )
+
+    @property
+    def can_clear_working_files(self) -> bool:
+        return self.status == self.Status.FAILED and self.upload_root.exists()
+
+
+class UploadedRunChunk(models.Model):
+    """One row per accepted chunk — the fast-path manifest for status queries.
+
+    The filesystem .part files remain the authoritative byte store; this table
+    records the hash and metadata so Phase 2 status reconciliation can skip
+    already-verified chunks without scanning the filesystem.
+    """
+
+    uploaded_run = models.ForeignKey(
+        "imports.UploadedRun",
+        on_delete=models.CASCADE,
+        related_name="chunk_records",
+    )
+    chunk_index = models.PositiveIntegerField()
+    size_bytes = models.PositiveIntegerField()
+    sha256 = models.CharField(max_length=64)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("uploaded_run", "chunk_index")]

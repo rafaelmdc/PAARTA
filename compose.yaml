@@ -107,6 +107,8 @@ services:
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
       DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-UTC}
+      HOMOREPEAT_TRUST_X_FORWARDED_FOR: ${HOMOREPEAT_TRUST_X_FORWARDED_FOR:-false}
+      no_admin: ${no_admin:-0}
       DATABASE_ENGINE: ${DATABASE_ENGINE:-django.db.backends.postgresql}
       DATABASE_NAME: ${POSTGRES_DB:-homorepeat}
       DATABASE_USER: ${POSTGRES_USER:-homorepeat}
@@ -114,11 +116,13 @@ services:
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       HOMOREPEAT_RUNS_ROOT: /workspace/homorepeat_pipeline/runs
+      HOMOREPEAT_IMPORTS_ROOT: /data/imports
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       FLOWER_INTERNAL_URL: http://flower:5555
     volumes:
       - .:/app
       - ${HOMOREPEAT_RUNS_ROOT:-../homorepeat_pipeline/runs}:/workspace/homorepeat_pipeline/runs:ro
+      - homorepeat_imports:/data/imports
     ports:
       - "8000:8000"
     depends_on:
@@ -143,10 +147,46 @@ services:
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       HOMOREPEAT_RUNS_ROOT: /workspace/homorepeat_pipeline/runs
+      HOMOREPEAT_IMPORTS_ROOT: /data/imports
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     volumes:
       - .:/app
       - ${HOMOREPEAT_RUNS_ROOT:-../homorepeat_pipeline/runs}:/workspace/homorepeat_pipeline/runs:ro
+      - homorepeat_imports:/data/imports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config.celery inspect ping -d celery@$$HOSTNAME --timeout 5 2>&1 | grep -q pong"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
+
+  # Disk/CPU-bound zip extraction and upload cleanup (uploads queue).
+  # Isolated from import batches so heavy extraction cannot delay user-visible import progress.
+  celery-upload-worker:
+    image: homorepeat-web:dev
+    working_dir: /app
+    command: celery -A config.celery worker -Q uploads -c 2 --prefetch-multiplier 1 --loglevel=info
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-secret-key}
+      DJANGO_TIME_ZONE: ${DJANGO_TIME_ZONE:-UTC}
+      DATABASE_ENGINE: ${DATABASE_ENGINE:-django.db.backends.postgresql}
+      DATABASE_NAME: ${POSTGRES_DB:-homorepeat}
+      DATABASE_USER: ${POSTGRES_USER:-homorepeat}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-homorepeat}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      HOMOREPEAT_IMPORTS_ROOT: /data/imports
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    volumes:
+      - .:/app
+      - homorepeat_imports:/data/imports
     depends_on:
       postgres:
         condition: service_healthy
@@ -273,3 +313,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  homorepeat_imports:

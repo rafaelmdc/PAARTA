@@ -36,8 +36,10 @@ def _env_int(name: str, default: int) -> int:
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "replace-me")
 DEBUG = _env_flag("DJANGO_DEBUG", False)
+NO_ADMIN = _env_flag("no_admin", False)
 ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = _env_list("DJANGO_CSRF_TRUSTED_ORIGINS", [])
+HOMOREPEAT_TRUST_X_FORWARDED_FOR = _env_flag("HOMOREPEAT_TRUST_X_FORWARDED_FOR", False)
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
@@ -61,6 +63,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.core.no_admin.NoAdminMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -88,6 +91,24 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "UTC")
 USE_TZ = True
 HOMOREPEAT_RUNS_ROOT = os.getenv("HOMOREPEAT_RUNS_ROOT", "").strip()
+HOMOREPEAT_IMPORTS_ROOT = os.getenv("HOMOREPEAT_IMPORTS_ROOT", "/data/imports").strip()
+HOMOREPEAT_UPLOAD_MAX_ZIP_BYTES = _env_int("HOMOREPEAT_UPLOAD_MAX_ZIP_BYTES", 5 * 1024 * 1024 * 1024)
+HOMOREPEAT_UPLOAD_CHUNK_BYTES = _env_int("HOMOREPEAT_UPLOAD_CHUNK_BYTES", 8 * 1024 * 1024)
+HOMOREPEAT_UPLOAD_MAX_EXTRACTED_BYTES = _env_int(
+    "HOMOREPEAT_UPLOAD_MAX_EXTRACTED_BYTES",
+    50 * 1024 * 1024 * 1024,
+)
+HOMOREPEAT_UPLOAD_MAX_FILES = _env_int("HOMOREPEAT_UPLOAD_MAX_FILES", 200000)
+HOMOREPEAT_UPLOAD_INCOMPLETE_RETENTION_HOURS = _env_int("HOMOREPEAT_UPLOAD_INCOMPLETE_RETENTION_HOURS", 24)
+HOMOREPEAT_UPLOAD_FAILED_RETENTION_HOURS = _env_int("HOMOREPEAT_UPLOAD_FAILED_RETENTION_HOURS", 168)
+HOMOREPEAT_UPLOAD_DISK_PREFLIGHT_ENABLED = _env_flag("HOMOREPEAT_UPLOAD_DISK_PREFLIGHT_ENABLED", True)
+HOMOREPEAT_UPLOAD_MIN_FREE_BYTES = _env_int("HOMOREPEAT_UPLOAD_MIN_FREE_BYTES", 1 * 1024 * 1024 * 1024)
+HOMOREPEAT_UPLOAD_EXTRACTION_SPACE_MULTIPLIER = float(
+    os.getenv("HOMOREPEAT_UPLOAD_EXTRACTION_SPACE_MULTIPLIER", "3.0")
+)
+HOMOREPEAT_UPLOAD_MAX_ACTIVE_PER_USER = _env_int("HOMOREPEAT_UPLOAD_MAX_ACTIVE_PER_USER", 0)
+HOMOREPEAT_UPLOAD_MAX_DAILY_BYTES_PER_USER = _env_int("HOMOREPEAT_UPLOAD_MAX_DAILY_BYTES_PER_USER", 0)
+HOMOREPEAT_UPLOAD_MAX_ZIP_BYTES_PER_USER = _env_int("HOMOREPEAT_UPLOAD_MAX_ZIP_BYTES_PER_USER", 0)
 HOMOREPEAT_BROWSER_STATS_CACHE_TTL = _env_int("HOMOREPEAT_BROWSER_STATS_CACHE_TTL", 60)
 
 _REDIS_URL = os.getenv("REDIS_URL", "").strip()
@@ -112,9 +133,12 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 43200}
 CELERY_TASK_ALWAYS_EAGER = _env_flag("CELERY_TASK_ALWAYS_EAGER", False)
 CELERY_TASK_ROUTES = {
+    # Explicit upload-queue tasks must come before the imports wildcard.
+    "apps.imports.tasks.extract_uploaded_run": {"queue": "uploads"},
+    "apps.imports.tasks.cleanup_stale_uploaded_runs": {"queue": "uploads"},
+    # All remaining imports tasks (run_import_batch, reset_stale_import_batches, …)
     "apps.imports.tasks.*": {"queue": "imports"},
     # Explicit downloads-queue tasks before the wildcard (wildcard → payload_graph).
-    "apps.browser.tasks.generate_download_artifact": {"queue": "downloads"},
     "apps.browser.tasks.expire_stale_download_builds": {"queue": "downloads"},
     "apps.browser.tasks.*": {"queue": "payload_graph"},
 }
@@ -122,6 +146,10 @@ CELERY_BEAT_SCHEDULE = {
     "reset-stale-import-batches": {
         "task": "apps.imports.tasks.reset_stale_import_batches",
         "schedule": timedelta(minutes=5),
+    },
+    "cleanup-stale-uploaded-runs": {
+        "task": "apps.imports.tasks.cleanup_stale_uploaded_runs",
+        "schedule": timedelta(hours=1),
     },
     "expire-stale-download-builds": {
         "task": "apps.browser.tasks.expire_stale_download_builds",
