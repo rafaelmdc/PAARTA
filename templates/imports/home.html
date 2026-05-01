@@ -185,7 +185,7 @@
           <th>Status</th>
           <th>Received</th>
           <th>Import progress</th>
-          <th>Error</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -193,17 +193,56 @@
           <tr>
             <td>{{ uploaded_run.original_filename }}</td>
             <td>{{ uploaded_run.run_id|default:"-" }}</td>
-            <td>{{ uploaded_run.get_status_display }}</td>
+            <td>
+              {% with s=uploaded_run.status %}
+                {% if s == "receiving" %}<span class="badge text-bg-secondary">Receiving</span>
+                {% elif s == "received" %}<span class="badge text-bg-info">Received</span>
+                {% elif s == "extracting" %}<span class="badge text-bg-warning text-dark">Extracting</span>
+                {% elif s == "ready" %}<span class="badge text-bg-success">Ready</span>
+                {% elif s == "queued" %}<span class="badge text-bg-primary">Queued</span>
+                {% elif s == "imported" %}<span class="badge text-bg-success">Imported</span>
+                {% elif s == "failed" %}<span class="badge text-bg-danger">Failed</span>
+                {% else %}<span class="badge text-bg-light border">{{ uploaded_run.get_status_display }}</span>
+                {% endif %}
+              {% endwith %}
+              {% if uploaded_run.checksum_error %}
+                <div class="small text-danger mt-1">{{ uploaded_run.checksum_error }}</div>
+              {% elif uploaded_run.error_message %}
+                <div class="small text-danger mt-1">{{ uploaded_run.error_message }}</div>
+              {% endif %}
+            </td>
             <td>{{ uploaded_run.received_bytes }} / {{ uploaded_run.size_bytes }}</td>
             <td>
               {% if uploaded_run.import_batch %}
-                <div>#{{ uploaded_run.import_batch.pk }} {{ uploaded_run.import_batch.status }}</div>
+                <div class="small text-secondary">#{{ uploaded_run.import_batch.pk }} {{ uploaded_run.import_batch.status }}</div>
                 {% include "imports/includes/progress.html" with batch=uploaded_run.import_batch %}
               {% else %}
                 -
               {% endif %}
             </td>
-            <td>{{ uploaded_run.error_message|default:"-" }}</td>
+            <td>
+              {% if uploaded_run.status == "ready" %}
+                <form method="post" action="{% url 'imports:upload-import-form' upload_id=uploaded_run.upload_id %}" class="d-inline">
+                  {% csrf_token %}
+                  <button class="btn btn-sm btn-primary" type="submit">Import</button>
+                </form>
+              {% endif %}
+              {% if uploaded_run.can_retry_extraction %}
+                <form method="post" action="{% url 'imports:upload-retry' upload_id=uploaded_run.upload_id %}" class="d-inline ms-1">
+                  {% csrf_token %}
+                  <button class="btn btn-sm btn-warning" type="submit">Retry</button>
+                </form>
+              {% endif %}
+              {% if uploaded_run.can_clear_working_files %}
+                <form method="post" action="{% url 'imports:upload-clear' upload_id=uploaded_run.upload_id %}" class="d-inline ms-1">
+                  {% csrf_token %}
+                  <button class="btn btn-sm btn-outline-danger" type="submit">Clear files</button>
+                </form>
+              {% endif %}
+              {% if not uploaded_run.status == "ready" and not uploaded_run.can_retry_extraction and not uploaded_run.can_clear_working_files %}
+                -
+              {% endif %}
+            </td>
           </tr>
         {% empty %}
           <tr>

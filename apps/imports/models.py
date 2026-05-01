@@ -224,6 +224,18 @@ class UploadedRun(models.Model):
             return None
         return Path(settings.HOMOREPEAT_IMPORTS_ROOT) / "library" / self.run_id
 
+    @property
+    def can_retry_extraction(self) -> bool:
+        return (
+            self.status == self.Status.FAILED
+            and self.checksum_status != "failed"
+            and self.upload_root.exists()
+        )
+
+    @property
+    def can_clear_working_files(self) -> bool:
+        return self.status == self.Status.FAILED and self.upload_root.exists()
+
 
 class UploadedRunChunk(models.Model):
     """One row per accepted chunk — the fast-path manifest for status queries.

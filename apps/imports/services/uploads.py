@@ -582,6 +582,35 @@ def get_upload_status(*, upload_id: UUID) -> dict:
     }
 
 
+def retry_upload_extraction(*, upload_id: UUID) -> UploadedRun:
+    with transaction.atomic():
+        uploaded_run = UploadedRun.objects.select_for_update().get(upload_id=upload_id)
+        if not uploaded_run.can_retry_extraction:
+            raise UploadValidationError(
+                "This upload cannot be retried: checksum failed or working files are gone."
+            )
+        uploaded_run.status = UploadedRun.Status.RECEIVED
+        uploaded_run.error_message = ""
+        uploaded_run.failed_at = None
+        uploaded_run.save(update_fields=["status", "error_message", "failed_at", "updated_at"])
+
+    from apps.imports.tasks import extract_uploaded_run
+
+    extract_uploaded_run.delay(uploaded_run.pk)
+    return uploaded_run
+
+
+def clear_upload_working_files(*, upload_id: UUID) -> UploadedRun:
+    with transaction.atomic():
+        uploaded_run = UploadedRun.objects.select_for_update().get(upload_id=upload_id)
+        if not uploaded_run.can_clear_working_files:
+            raise UploadValidationError("This upload's working files cannot be cleared.")
+
+    if uploaded_run.upload_root.exists():
+        shutil.rmtree(uploaded_run.upload_root)
+    return uploaded_run
+
+
 def _allowed_actions(uploaded_run: UploadedRun, fs_chunk_indexes: list[int]) -> list[str]:
     if uploaded_run.status == UploadedRun.Status.RECEIVING:
         missing = set(range(uploaded_run.total_chunks)) - set(fs_chunk_indexes)
@@ -597,5 +626,9 @@ def _allowed_actions(uploaded_run: UploadedRun, fs_chunk_indexes: list[int]) -> 
     if uploaded_run.status in {UploadedRun.Status.QUEUED, UploadedRun.Status.IMPORTED}:
         return ["wait"]
     if uploaded_run.status == UploadedRun.Status.FAILED:
-        return ["clear"]
+        actions = []
+        if uploaded_run.can_retry_extraction:
+            actions.append("retry")
+        actions.append("clear")
+        return actions
     return []

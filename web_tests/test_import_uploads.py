@@ -949,6 +949,246 @@ class AuditFieldTests(TestCase):
         self.assertEqual(uploaded_run.import_requested_by, self.staff_user)
 
 
+class UploadedRunModelPropertyTests(TestCase):
+    def test_can_retry_extraction_true_when_failed_with_upload_root(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.FAILED,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+                self.assertTrue(uploaded_run.can_retry_extraction)
+
+    def test_can_retry_extraction_false_when_checksum_failed(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.FAILED,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                    checksum_status="failed",
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+                self.assertFalse(uploaded_run.can_retry_extraction)
+
+    def test_can_retry_extraction_false_when_upload_root_missing(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.FAILED,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                # upload_root not created
+                self.assertFalse(uploaded_run.can_retry_extraction)
+
+    def test_can_clear_working_files_true_when_failed_with_upload_root(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.FAILED,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                    checksum_status="failed",
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+                self.assertTrue(uploaded_run.can_clear_working_files)
+
+    def test_can_clear_working_files_false_when_not_failed(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.READY,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+                self.assertFalse(uploaded_run.can_clear_working_files)
+
+
+class UploadRunRecoveryViewTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.staff_user = self.user_model.objects.create_user(
+            username="staff",
+            password="password",
+            is_staff=True,
+        )
+        self.client.force_login(self.staff_user)
+
+    def test_retry_view_re_queues_extraction_and_redirects(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.FAILED,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                    received_chunks=[0],
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+                uploaded_run.chunks_root.mkdir(parents=True)
+
+                with patch("apps.imports.tasks.extract_uploaded_run.delay") as delay_mock:
+                    response = self.client.post(
+                        reverse("imports:upload-retry", kwargs={"upload_id": uploaded_run.upload_id})
+                    )
+
+                self.assertEqual(response.status_code, 302)
+                self.assertRedirects(response, reverse("imports:home"))
+                uploaded_run.refresh_from_db()
+                self.assertEqual(uploaded_run.status, UploadedRun.Status.RECEIVED)
+                self.assertIsNone(uploaded_run.failed_at)
+                delay_mock.assert_called_once_with(uploaded_run.pk)
+
+    def test_retry_view_rejects_when_checksum_failed(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.FAILED,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                    checksum_status="failed",
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+
+                with patch("apps.imports.tasks.extract_uploaded_run.delay") as delay_mock:
+                    response = self.client.post(
+                        reverse("imports:upload-retry", kwargs={"upload_id": uploaded_run.upload_id})
+                    )
+
+                self.assertEqual(response.status_code, 302)
+                uploaded_run.refresh_from_db()
+                self.assertEqual(uploaded_run.status, UploadedRun.Status.FAILED)
+                delay_mock.assert_not_called()
+                messages_list = list(response.wsgi_request._messages)
+                self.assertTrue(any("cannot be retried" in str(m) for m in messages_list))
+
+    def test_clear_view_removes_upload_root_and_redirects(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.FAILED,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+                (uploaded_run.upload_root / "source.zip").write_bytes(b"data")
+                self.assertTrue(uploaded_run.upload_root.exists())
+
+                response = self.client.post(
+                    reverse("imports:upload-clear", kwargs={"upload_id": uploaded_run.upload_id})
+                )
+
+                self.assertEqual(response.status_code, 302)
+                self.assertRedirects(response, reverse("imports:home"))
+                self.assertFalse(uploaded_run.upload_root.exists())
+
+    def test_clear_view_rejects_non_failed_upload(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.READY,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+
+                response = self.client.post(
+                    reverse("imports:upload-clear", kwargs={"upload_id": uploaded_run.upload_id})
+                )
+
+                self.assertEqual(response.status_code, 302)
+                self.assertTrue(uploaded_run.upload_root.exists())
+                messages_list = list(response.wsgi_request._messages)
+                self.assertTrue(any("cannot be cleared" in str(m) for m in messages_list))
+
+    def test_import_form_view_queues_import_and_redirects(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_v2_publish_root(Path(tempdir) / "run-alpha", run_id="run-alpha")
+            uploaded_run = UploadedRun.objects.create(
+                original_filename="run-alpha.zip",
+                status=UploadedRun.Status.READY,
+                size_bytes=100,
+                received_bytes=100,
+                total_chunks=1,
+                run_id="run-alpha",
+                publish_root=str(publish_root),
+            )
+
+            with patch(
+                "apps.imports.tasks.run_import_batch.delay",
+                return_value=SimpleNamespace(id="task-123"),
+            ):
+                response = self.client.post(
+                    reverse("imports:upload-import-form", kwargs={"upload_id": uploaded_run.upload_id})
+                )
+
+            self.assertEqual(response.status_code, 302)
+            self.assertRedirects(response, reverse("imports:home"))
+            uploaded_run.refresh_from_db()
+            self.assertEqual(uploaded_run.status, UploadedRun.Status.QUEUED)
+            messages_list = list(response.wsgi_request._messages)
+            self.assertTrue(any("queued" in str(m).lower() for m in messages_list))
+
+    def test_home_page_shows_import_button_for_ready_run(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.READY,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                    run_id="run-alpha",
+                )
+
+                response = self.client.get(reverse("imports:home"))
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "/import-form/")
+                self.assertContains(response, "Import")
+
+    def test_home_page_shows_retry_button_for_retryable_failed_run(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run.zip",
+                    status=UploadedRun.Status.FAILED,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.upload_root.mkdir(parents=True)
+
+                response = self.client.get(reverse("imports:home"))
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "/retry/")
+                self.assertContains(response, "Retry")
+                self.assertContains(response, "/clear/")
+                self.assertContains(response, "Clear files")
+
+
 class UploadPolicyTests(TestCase):
     def setUp(self):
         self.user_model = get_user_model()

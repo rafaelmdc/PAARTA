@@ -4,7 +4,10 @@ from .views import (
     ImportsHistoryView,
     ImportsHomeView,
     UploadRunChunkView,
+    UploadRunClearView,
     UploadRunCompleteView,
+    UploadRunImportFormView,
+    UploadRunRetryView,
     UploadRunStartView,
     UploadRunStatusView,
     UploadedRunImportView,
@@ -21,4 +24,7 @@ urlpatterns = [
     path("uploads/<uuid:upload_id>/complete/", UploadRunCompleteView.as_view(), name="upload-complete"),
     path("uploads/<uuid:upload_id>/status/", UploadRunStatusView.as_view(), name="upload-status"),
     path("uploads/<uuid:upload_id>/import/", UploadedRunImportView.as_view(), name="upload-import"),
+    path("uploads/<uuid:upload_id>/import-form/", UploadRunImportFormView.as_view(), name="upload-import-form"),
+    path("uploads/<uuid:upload_id>/retry/", UploadRunRetryView.as_view(), name="upload-retry"),
+    path("uploads/<uuid:upload_id>/clear/", UploadRunClearView.as_view(), name="upload-clear"),
 ]

@@ -20,9 +20,11 @@ from .policy import UploadPolicyError, check_active_upload_limit, check_daily_by
 from .services import dispatch_import_batch, enqueue_published_run
 from .services.uploads import (
     UploadValidationError,
+    clear_upload_working_files,
     complete_upload,
     get_upload_status,
     queue_uploaded_run_import,
+    retry_upload_extraction,
     start_upload,
     store_chunk,
 )
@@ -278,6 +280,57 @@ class UploadRunStatusView(StaffOnlyMixin, View):
         except UploadedRun.DoesNotExist:
             return _json_error("Upload was not found.", status=404)
         return JsonResponse(payload)
+
+
+class UploadRunImportFormView(StaffOnlyMixin, View):
+    http_method_names = ["post"]
+
+    def post(self, request, upload_id):
+        try:
+            queued_import = queue_uploaded_run_import(
+                upload_id=upload_id,
+                replace_existing=_request_bool(request, "replace_existing"),
+                import_requested_by=request.user if request.user.is_authenticated else None,
+            )
+        except UploadedRun.DoesNotExist:
+            messages.error(request, "Upload was not found.")
+        except UploadValidationError as exc:
+            messages.error(request, str(exc))
+        else:
+            run = queued_import.uploaded_run
+            label = run.run_id or run.original_filename
+            messages.success(request, f"Import queued for {label}.")
+        return HttpResponseRedirect(reverse("imports:home"))
+
+
+class UploadRunRetryView(StaffOnlyMixin, View):
+    http_method_names = ["post"]
+
+    def post(self, request, upload_id):
+        try:
+            retry_upload_extraction(upload_id=upload_id)
+        except UploadedRun.DoesNotExist:
+            messages.error(request, "Upload was not found.")
+        except UploadValidationError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Extraction re-queued.")
+        return HttpResponseRedirect(reverse("imports:home"))
+
+
+class UploadRunClearView(StaffOnlyMixin, View):
+    http_method_names = ["post"]
+
+    def post(self, request, upload_id):
+        try:
+            clear_upload_working_files(upload_id=upload_id)
+        except UploadedRun.DoesNotExist:
+            messages.error(request, "Upload was not found.")
+        except UploadValidationError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Working files cleared.")
+        return HttpResponseRedirect(reverse("imports:home"))
 
 
 def _request_bool(request, key: str) -> bool:
