@@ -345,33 +345,40 @@ class ImportUploadApiTests(TestCase):
         self.assertEqual(ImportBatch.objects.count(), 0)
 
     def test_import_uploaded_run_returns_existing_linked_batch(self):
-        import_batch = ImportBatch.objects.create(
-            source_path="/tmp/run-alpha/publish",
-            status=ImportBatch.Status.PENDING,
-            phase="queued",
-            celery_task_id="task-existing",
-        )
-        uploaded_run = UploadedRun.objects.create(
-            original_filename="run-alpha.zip",
-            status=UploadedRun.Status.QUEUED,
-            size_bytes=100,
-            received_bytes=100,
-            total_chunks=1,
-            run_id="run-alpha",
-            publish_root="/tmp/run-alpha/publish",
-            import_batch=import_batch,
-        )
+        statuses = [UploadedRun.Status.QUEUED, UploadedRun.Status.IMPORTED]
 
-        with patch("apps.imports.tasks.run_import_batch.delay") as delay_mock:
-            response = self.client.post(
-                reverse("imports:upload-import", kwargs={"upload_id": uploaded_run.upload_id})
+        for status in statuses:
+            ImportBatch.objects.all().delete()
+            UploadedRun.objects.all().delete()
+            import_batch = ImportBatch.objects.create(
+                source_path="/tmp/run-alpha/publish",
+                status=ImportBatch.Status.PENDING,
+                phase="queued",
+                celery_task_id="task-existing",
+            )
+            uploaded_run = UploadedRun.objects.create(
+                original_filename="run-alpha.zip",
+                status=status,
+                size_bytes=100,
+                received_bytes=100,
+                total_chunks=1,
+                run_id="run-alpha",
+                publish_root="/tmp/run-alpha/publish",
+                import_batch=import_batch,
             )
 
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["ok"])
-        self.assertFalse(payload["queued_now"])
-        self.assertEqual(payload["import_batch"]["id"], import_batch.pk)
-        self.assertEqual(payload["import_batch"]["celery_task_id"], "task-existing")
-        self.assertEqual(ImportBatch.objects.count(), 1)
-        delay_mock.assert_not_called()
+            with patch("apps.imports.tasks.run_import_batch.delay") as delay_mock:
+                response = self.client.post(
+                    reverse("imports:upload-import", kwargs={"upload_id": uploaded_run.upload_id})
+                )
+
+            with self.subTest(status=status):
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertTrue(payload["ok"])
+                self.assertFalse(payload["queued_now"])
+                self.assertEqual(payload["status"], status)
+                self.assertEqual(payload["import_batch"]["id"], import_batch.pk)
+                self.assertEqual(payload["import_batch"]["celery_task_id"], "task-existing")
+                self.assertEqual(ImportBatch.objects.count(), 1)
+                delay_mock.assert_not_called()
