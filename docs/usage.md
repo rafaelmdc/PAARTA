@@ -94,33 +94,58 @@ When the uploaded run reaches **Ready**, it appears in the detected-runs list on
 `/imports/`. Select that run and submit the import form to create an import
 batch. Import progress is shown on the same page and in `/imports/history/`.
 
-Upload cleanup runs from Celery Beat. Stale incomplete uploads are marked failed
-and their working files are removed. Failed upload working files are removed
-after the configured retention window. Ready/imported library data is kept.
+**Upload integrity and resume:**
 
-Disk planning for zipped uploads:
+Each chunk is verified server-side using SHA-256. The browser computes a per-chunk
+hash and sends it with every chunk; mismatches are rejected before the chunk is
+written to disk. The assembled zip is re-hashed end-to-end at extraction time.
+If you supplied a `file_sha256` at upload start, the assembled hash must match
+before extraction begins.
+
+If your browser tab closes mid-upload, refreshing the page resumes from where
+the server left off. The status API (`GET /imports/uploads/<id>/status/`) returns
+the list of accepted chunks with their hashes; the browser skips chunks already
+confirmed by the server and uploads only what is missing.
+
+**Upload cleanup runs from Celery Beat.** Stale incomplete uploads are marked
+failed and their working files are removed. Failed upload working files are
+removed after the configured retention window. Ready/imported library data is
+never removed automatically.
+
+**Recovering a failed upload:**
+
+If extraction fails (e.g. from a transient disk error but the source zip is
+intact), use the **Retry** button on the `/imports/` page to re-queue extraction
+without re-uploading. If the failure is unrecoverable (e.g. a SHA-256 mismatch),
+the Retry button is not shown; use **Clear files** to reclaim disk space and
+then re-upload.
+
+**Disk planning for zipped uploads:**
 
 - Keep enough free space for the source zip, chunk files, extracted data, and
   the final library copy during extraction.
-- A conservative rule is **zip size + extracted size + final publish size**.
+- A conservative rule is **zip size × 3 + 1 GB headroom**.
 - Defaults allow a 5 GB zip and up to 50 GB extracted content, so large uploads
   can temporarily require substantially more than 55 GB.
+- The disk preflight check is enabled by default. It rejects new uploads and
+  extractions that would leave less than `HOMOREPEAT_UPLOAD_MIN_FREE_BYTES` free.
 - For very large uncompressed outputs, prefer the mounted-run path through
   `HOMOREPEAT_RUNS_ROOT`.
 
-Current upload limitations:
+**Upload queues:**
 
-- The upload protocol is a focused local-app implementation, not `tus`, S3
-  multipart upload, or another external standard.
-- The app validates zip structure and publish-contract contents, but it does
-  not currently verify per-chunk checksums or a full-file checksum.
-- The app enforces configured size limits, but it does not currently run a
-  disk-space preflight before upload or extraction.
-- Zip extraction and import batches share the `imports` Celery queue in the
-  MVP. This keeps deployment simple, but very large extractions can delay
-  import jobs.
-- Uploads are intended for trusted staff users. Broader deployments should add
-  quota/rate limiting, stronger audit/ownership controls, and malware scanning.
+Zip extraction and import batches run on separate Celery queues so heavy
+extractions cannot delay import jobs. The `celery-upload-worker` service handles
+the `uploads` queue (chunk assembly, zip extraction, cleanup). The
+`celery-import-worker` service handles the `imports` queue (database writes,
+canonical catalog sync).
+
+**Upload scope:**
+
+The upload protocol is a focused local-app implementation, not `tus`, S3
+multipart upload, or another external standard. Uploads are intended for trusted
+staff users. Broader deployments should consider malware scanning and enhanced
+audit controls.
 
 **Process the oldest queued import manually:**
 
