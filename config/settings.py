@@ -39,6 +39,7 @@ DEBUG = _env_flag("DJANGO_DEBUG", False)
 NO_ADMIN = _env_flag("no_admin", False)
 ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS = _env_list("DJANGO_CSRF_TRUSTED_ORIGINS", [])
+HOMOREPEAT_TRUST_X_FORWARDED_FOR = _env_flag("HOMOREPEAT_TRUST_X_FORWARDED_FOR", False)
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"

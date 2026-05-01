@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -146,7 +147,8 @@ class UploadRunStartView(StaffOnlyMixin, View):
                 size_bytes=size_bytes,
                 total_chunks=int(payload.get("total_chunks", 0)),
                 file_sha256=str(file_sha256) if file_sha256 is not None else None,
-                created_by=request.user if request.user.is_authenticated else None,
+                created_by=_database_user(request),
+                actor_label=_actor_label(request),
                 client_ip=_get_client_ip(request),
                 user_agent=(request.META.get("HTTP_USER_AGENT", "") or "")[:500] or None,
             )
@@ -212,7 +214,7 @@ class UploadRunCompleteView(StaffOnlyMixin, View):
         try:
             completed_upload = complete_upload(
                 upload_id=upload_id,
-                completed_by=request.user if request.user.is_authenticated else None,
+                completed_by=_database_user(request),
             )
         except UploadedRun.DoesNotExist:
             return _json_error("Upload was not found.", status=404)
@@ -246,7 +248,7 @@ class UploadedRunImportView(StaffOnlyMixin, View):
             queued_import = queue_uploaded_run_import(
                 upload_id=upload_id,
                 replace_existing=_request_bool(request, "replace_existing"),
-                import_requested_by=request.user if request.user.is_authenticated else None,
+                import_requested_by=_database_user(request),
             )
         except UploadedRun.DoesNotExist:
             return _json_error("Upload was not found.", status=404)
@@ -340,10 +342,45 @@ def _request_bool(request, key: str) -> bool:
 
 def _get_client_ip(request) -> str | None:
     forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()[:45]
+    if forwarded_for and getattr(settings, "HOMOREPEAT_TRUST_X_FORWARDED_FOR", False):
+        forwarded_addr = _clean_ip(forwarded_for.split(",")[0].strip())
+        if forwarded_addr:
+            return forwarded_addr
     addr = request.META.get("REMOTE_ADDR")
-    return addr[:45] if addr else None
+    return _clean_ip(addr)
+
+
+def _clean_ip(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        return str(ipaddress.ip_address(value.strip()))[:45]
+    except ValueError:
+        return None
+
+
+def _database_user(request):
+    user = getattr(request, "user", None)
+    if not getattr(user, "is_authenticated", False):
+        return None
+    if getattr(user, "pk", None) is None:
+        return None
+    return user
+
+
+def _actor_label(request) -> str | None:
+    user = getattr(request, "user", None)
+    if not getattr(user, "is_authenticated", False):
+        return "anonymous"
+
+    username = ""
+    if hasattr(user, "get_username"):
+        username = user.get_username()
+    username = username or str(user)
+
+    if getattr(user, "pk", None) is None:
+        return f"synthetic:{username}"[:255]
+    return f"user:{user.pk}:{username}"[:255]
 
 
 def _json_error(message: str, *, status: int = 400) -> JsonResponse:

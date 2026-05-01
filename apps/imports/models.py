@@ -181,6 +181,7 @@ class UploadedRun(models.Model):
         blank=True,
         related_name="uploads_import_requested",
     )
+    actor_label = models.CharField(max_length=255, blank=True, null=True)
     client_ip = models.CharField(max_length=45, blank=True, null=True)
     user_agent = models.TextField(blank=True, null=True)
     completed_at = models.DateTimeField(null=True, blank=True)

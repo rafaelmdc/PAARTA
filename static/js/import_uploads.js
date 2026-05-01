@@ -1,6 +1,10 @@
 (() => {
   const PENDING_UPLOAD_KEY = "homorepeat:pending_upload_id";
 
+  function pendingUploadKey(file) {
+    return `${PENDING_UPLOAD_KEY}:${file.name}:${file.size}:${file.lastModified || 0}`;
+  }
+
   function getCookie(name) {
     const cookies = document.cookie ? document.cookie.split(";") : [];
     const prefix = `${name}=`;
@@ -104,7 +108,7 @@
    * accepted, or an empty map if the stored upload doesn't match this file.
    */
   async function loadResumeState(file, statusUrlTemplate) {
-    const storedUploadId = sessionStorage.getItem(PENDING_UPLOAD_KEY);
+    const storedUploadId = sessionStorage.getItem(pendingUploadKey(file));
     if (!storedUploadId || !statusUrlTemplate) {
       return { uploadId: null, serverChunks: {} };
     }
@@ -152,7 +156,7 @@
       });
       uploadId = startPayload.upload_id;
       chunkSizeBytes = startPayload.chunk_size_bytes || options.chunkSizeBytes;
-      sessionStorage.setItem(PENDING_UPLOAD_KEY, uploadId);
+      sessionStorage.setItem(pendingUploadKey(file), uploadId);
     }
 
     const totalChunks = Math.ceil(file.size / chunkSizeBytes);
@@ -178,7 +182,7 @@
           continue;
         }
         // Different content at the same index — unresolvable conflict
-        sessionStorage.removeItem(PENDING_UPLOAD_KEY);
+        sessionStorage.removeItem(pendingUploadKey(file));
         throw new Error(
           `Chunk ${chunkIndex} does not match server state. ` +
           "The selected file may have changed since the upload began.",
@@ -196,8 +200,9 @@
       });
     }
 
-    sessionStorage.removeItem(PENDING_UPLOAD_KEY);
-    return postJson(uploadUrl(options.completeUrlTemplate, uploadId), {});
+    const completeResponse = await postJson(uploadUrl(options.completeUrlTemplate, uploadId), {});
+    sessionStorage.removeItem(pendingUploadKey(file));
+    return completeResponse;
   }
 
   function bindUploadForms() {

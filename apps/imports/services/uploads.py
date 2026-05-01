@@ -9,7 +9,7 @@ import stat
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
@@ -46,6 +46,7 @@ def start_upload(
     total_chunks: int,
     file_sha256: str | None = None,
     created_by=None,
+    actor_label: str | None = None,
     client_ip: str | None = None,
     user_agent: str | None = None,
 ) -> UploadedRun:
@@ -79,6 +80,7 @@ def start_upload(
         total_chunks=total_chunks,
         file_sha256=file_sha256,
         created_by=created_by,
+        actor_label=actor_label,
         client_ip=client_ip,
         user_agent=user_agent,
     )
@@ -102,7 +104,7 @@ def store_chunk(
 
     uploaded_run.chunks_root.mkdir(parents=True, exist_ok=True)
     destination = uploaded_run.chunks_root / f"{chunk_index}.part"
-    temporary_path = uploaded_run.chunks_root / f"{chunk_index}.part.tmp-{os.getpid()}"
+    temporary_path = uploaded_run.chunks_root / f"{chunk_index}.part.tmp-{os.getpid()}-{uuid4().hex}"
 
     hasher = hashlib.sha256()
     try:
@@ -126,11 +128,21 @@ def store_chunk(
             ).first()
 
             if existing_record is not None:
-                if existing_record.sha256 == computed_sha256:
-                    return locked_upload
-                raise UploadValidationError(
-                    f"Chunk {chunk_index} conflicts with an already accepted chunk."
-                )
+                if existing_record.sha256 != computed_sha256:
+                    raise UploadValidationError(
+                        f"Chunk {chunk_index} conflicts with an already accepted chunk."
+                    )
+
+                if _path_sha256(destination) != computed_sha256:
+                    temporary_path.replace(destination)
+                    existing_record.size_bytes = destination.stat().st_size
+                    existing_record.save(update_fields=["size_bytes"])
+
+                received_chunks = _received_chunk_indexes(locked_upload.chunks_root)
+                locked_upload.received_chunks = received_chunks
+                locked_upload.received_bytes = _received_chunk_bytes(locked_upload.chunks_root, received_chunks)
+                locked_upload.save(update_fields=["received_chunks", "received_bytes", "updated_at"])
+                return locked_upload
 
             temporary_path.replace(destination)
 
@@ -606,8 +618,8 @@ def clear_upload_working_files(*, upload_id: UUID) -> UploadedRun:
         if not uploaded_run.can_clear_working_files:
             raise UploadValidationError("This upload's working files cannot be cleared.")
 
-    if uploaded_run.upload_root.exists():
-        shutil.rmtree(uploaded_run.upload_root)
+        if uploaded_run.upload_root.exists():
+            shutil.rmtree(uploaded_run.upload_root)
     return uploaded_run
 
 
@@ -629,6 +641,18 @@ def _allowed_actions(uploaded_run: UploadedRun, fs_chunk_indexes: list[int]) -> 
         actions = []
         if uploaded_run.can_retry_extraction:
             actions.append("retry")
-        actions.append("clear")
+        if uploaded_run.can_clear_working_files:
+            actions.append("clear")
         return actions
     return []
+
+
+def _path_sha256(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+
+    hasher = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
