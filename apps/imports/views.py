@@ -16,6 +16,7 @@ from django.views.generic import FormView, ListView
 
 from .forms import ImportRunForm
 from .models import ImportBatch, UploadedRun
+from .policy import UploadPolicyError, check_active_upload_limit, check_daily_bytes_limit, check_zip_size_limit
 from .services import dispatch_import_batch, enqueue_published_run
 from .services.uploads import (
     UploadValidationError,
@@ -133,13 +134,22 @@ class UploadRunStartView(StaffOnlyMixin, View):
             return _json_error("Request body must be valid JSON.")
 
         try:
+            size_bytes = int(payload.get("size_bytes", 0))
+            check_active_upload_limit(request.user)
+            check_daily_bytes_limit(request.user, size_bytes)
+            check_zip_size_limit(request.user, size_bytes)
             file_sha256 = payload.get("file_sha256")
             uploaded_run = start_upload(
                 filename=str(payload.get("filename", "")),
-                size_bytes=int(payload.get("size_bytes", 0)),
+                size_bytes=size_bytes,
                 total_chunks=int(payload.get("total_chunks", 0)),
                 file_sha256=str(file_sha256) if file_sha256 is not None else None,
+                created_by=request.user if request.user.is_authenticated else None,
+                client_ip=_get_client_ip(request),
+                user_agent=(request.META.get("HTTP_USER_AGENT", "") or "")[:500] or None,
             )
+        except UploadPolicyError as exc:
+            return _json_error(str(exc), status=429)
         except (TypeError, ValueError, UploadValidationError) as exc:
             return _json_error(str(exc))
 
@@ -198,7 +208,10 @@ class UploadRunCompleteView(StaffOnlyMixin, View):
 
     def post(self, request, upload_id):
         try:
-            completed_upload = complete_upload(upload_id=upload_id)
+            completed_upload = complete_upload(
+                upload_id=upload_id,
+                completed_by=request.user if request.user.is_authenticated else None,
+            )
         except UploadedRun.DoesNotExist:
             return _json_error("Upload was not found.", status=404)
         except UploadValidationError as exc:
@@ -231,6 +244,7 @@ class UploadedRunImportView(StaffOnlyMixin, View):
             queued_import = queue_uploaded_run_import(
                 upload_id=upload_id,
                 replace_existing=_request_bool(request, "replace_existing"),
+                import_requested_by=request.user if request.user.is_authenticated else None,
             )
         except UploadedRun.DoesNotExist:
             return _json_error("Upload was not found.", status=404)
@@ -269,6 +283,14 @@ class UploadRunStatusView(StaffOnlyMixin, View):
 def _request_bool(request, key: str) -> bool:
     value = request.POST.get(key, "")
     return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _get_client_ip(request) -> str | None:
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()[:45]
+    addr = request.META.get("REMOTE_ADDR")
+    return addr[:45] if addr else None
 
 
 def _json_error(message: str, *, status: int = 400) -> JsonResponse:

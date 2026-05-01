@@ -861,3 +861,195 @@ class DiskPreflightTests(TestCase):
         self.assertIn("Insufficient disk space", str(ctx.exception))
         uploaded_run.refresh_from_db()
         self.assertEqual(uploaded_run.status, UploadedRun.Status.RECEIVED)
+
+
+class AuditFieldTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.staff_user = self.user_model.objects.create_user(
+            username="staff",
+            password="password",
+            is_staff=True,
+        )
+        self.client.force_login(self.staff_user)
+
+    @override_settings(
+        HOMOREPEAT_UPLOAD_CHUNK_BYTES=10,
+        HOMOREPEAT_UPLOAD_DISK_PREFLIGHT_ENABLED=False,
+    )
+    def test_start_upload_records_created_by_and_request_metadata(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                response = self.client.post(
+                    reverse("imports:upload-start"),
+                    data=json.dumps({
+                        "filename": "run-alpha.zip",
+                        "size_bytes": 10,
+                        "total_chunks": 1,
+                    }),
+                    content_type="application/json",
+                    HTTP_USER_AGENT="TestBrowser/1.0",
+                )
+
+        self.assertEqual(response.status_code, 200)
+        uploaded_run = UploadedRun.objects.get(upload_id=response.json()["upload_id"])
+        self.assertEqual(uploaded_run.created_by, self.staff_user)
+        self.assertIsNotNone(uploaded_run.client_ip)
+        self.assertEqual(uploaded_run.user_agent, "TestBrowser/1.0")
+
+    @override_settings(
+        HOMOREPEAT_UPLOAD_CHUNK_BYTES=10,
+        HOMOREPEAT_UPLOAD_DISK_PREFLIGHT_ENABLED=False,
+    )
+    def test_complete_upload_records_completed_by_and_timestamp(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+                (uploaded_run.chunks_root / "0.part").write_bytes(b"abcdefghij")
+
+                with patch("apps.imports.tasks.extract_uploaded_run.delay"):
+                    response = self.client.post(
+                        reverse("imports:upload-complete", kwargs={"upload_id": uploaded_run.upload_id})
+                    )
+
+        self.assertEqual(response.status_code, 200)
+        uploaded_run.refresh_from_db()
+        self.assertEqual(uploaded_run.completed_by, self.staff_user)
+        self.assertIsNotNone(uploaded_run.completed_at)
+
+    def test_import_records_import_requested_by(self):
+        with TemporaryDirectory() as tempdir:
+            publish_root = build_minimal_v2_publish_root(Path(tempdir) / "run-alpha", run_id="run-alpha")
+            uploaded_run = UploadedRun.objects.create(
+                original_filename="run-alpha.zip",
+                status=UploadedRun.Status.READY,
+                size_bytes=100,
+                received_bytes=100,
+                total_chunks=1,
+                run_id="run-alpha",
+                publish_root=str(publish_root),
+            )
+
+            with patch(
+                "apps.imports.tasks.run_import_batch.delay",
+                return_value=SimpleNamespace(id="task-123"),
+            ):
+                response = self.client.post(
+                    reverse("imports:upload-import", kwargs={"upload_id": uploaded_run.upload_id})
+                )
+
+        self.assertEqual(response.status_code, 200)
+        uploaded_run.refresh_from_db()
+        self.assertEqual(uploaded_run.import_requested_by, self.staff_user)
+
+
+class UploadPolicyTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.staff_user = self.user_model.objects.create_user(
+            username="staff",
+            password="password",
+            is_staff=True,
+        )
+        self.client.force_login(self.staff_user)
+
+    @override_settings(
+        HOMOREPEAT_UPLOAD_MAX_ACTIVE_PER_USER=1,
+        HOMOREPEAT_UPLOAD_CHUNK_BYTES=10,
+        HOMOREPEAT_UPLOAD_DISK_PREFLIGHT_ENABLED=False,
+    )
+    def test_start_rejects_when_active_upload_limit_exceeded(self):
+        UploadedRun.objects.create(
+            original_filename="run-existing.zip",
+            status=UploadedRun.Status.RECEIVING,
+            size_bytes=10,
+            chunk_size_bytes=10,
+            total_chunks=1,
+            created_by=self.staff_user,
+        )
+
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                response = self.client.post(
+                    reverse("imports:upload-start"),
+                    data=json.dumps({
+                        "filename": "run-alpha.zip",
+                        "size_bytes": 10,
+                        "total_chunks": 1,
+                    }),
+                    content_type="application/json",
+                )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertFalse(response.json()["ok"])
+        self.assertIn("active upload", response.json()["error"])
+
+    @override_settings(
+        HOMOREPEAT_UPLOAD_MAX_DAILY_BYTES_PER_USER=50,
+        HOMOREPEAT_UPLOAD_CHUNK_BYTES=10,
+        HOMOREPEAT_UPLOAD_DISK_PREFLIGHT_ENABLED=False,
+    )
+    def test_start_rejects_when_daily_bytes_exceeded(self):
+        UploadedRun.objects.create(
+            original_filename="run-existing.zip",
+            status=UploadedRun.Status.READY,
+            size_bytes=45,
+            chunk_size_bytes=10,
+            total_chunks=5,
+            created_by=self.staff_user,
+        )
+
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                response = self.client.post(
+                    reverse("imports:upload-start"),
+                    data=json.dumps({
+                        "filename": "run-alpha.zip",
+                        "size_bytes": 10,
+                        "total_chunks": 1,
+                    }),
+                    content_type="application/json",
+                )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertFalse(response.json()["ok"])
+        self.assertIn("quota", response.json()["error"])
+
+    @override_settings(
+        HOMOREPEAT_UPLOAD_MAX_ACTIVE_PER_USER=0,
+        HOMOREPEAT_UPLOAD_MAX_DAILY_BYTES_PER_USER=0,
+        HOMOREPEAT_UPLOAD_MAX_ZIP_BYTES_PER_USER=0,
+        HOMOREPEAT_UPLOAD_CHUNK_BYTES=10,
+        HOMOREPEAT_UPLOAD_DISK_PREFLIGHT_ENABLED=False,
+    )
+    def test_policy_is_permissive_by_default(self):
+        for _ in range(3):
+            UploadedRun.objects.create(
+                original_filename="run-existing.zip",
+                status=UploadedRun.Status.RECEIVING,
+                size_bytes=10,
+                chunk_size_bytes=10,
+                total_chunks=1,
+                created_by=self.staff_user,
+            )
+
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                response = self.client.post(
+                    reverse("imports:upload-start"),
+                    data=json.dumps({
+                        "filename": "run-alpha.zip",
+                        "size_bytes": 10,
+                        "total_chunks": 1,
+                    }),
+                    content_type="application/json",
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])

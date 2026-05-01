@@ -160,6 +160,31 @@ class UploadedRun(models.Model):
     assembled_sha256 = models.CharField(max_length=64, blank=True, null=True)
     checksum_status = models.CharField(max_length=32, blank=True, null=True)
     checksum_error = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploads_created",
+    )
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploads_completed",
+    )
+    import_requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploads_import_requested",
+    )
+    client_ip = models.CharField(max_length=45, blank=True, null=True)
+    user_agent = models.TextField(blank=True, null=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    failed_at = models.DateTimeField(null=True, blank=True)
     import_batch = models.ForeignKey(
         "imports.ImportBatch",
         on_delete=models.SET_NULL,

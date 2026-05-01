@@ -14,6 +14,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.utils import timezone
 
 from apps.imports.models import ImportBatch, UploadedRun, UploadedRunChunk
 from apps.imports.services.published_run import inspect_published_run
@@ -44,6 +45,9 @@ def start_upload(
     size_bytes: int,
     total_chunks: int,
     file_sha256: str | None = None,
+    created_by=None,
+    client_ip: str | None = None,
+    user_agent: str | None = None,
 ) -> UploadedRun:
     original_filename = Path(filename or "").name
     if not original_filename.lower().endswith(".zip"):
@@ -74,6 +78,9 @@ def start_upload(
         chunk_size_bytes=chunk_size_bytes,
         total_chunks=total_chunks,
         file_sha256=file_sha256,
+        created_by=created_by,
+        client_ip=client_ip,
+        user_agent=user_agent,
     )
     uploaded_run.upload_root.mkdir(parents=True, exist_ok=True)
     uploaded_run.chunks_root.mkdir(parents=True, exist_ok=True)
@@ -144,7 +151,7 @@ def store_chunk(
         temporary_path.unlink(missing_ok=True)
 
 
-def complete_upload(*, upload_id: UUID) -> CompletedUpload:
+def complete_upload(*, upload_id: UUID, completed_by=None) -> CompletedUpload:
     with transaction.atomic():
         uploaded_run = UploadedRun.objects.select_for_update().get(upload_id=upload_id)
         if uploaded_run.status in {
@@ -175,7 +182,12 @@ def complete_upload(*, upload_id: UUID) -> CompletedUpload:
         uploaded_run.received_chunks = received_chunks
         uploaded_run.received_bytes = received_bytes
         uploaded_run.status = UploadedRun.Status.RECEIVED
-        uploaded_run.save(update_fields=["received_chunks", "received_bytes", "status", "updated_at"])
+        uploaded_run.completed_by = completed_by
+        uploaded_run.completed_at = timezone.now()
+        uploaded_run.save(update_fields=[
+            "received_chunks", "received_bytes", "status",
+            "completed_by", "completed_at", "updated_at",
+        ])
         return CompletedUpload(uploaded_run=uploaded_run, completed_now=True)
 
 
@@ -183,6 +195,7 @@ def queue_uploaded_run_import(
     *,
     upload_id: UUID,
     replace_existing: bool = False,
+    import_requested_by=None,
 ) -> QueuedUploadedRunImport:
     queued_now = False
 
@@ -213,7 +226,8 @@ def queue_uploaded_run_import(
         )
         uploaded_run.import_batch = import_batch
         uploaded_run.status = UploadedRun.Status.QUEUED
-        uploaded_run.save(update_fields=["import_batch", "status", "updated_at"])
+        uploaded_run.import_requested_by = import_requested_by
+        uploaded_run.save(update_fields=["import_batch", "status", "import_requested_by", "updated_at"])
         queued_now = True
 
     if queued_now:
@@ -289,9 +303,10 @@ def assemble_uploaded_zip(*, uploaded_run_id: int) -> UploadedRun:
                     f"declared {uploaded_run.file_sha256}."
                 )
                 locked.status = UploadedRun.Status.FAILED
+                locked.failed_at = timezone.now()
                 locked.save(update_fields=[
                     "assembled_sha256", "checksum_status", "checksum_error",
-                    "status", "updated_at",
+                    "status", "failed_at", "updated_at",
                 ])
             raise UploadValidationError(
                 "Assembled zip checksum does not match the declared file_sha256."

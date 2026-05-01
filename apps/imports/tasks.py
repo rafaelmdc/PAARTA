@@ -55,6 +55,7 @@ def extract_uploaded_run(self, uploaded_run_id: int) -> None:
         UploadedRun.objects.filter(pk=uploaded_run_id).update(
             status=UploadedRun.Status.FAILED,
             error_message=str(exc),
+            failed_at=timezone.now(),
         )
         return
 
@@ -140,7 +141,8 @@ def cleanup_stale_uploaded_runs() -> dict[str, int]:
                 incomplete_dirs_removed += 1
             uploaded_run.status = UploadedRun.Status.FAILED
             uploaded_run.error_message = "Upload expired before it completed."
-            uploaded_run.save(update_fields=["status", "error_message", "updated_at"])
+            uploaded_run.failed_at = timezone.now()
+            uploaded_run.save(update_fields=["status", "error_message", "failed_at", "updated_at"])
             incomplete_failed += 1
 
     for uploaded_run_id in stale_failed_ids:
