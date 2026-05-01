@@ -183,7 +183,7 @@
           <th>Run</th>
           <th>Status</th>
           <th>Received</th>
-          <th>Import batch</th>
+          <th>Import progress</th>
           <th>Error</th>
         </tr>
       </thead>
@@ -196,7 +196,8 @@
             <td>{{ uploaded_run.received_bytes }} / {{ uploaded_run.size_bytes }}</td>
             <td>
               {% if uploaded_run.import_batch %}
-                #{{ uploaded_run.import_batch.pk }} {{ uploaded_run.import_batch.status }}
+                <div>#{{ uploaded_run.import_batch.pk }} {{ uploaded_run.import_batch.status }}</div>
+                {% include "imports/includes/progress.html" with batch=uploaded_run.import_batch %}
               {% else %}
                 -
               {% endif %}

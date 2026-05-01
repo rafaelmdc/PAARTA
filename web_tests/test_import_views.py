@@ -69,8 +69,15 @@ class ImportViewTests(TestCase):
     def test_staff_imports_home_renders_upload_controls_and_uploaded_run_status(self):
         batch = ImportBatch.objects.create(
             source_path="/tmp/run-alpha/publish",
-            status=ImportBatch.Status.PENDING,
-            phase="queued",
+            status=ImportBatch.Status.RUNNING,
+            phase="importing_rows",
+            progress_payload={
+                "message": "Importing uploaded run rows.",
+                "current": 3,
+                "total": 6,
+                "percent": 50,
+                "unit": "rows",
+            },
         )
         UploadedRun.objects.create(
             original_filename="run-alpha.zip",
@@ -93,6 +100,10 @@ class ImportViewTests(TestCase):
         self.assertContains(response, "run-alpha.zip")
         self.assertContains(response, "Queued")
         self.assertContains(response, "#")
+        self.assertContains(response, "Importing uploaded run rows.")
+        self.assertContains(response, "50%")
+        self.assertContains(response, "3/6")
+        self.assertContains(response, "import-stepper")
 
     def test_staff_imports_home_demotes_manual_publish_root_to_advanced_section(self):
         self.client.force_login(self.staff_user)
