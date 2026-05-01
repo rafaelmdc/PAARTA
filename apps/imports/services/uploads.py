@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import os
+import re
 import shutil
 import stat
 import zipfile
@@ -13,8 +15,10 @@ from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 
-from apps.imports.models import ImportBatch, UploadedRun
+from apps.imports.models import ImportBatch, UploadedRun, UploadedRunChunk
 from apps.imports.services.published_run import inspect_published_run
+
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class UploadValidationError(ValueError):
@@ -39,6 +43,7 @@ def start_upload(
     filename: str,
     size_bytes: int,
     total_chunks: int,
+    file_sha256: str | None = None,
 ) -> UploadedRun:
     original_filename = Path(filename or "").name
     if not original_filename.lower().endswith(".zip"):
@@ -55,11 +60,17 @@ def start_upload(
             f"total_chunks must be {expected_chunks} for size_bytes={size_bytes}."
         )
 
+    if file_sha256 is not None and not _is_valid_sha256(file_sha256):
+        raise UploadValidationError(
+            "file_sha256 must be a 64-character lowercase hex string."
+        )
+
     uploaded_run = UploadedRun.objects.create(
         original_filename=original_filename,
         size_bytes=size_bytes,
         chunk_size_bytes=chunk_size_bytes,
         total_chunks=total_chunks,
+        file_sha256=file_sha256,
     )
     uploaded_run.upload_root.mkdir(parents=True, exist_ok=True)
     uploaded_run.chunks_root.mkdir(parents=True, exist_ok=True)
@@ -71,29 +82,63 @@ def store_chunk(
     upload_id: UUID,
     chunk_index: int,
     chunk: UploadedFile,
+    chunk_sha256: str | None = None,
 ) -> UploadedRun:
     uploaded_run = UploadedRun.objects.get(upload_id=upload_id)
     _validate_chunk(uploaded_run, chunk_index, chunk)
+
+    if chunk_sha256 is not None and not _is_valid_sha256(chunk_sha256):
+        raise UploadValidationError("chunk_sha256 must be a 64-character lowercase hex string.")
 
     uploaded_run.chunks_root.mkdir(parents=True, exist_ok=True)
     destination = uploaded_run.chunks_root / f"{chunk_index}.part"
     temporary_path = uploaded_run.chunks_root / f"{chunk_index}.part.tmp-{os.getpid()}"
 
+    hasher = hashlib.sha256()
     try:
         with temporary_path.open("wb") as output:
             for part in chunk.chunks():
                 output.write(part)
-        temporary_path.replace(destination)
+                hasher.update(part)
+        computed_sha256 = hasher.hexdigest()
+
+        if chunk_sha256 is not None and computed_sha256 != chunk_sha256:
+            raise UploadValidationError(
+                f"Chunk {chunk_index} checksum mismatch: expected {chunk_sha256}, got {computed_sha256}."
+            )
+
+        with transaction.atomic():
+            locked_upload = UploadedRun.objects.select_for_update().get(pk=uploaded_run.pk)
+
+            existing_record = UploadedRunChunk.objects.filter(
+                uploaded_run=locked_upload,
+                chunk_index=chunk_index,
+            ).first()
+
+            if existing_record is not None:
+                if existing_record.sha256 == computed_sha256:
+                    return locked_upload
+                raise UploadValidationError(
+                    f"Chunk {chunk_index} conflicts with an already accepted chunk."
+                )
+
+            temporary_path.replace(destination)
+
+            received_chunks = _received_chunk_indexes(locked_upload.chunks_root)
+            locked_upload.received_chunks = received_chunks
+            locked_upload.received_bytes = _received_chunk_bytes(locked_upload.chunks_root, received_chunks)
+            locked_upload.save(update_fields=["received_chunks", "received_bytes", "updated_at"])
+
+            UploadedRunChunk.objects.create(
+                uploaded_run=locked_upload,
+                chunk_index=chunk_index,
+                size_bytes=destination.stat().st_size,
+                sha256=computed_sha256,
+            )
+
+            return locked_upload
     finally:
         temporary_path.unlink(missing_ok=True)
-
-    with transaction.atomic():
-        locked_upload = UploadedRun.objects.select_for_update().get(pk=uploaded_run.pk)
-        received_chunks = _received_chunk_indexes(locked_upload.chunks_root)
-        locked_upload.received_chunks = received_chunks
-        locked_upload.received_bytes = _received_chunk_bytes(locked_upload.chunks_root, received_chunks)
-        locked_upload.save(update_fields=["received_chunks", "received_bytes", "updated_at"])
-        return locked_upload
 
 
 def complete_upload(*, upload_id: UUID) -> CompletedUpload:
@@ -217,11 +262,44 @@ def assemble_uploaded_zip(*, uploaded_run_id: int) -> UploadedRun:
 
     temporary_path = uploaded_run.upload_root / f"source.zip.tmp-{os.getpid()}"
     try:
+        hasher = hashlib.sha256()
         with temporary_path.open("wb") as output:
             for chunk_index in uploaded_run.received_chunks:
                 with (uploaded_run.chunks_root / f"{chunk_index}.part").open("rb") as source:
-                    shutil.copyfileobj(source, output)
+                    while True:
+                        buf = source.read(256 * 1024)
+                        if not buf:
+                            break
+                        output.write(buf)
+                        hasher.update(buf)
+        assembled_sha256 = hasher.hexdigest()
+
+        if uploaded_run.file_sha256 and assembled_sha256 != uploaded_run.file_sha256:
+            with transaction.atomic():
+                locked = UploadedRun.objects.select_for_update().get(pk=uploaded_run_id)
+                locked.assembled_sha256 = assembled_sha256
+                locked.checksum_status = "failed"
+                locked.checksum_error = (
+                    f"Assembled SHA-256 {assembled_sha256} does not match "
+                    f"declared {uploaded_run.file_sha256}."
+                )
+                locked.status = UploadedRun.Status.FAILED
+                locked.save(update_fields=[
+                    "assembled_sha256", "checksum_status", "checksum_error",
+                    "status", "updated_at",
+                ])
+            raise UploadValidationError(
+                "Assembled zip checksum does not match the declared file_sha256."
+            )
+
         temporary_path.replace(uploaded_run.zip_path)
+
+        with transaction.atomic():
+            locked = UploadedRun.objects.select_for_update().get(pk=uploaded_run_id)
+            locked.assembled_sha256 = assembled_sha256
+            if uploaded_run.file_sha256:
+                locked.checksum_status = "ok"
+            locked.save(update_fields=["assembled_sha256", "checksum_status", "updated_at"])
     finally:
         temporary_path.unlink(missing_ok=True)
 
@@ -376,3 +454,7 @@ def _validate_zip_member(member: zipfile.ZipInfo, extracted_root: Path) -> None:
 def _ensure_within_root(path: Path, root: Path) -> None:
     if path != root and root not in path.parents:
         raise UploadValidationError("Zip archive contains a path outside the extraction root.")
+
+
+def _is_valid_sha256(value: str) -> bool:
+    return bool(_SHA256_RE.match(value))

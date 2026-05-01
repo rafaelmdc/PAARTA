@@ -131,10 +131,12 @@ class UploadRunStartView(StaffOnlyMixin, View):
             return _json_error("Request body must be valid JSON.")
 
         try:
+            file_sha256 = payload.get("file_sha256")
             uploaded_run = start_upload(
                 filename=str(payload.get("filename", "")),
                 size_bytes=int(payload.get("size_bytes", 0)),
                 total_chunks=int(payload.get("total_chunks", 0)),
+                file_sha256=str(file_sha256) if file_sha256 is not None else None,
             )
         except (TypeError, ValueError, UploadValidationError) as exc:
             return _json_error(str(exc))
@@ -163,11 +165,13 @@ class UploadRunChunkView(StaffOnlyMixin, View):
         if chunk is None:
             return _json_error("Missing uploaded chunk file.")
 
+        chunk_sha256 = request.POST.get("chunk_sha256") or None
         try:
             uploaded_run = store_chunk(
                 upload_id=upload_id,
                 chunk_index=chunk_index,
                 chunk=chunk,
+                chunk_sha256=chunk_sha256,
             )
         except UploadedRun.DoesNotExist:
             return _json_error("Upload was not found.", status=404)

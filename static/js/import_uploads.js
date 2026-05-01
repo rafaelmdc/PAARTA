@@ -45,9 +45,18 @@
     return parseJsonResponse(response);
   }
 
+  async function sha256Hex(blob) {
+    const buffer = await blob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
   async function postChunk(url, chunkIndex, chunkBlob) {
+    const chunkSha256 = await sha256Hex(chunkBlob);
     const formData = new FormData();
     formData.append("chunk_index", String(chunkIndex));
+    formData.append("chunk_sha256", chunkSha256);
     formData.append("chunk", chunkBlob, `${chunkIndex}.part`);
 
     const response = await fetch(url, {

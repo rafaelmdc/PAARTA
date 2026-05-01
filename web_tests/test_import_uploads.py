@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,9 +10,14 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from apps.imports.models import ImportBatch, UploadedRun
+from apps.imports.models import ImportBatch, UploadedRun, UploadedRunChunk
+from apps.imports.services.uploads import UploadValidationError
 
 from .support import build_minimal_v2_publish_root
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 class ImportUploadApiTests(TestCase):
@@ -382,3 +388,208 @@ class ImportUploadApiTests(TestCase):
                 self.assertEqual(payload["import_batch"]["celery_task_id"], "task-existing")
                 self.assertEqual(ImportBatch.objects.count(), 1)
                 delay_mock.assert_not_called()
+
+
+class UploadChecksumTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.staff_user = self.user_model.objects.create_user(
+            username="staff",
+            password="password",
+            is_staff=True,
+        )
+        self.client.force_login(self.staff_user)
+
+    @override_settings(HOMOREPEAT_UPLOAD_CHUNK_BYTES=10)
+    def test_start_upload_accepts_valid_file_sha256(self):
+        valid_sha256 = "a" * 64
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                response = self.client.post(
+                    reverse("imports:upload-start"),
+                    data=json.dumps({
+                        "filename": "run-alpha.zip",
+                        "size_bytes": 10,
+                        "total_chunks": 1,
+                        "file_sha256": valid_sha256,
+                    }),
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.json()["ok"])
+                uploaded_run = UploadedRun.objects.get(upload_id=response.json()["upload_id"])
+                self.assertEqual(uploaded_run.file_sha256, valid_sha256)
+
+    @override_settings(HOMOREPEAT_UPLOAD_CHUNK_BYTES=10)
+    def test_start_upload_rejects_malformed_file_sha256(self):
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                response = self.client.post(
+                    reverse("imports:upload-start"),
+                    data=json.dumps({
+                        "filename": "run-alpha.zip",
+                        "size_bytes": 10,
+                        "total_chunks": 1,
+                        "file_sha256": "not-a-valid-hash",
+                    }),
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertFalse(response.json()["ok"])
+                self.assertIn("file_sha256", response.json()["error"])
+                self.assertEqual(UploadedRun.objects.count(), 0)
+
+    @override_settings(HOMOREPEAT_UPLOAD_CHUNK_BYTES=10)
+    def test_chunk_upload_accepts_matching_chunk_sha256(self):
+        chunk_data = b"abcdefghij"
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+
+                response = self.client.post(
+                    reverse("imports:upload-chunk", kwargs={"upload_id": uploaded_run.upload_id}),
+                    data={
+                        "chunk_index": "0",
+                        "chunk_sha256": _sha256(chunk_data),
+                        "chunk": SimpleUploadedFile("0.part", chunk_data),
+                    },
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.json()["ok"])
+                record = UploadedRunChunk.objects.get(uploaded_run=uploaded_run, chunk_index=0)
+                self.assertEqual(record.sha256, _sha256(chunk_data))
+                self.assertEqual(record.size_bytes, 10)
+
+    @override_settings(HOMOREPEAT_UPLOAD_CHUNK_BYTES=10)
+    def test_chunk_upload_rejects_checksum_mismatch(self):
+        chunk_data = b"abcdefghij"
+        wrong_sha256 = "b" * 64
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+
+                response = self.client.post(
+                    reverse("imports:upload-chunk", kwargs={"upload_id": uploaded_run.upload_id}),
+                    data={
+                        "chunk_index": "0",
+                        "chunk_sha256": wrong_sha256,
+                        "chunk": SimpleUploadedFile("0.part", chunk_data),
+                    },
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertFalse(response.json()["ok"])
+                self.assertIn("checksum mismatch", response.json()["error"])
+                self.assertFalse((uploaded_run.chunks_root / "0.part").exists())
+                self.assertEqual(UploadedRunChunk.objects.filter(uploaded_run=uploaded_run).count(), 0)
+
+    @override_settings(HOMOREPEAT_UPLOAD_CHUNK_BYTES=10)
+    def test_chunk_upload_idempotent_for_identical_chunk(self):
+        chunk_data = b"abcdefghij"
+        chunk_sha256 = _sha256(chunk_data)
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+
+                for _ in range(2):
+                    response = self.client.post(
+                        reverse("imports:upload-chunk", kwargs={"upload_id": uploaded_run.upload_id}),
+                        data={
+                            "chunk_index": "0",
+                            "chunk_sha256": chunk_sha256,
+                            "chunk": SimpleUploadedFile("0.part", chunk_data),
+                        },
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    self.assertTrue(response.json()["ok"])
+
+                self.assertEqual(
+                    UploadedRunChunk.objects.filter(uploaded_run=uploaded_run, chunk_index=0).count(), 1
+                )
+
+    @override_settings(HOMOREPEAT_UPLOAD_CHUNK_BYTES=10)
+    def test_chunk_upload_rejects_conflicting_chunk(self):
+        chunk_data = b"abcdefghij"
+        different_chunk_data = b"ABCDEFGHIJ"
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+
+                self.client.post(
+                    reverse("imports:upload-chunk", kwargs={"upload_id": uploaded_run.upload_id}),
+                    data={
+                        "chunk_index": "0",
+                        "chunk_sha256": _sha256(chunk_data),
+                        "chunk": SimpleUploadedFile("0.part", chunk_data),
+                    },
+                )
+
+                response = self.client.post(
+                    reverse("imports:upload-chunk", kwargs={"upload_id": uploaded_run.upload_id}),
+                    data={
+                        "chunk_index": "0",
+                        "chunk_sha256": _sha256(different_chunk_data),
+                        "chunk": SimpleUploadedFile("0.part", different_chunk_data),
+                    },
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertFalse(response.json()["ok"])
+                self.assertIn("conflicts", response.json()["error"])
+                self.assertEqual(
+                    UploadedRunChunk.objects.filter(uploaded_run=uploaded_run, chunk_index=0).count(), 1
+                )
+
+    def test_assembled_zip_checksum_mismatch_marks_upload_failed(self):
+        chunk_data = b"abcdefghij"
+        wrong_file_sha256 = "b" * 64
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    status=UploadedRun.Status.RECEIVED,
+                    size_bytes=10,
+                    chunk_size_bytes=10,
+                    total_chunks=1,
+                    received_chunks=[0],
+                    received_bytes=10,
+                    file_sha256=wrong_file_sha256,
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+                (uploaded_run.chunks_root / "0.part").write_bytes(chunk_data)
+
+                from apps.imports.services.uploads import assemble_uploaded_zip
+
+                with self.assertRaises(UploadValidationError):
+                    assemble_uploaded_zip(uploaded_run_id=uploaded_run.pk)
+
+                uploaded_run.refresh_from_db()
+                self.assertEqual(uploaded_run.status, UploadedRun.Status.FAILED)
+                self.assertIsNotNone(uploaded_run.assembled_sha256)
+                self.assertEqual(uploaded_run.checksum_status, "failed")
+                self.assertIn("does not match", uploaded_run.checksum_error)

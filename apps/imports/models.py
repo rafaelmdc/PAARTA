@@ -156,6 +156,10 @@ class UploadedRun(models.Model):
     publish_root = models.CharField(max_length=500, blank=True)
     run_id = models.CharField(max_length=200, blank=True, db_index=True)
     error_message = models.TextField(blank=True)
+    file_sha256 = models.CharField(max_length=64, blank=True, null=True)
+    assembled_sha256 = models.CharField(max_length=64, blank=True, null=True)
+    checksum_status = models.CharField(max_length=32, blank=True, null=True)
+    checksum_error = models.TextField(blank=True, null=True)
     import_batch = models.ForeignKey(
         "imports.ImportBatch",
         on_delete=models.SET_NULL,
@@ -194,3 +198,25 @@ class UploadedRun(models.Model):
         if not self.run_id:
             return None
         return Path(settings.HOMOREPEAT_IMPORTS_ROOT) / "library" / self.run_id
+
+
+class UploadedRunChunk(models.Model):
+    """One row per accepted chunk — the fast-path manifest for status queries.
+
+    The filesystem .part files remain the authoritative byte store; this table
+    records the hash and metadata so Phase 2 status reconciliation can skip
+    already-verified chunks without scanning the filesystem.
+    """
+
+    uploaded_run = models.ForeignKey(
+        "imports.UploadedRun",
+        on_delete=models.CASCADE,
+        related_name="chunk_records",
+    )
+    chunk_index = models.PositiveIntegerField()
+    size_bytes = models.PositiveIntegerField()
+    sha256 = models.CharField(max_length=64)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("uploaded_run", "chunk_index")]
