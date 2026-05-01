@@ -25,11 +25,23 @@ The primary scientific browser surfaces are built from the canonical repeat-call
 
 PAARTA ingests PAASTA (Poly-Amino Acid Sequence Tract Analyzer) — PAASTA runs the pipeline; PAARTA imports what it publishes.
 
-1. `apps/imports/services/published_run/` validates the published PAASTA artifacts. Supported format: publish contract v2 (`publish_contract_version: 2` in `metadata/run_manifest.json`).
-2. `apps/imports/services/import_run/` writes raw per-run tables. The PostgreSQL path streams TSVs into temporary tables via `COPY`, then inserts raw rows with SQL joins.
-3. `apps/browser/catalog/sync.py` rebuilds the canonical catalog from the raw import.
-4. Codon composition rollups are rebuilt from canonical codon-usage rows.
-5. Normal browser requests read from the database — not from pipeline files.
+1. Published runs reach PAARTA through one of three paths: a direct
+   `import_run --publish-root` command, a mounted run directory under
+   `HOMOREPEAT_RUNS_ROOT`, or a zipped run uploaded through `/imports/`.
+2. Zipped uploads are represented by `UploadedRun` and `UploadedRunChunk`.
+   Browser chunks are SHA-256 verified, assembled into `source.zip`, extracted
+   on the `uploads` Celery queue, validated, and copied into
+   `HOMOREPEAT_IMPORTS_ROOT/library/<run-id>/publish`.
+3. `apps/imports/services/published_run/` validates the published PAASTA
+   artifacts. Supported format: publish contract v2
+   (`publish_contract_version: 2` in `metadata/run_manifest.json`).
+4. `apps/imports/services/import_run/` writes raw per-run tables. The
+   PostgreSQL path streams TSVs into temporary tables via `COPY`, then inserts
+   raw rows with SQL joins.
+5. `apps/browser/catalog/sync.py` rebuilds the canonical catalog from the raw
+   import.
+6. Codon composition rollups are rebuilt from canonical codon-usage rows.
+7. Normal browser requests read from the database — not from pipeline files.
 
 ## View Structure
 
@@ -80,6 +92,7 @@ Background work runs via Celery with Redis as the broker.
 | Service | Queue | Purpose |
 |---------|-------|---------|
 | `celery-import-worker` | `imports` | Run ingestion jobs |
+| `celery-upload-worker` | `uploads` | Zip assembly, extraction, and upload cleanup |
 | `celery-graph-worker` | `payload_graph` | Stats bundle pre-warming after import |
 | `celery-download-worker` | `downloads` | Download artifact generation |
 | `celery-beat` | — | Periodic task scheduler |
