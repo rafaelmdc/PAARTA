@@ -1,5 +1,6 @@
 import hashlib
 import json
+import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -593,3 +594,150 @@ class UploadChecksumTests(TestCase):
                 self.assertIsNotNone(uploaded_run.assembled_sha256)
                 self.assertEqual(uploaded_run.checksum_status, "failed")
                 self.assertIn("does not match", uploaded_run.checksum_error)
+
+
+class UploadStatusApiTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.staff_user = self.user_model.objects.create_user(
+            username="staff",
+            password="password",
+            is_staff=True,
+        )
+        self.client.force_login(self.staff_user)
+
+    def test_status_returns_404_for_unknown_upload(self):
+        response = self.client.get(
+            reverse("imports:upload-status", kwargs={"upload_id": uuid.uuid4()})
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_status_reports_filesystem_chunks_when_db_record_is_missing(self):
+        """Filesystem-present .part files appear in status even without a DB chunk record."""
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    size_bytes=20,
+                    chunk_size_bytes=10,
+                    total_chunks=2,
+                    received_chunks=[],
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+                (uploaded_run.chunks_root / "0.part").write_bytes(b"abcdefghij")
+                # No UploadedRunChunk record — simulating stale DB after a crash
+
+                response = self.client.get(
+                    reverse("imports:upload-status", kwargs={"upload_id": uploaded_run.upload_id})
+                )
+
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(len(payload["received_chunks"]), 1)
+                chunk = payload["received_chunks"][0]
+                self.assertEqual(chunk["index"], 0)
+                self.assertEqual(chunk["size_bytes"], 10)
+                self.assertIsNone(chunk["sha256"])
+
+    def test_status_shows_only_filesystem_present_chunks(self):
+        """Chunks present on filesystem are listed; missing chunks are not."""
+        with TemporaryDirectory() as tempdir:
+            with override_settings(HOMOREPEAT_IMPORTS_ROOT=tempdir):
+                chunk_data = b"abcdefghij"
+                uploaded_run = UploadedRun.objects.create(
+                    original_filename="run-alpha.zip",
+                    size_bytes=30,
+                    chunk_size_bytes=10,
+                    total_chunks=3,
+                )
+                uploaded_run.chunks_root.mkdir(parents=True)
+                (uploaded_run.chunks_root / "0.part").write_bytes(chunk_data)
+                UploadedRunChunk.objects.create(
+                    uploaded_run=uploaded_run,
+                    chunk_index=0,
+                    size_bytes=10,
+                    sha256=_sha256(chunk_data),
+                )
+
+                response = self.client.get(
+                    reverse("imports:upload-status", kwargs={"upload_id": uploaded_run.upload_id})
+                )
+
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(payload["total_chunks"], 3)
+                self.assertEqual(len(payload["received_chunks"]), 1)
+                self.assertEqual(payload["received_chunks"][0]["index"], 0)
+                self.assertEqual(payload["received_chunks"][0]["sha256"], _sha256(chunk_data))
+                self.assertIn("upload_chunks", payload["allowed_actions"])
+
+    def test_status_includes_import_batch_when_linked(self):
+        import_batch = ImportBatch.objects.create(
+            source_path="/tmp/run-alpha/publish",
+            status=ImportBatch.Status.RUNNING,
+            phase="importing_rows",
+        )
+        uploaded_run = UploadedRun.objects.create(
+            original_filename="run-alpha.zip",
+            status=UploadedRun.Status.QUEUED,
+            size_bytes=10,
+            chunk_size_bytes=10,
+            total_chunks=1,
+            run_id="run-alpha",
+            import_batch=import_batch,
+        )
+
+        response = self.client.get(
+            reverse("imports:upload-status", kwargs={"upload_id": uploaded_run.upload_id})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIsNotNone(payload["import_batch"])
+        self.assertEqual(payload["import_batch"]["id"], import_batch.pk)
+        self.assertEqual(payload["import_batch"]["status"], ImportBatch.Status.RUNNING)
+        self.assertEqual(payload["import_batch"]["phase"], "importing_rows")
+        self.assertIn("wait", payload["allowed_actions"])
+
+    def test_status_allowed_actions_ready(self):
+        uploaded_run = UploadedRun.objects.create(
+            original_filename="run-alpha.zip",
+            status=UploadedRun.Status.READY,
+            size_bytes=10,
+            chunk_size_bytes=10,
+            total_chunks=1,
+            run_id="run-alpha",
+            publish_root="/tmp/run-alpha/publish",
+        )
+
+        response = self.client.get(
+            reverse("imports:upload-status", kwargs={"upload_id": uploaded_run.upload_id})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("import", response.json()["allowed_actions"])
+
+    def test_status_full_payload_shape(self):
+        """Verify all documented status fields are present in the response."""
+        uploaded_run = UploadedRun.objects.create(
+            original_filename="run-alpha.zip",
+            status=UploadedRun.Status.RECEIVING,
+            size_bytes=10,
+            chunk_size_bytes=10,
+            total_chunks=1,
+            file_sha256="a" * 64,
+        )
+
+        response = self.client.get(
+            reverse("imports:upload-status", kwargs={"upload_id": uploaded_run.upload_id})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        for field in (
+            "upload_id", "status", "filename", "size_bytes", "chunk_size_bytes",
+            "total_chunks", "received_chunks", "received_bytes",
+            "file_sha256", "checksum_status", "import_batch", "allowed_actions",
+        ):
+            self.assertIn(field, payload, msg=f"missing field: {field}")
+        self.assertEqual(payload["file_sha256"], "a" * 64)

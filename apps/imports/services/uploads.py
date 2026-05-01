@@ -458,3 +458,77 @@ def _ensure_within_root(path: Path, root: Path) -> None:
 
 def _is_valid_sha256(value: str) -> bool:
     return bool(_SHA256_RE.match(value))
+
+
+def get_upload_status(*, upload_id: UUID) -> dict:
+    """Return a reconciled status dict for an upload.
+
+    Filesystem presence is authoritative for which chunks exist. The
+    UploadedRunChunk table provides sha256 and size metadata. When the two
+    diverge (e.g. after a worker crash), filesystem-present chunks are
+    included with sha256=null so the browser knows to re-upload them.
+    """
+    uploaded_run = UploadedRun.objects.get(upload_id=upload_id)
+
+    chunks_root = uploaded_run.chunks_root
+    fs_chunk_indexes = _received_chunk_indexes(chunks_root) if chunks_root.exists() else []
+
+    db_chunks: dict[int, UploadedRunChunk] = {
+        record.chunk_index: record
+        for record in UploadedRunChunk.objects.filter(uploaded_run=uploaded_run)
+    }
+
+    received_chunks = []
+    for chunk_index in fs_chunk_indexes:
+        db_record = db_chunks.get(chunk_index)
+        chunk_path = chunks_root / f"{chunk_index}.part"
+        received_chunks.append(
+            {
+                "index": chunk_index,
+                "size_bytes": chunk_path.stat().st_size if chunk_path.exists() else (db_record.size_bytes if db_record else 0),
+                "sha256": db_record.sha256 if db_record else None,
+            }
+        )
+
+    import_batch_payload = None
+    if uploaded_run.import_batch_id:
+        batch = uploaded_run.import_batch
+        import_batch_payload = {
+            "id": batch.pk,
+            "status": batch.status,
+            "phase": batch.phase,
+        }
+
+    return {
+        "upload_id": str(uploaded_run.upload_id),
+        "status": uploaded_run.status,
+        "filename": uploaded_run.original_filename,
+        "size_bytes": uploaded_run.size_bytes,
+        "chunk_size_bytes": uploaded_run.chunk_size_bytes,
+        "total_chunks": uploaded_run.total_chunks,
+        "received_chunks": received_chunks,
+        "received_bytes": sum(c["size_bytes"] for c in received_chunks),
+        "file_sha256": uploaded_run.file_sha256,
+        "checksum_status": uploaded_run.checksum_status,
+        "import_batch": import_batch_payload,
+        "allowed_actions": _allowed_actions(uploaded_run, fs_chunk_indexes),
+    }
+
+
+def _allowed_actions(uploaded_run: UploadedRun, fs_chunk_indexes: list[int]) -> list[str]:
+    if uploaded_run.status == UploadedRun.Status.RECEIVING:
+        missing = set(range(uploaded_run.total_chunks)) - set(fs_chunk_indexes)
+        if missing:
+            return ["upload_chunks"]
+        return ["upload_chunks", "complete"]
+    if uploaded_run.status == UploadedRun.Status.RECEIVED:
+        return ["wait"]
+    if uploaded_run.status == UploadedRun.Status.EXTRACTING:
+        return ["wait"]
+    if uploaded_run.status == UploadedRun.Status.READY:
+        return ["import"]
+    if uploaded_run.status in {UploadedRun.Status.QUEUED, UploadedRun.Status.IMPORTED}:
+        return ["wait"]
+    if uploaded_run.status == UploadedRun.Status.FAILED:
+        return ["clear"]
+    return []

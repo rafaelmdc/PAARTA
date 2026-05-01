@@ -1,4 +1,6 @@
 (() => {
+  const PENDING_UPLOAD_KEY = "homorepeat:pending_upload_id";
+
   function getCookie(name) {
     const cookies = document.cookie ? document.cookie.split(";") : [];
     const prefix = `${name}=`;
@@ -45,6 +47,19 @@
     return parseJsonResponse(response);
   }
 
+  async function getJson(url) {
+    const response = await fetch(url, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Request failed with ${response.status}`);
+    }
+    return payload;
+  }
+
   async function sha256Hex(blob) {
     const buffer = await blob.arrayBuffer();
     const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
@@ -83,18 +98,63 @@
     throw lastError;
   }
 
+  /**
+   * Try to load resumable state from the status endpoint.
+   * Returns a map of chunk index -> {sha256} for chunks the server has already
+   * accepted, or an empty map if the stored upload doesn't match this file.
+   */
+  async function loadResumeState(file, statusUrlTemplate) {
+    const storedUploadId = sessionStorage.getItem(PENDING_UPLOAD_KEY);
+    if (!storedUploadId || !statusUrlTemplate) {
+      return { uploadId: null, serverChunks: {} };
+    }
+
+    try {
+      const status = await getJson(uploadUrl(statusUrlTemplate, storedUploadId));
+      const resumable =
+        status.status === "receiving" &&
+        status.size_bytes === file.size &&
+        status.filename === file.name;
+
+      if (!resumable) {
+        return { uploadId: null, serverChunks: {} };
+      }
+
+      const serverChunks = {};
+      for (const chunk of (status.received_chunks || [])) {
+        serverChunks[chunk.index] = chunk;
+      }
+      return { uploadId: storedUploadId, serverChunks };
+    } catch (_err) {
+      return { uploadId: null, serverChunks: {} };
+    }
+  }
+
   async function uploadFile(options) {
     const file = options.file;
     const retryCount = options.retryCount ?? 2;
     const onProgress = options.onProgress || (() => {});
-    const startPayload = await postJson(options.startUrl, {
-      filename: file.name,
-      size_bytes: file.size,
-      total_chunks: Math.ceil(file.size / options.chunkSizeBytes),
-    });
 
-    const uploadId = startPayload.upload_id;
-    const chunkSizeBytes = startPayload.chunk_size_bytes || options.chunkSizeBytes;
+    // Attempt to resume a previous interrupted upload
+    const { uploadId: resumedUploadId, serverChunks } = await loadResumeState(
+      file,
+      options.statusUrlTemplate,
+    );
+
+    let uploadId = resumedUploadId;
+    let chunkSizeBytes = options.chunkSizeBytes;
+
+    if (!uploadId) {
+      const startPayload = await postJson(options.startUrl, {
+        filename: file.name,
+        size_bytes: file.size,
+        total_chunks: Math.ceil(file.size / options.chunkSizeBytes),
+      });
+      uploadId = startPayload.upload_id;
+      chunkSizeBytes = startPayload.chunk_size_bytes || options.chunkSizeBytes;
+      sessionStorage.setItem(PENDING_UPLOAD_KEY, uploadId);
+    }
+
     const totalChunks = Math.ceil(file.size / chunkSizeBytes);
 
     for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
@@ -102,6 +162,28 @@
       const end = Math.min(start + chunkSizeBytes, file.size);
       const chunkBlob = file.slice(start, end);
       const chunkUrl = uploadUrl(options.chunkUrlTemplate, uploadId);
+      const serverChunk = serverChunks[chunkIndex];
+
+      if (serverChunk && serverChunk.sha256) {
+        const localSha256 = await sha256Hex(chunkBlob);
+        if (localSha256 === serverChunk.sha256) {
+          onProgress({
+            uploadId,
+            chunkIndex,
+            totalChunks,
+            uploadedChunks: chunkIndex + 1,
+            percent: Math.round(((chunkIndex + 1) / totalChunks) * 1000) / 10,
+            skipped: true,
+          });
+          continue;
+        }
+        // Different content at the same index — unresolvable conflict
+        sessionStorage.removeItem(PENDING_UPLOAD_KEY);
+        throw new Error(
+          `Chunk ${chunkIndex} does not match server state. ` +
+          "The selected file may have changed since the upload began.",
+        );
+      }
 
       await retry(() => postChunk(chunkUrl, chunkIndex, chunkBlob), retryCount);
       onProgress({
@@ -110,9 +192,11 @@
         totalChunks,
         uploadedChunks: chunkIndex + 1,
         percent: Math.round(((chunkIndex + 1) / totalChunks) * 1000) / 10,
+        skipped: false,
       });
     }
 
+    sessionStorage.removeItem(PENDING_UPLOAD_KEY);
     return postJson(uploadUrl(options.completeUrlTemplate, uploadId), {});
   }
 
@@ -141,6 +225,7 @@
             startUrl: form.dataset.uploadStartUrl,
             chunkUrlTemplate: form.dataset.uploadChunkUrlTemplate,
             completeUrlTemplate: form.dataset.uploadCompleteUrlTemplate,
+            statusUrlTemplate: form.dataset.uploadStatusUrlTemplate,
             chunkSizeBytes: Number.parseInt(form.dataset.uploadChunkSizeBytes || "8388608", 10),
             onProgress: ({ percent }) => {
               if (progress) {

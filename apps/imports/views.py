@@ -20,6 +20,7 @@ from .services import dispatch_import_batch, enqueue_published_run
 from .services.uploads import (
     UploadValidationError,
     complete_upload,
+    get_upload_status,
     queue_uploaded_run_import,
     start_upload,
     store_chunk,
@@ -100,6 +101,7 @@ class ImportsHomeView(StaffOnlyMixin, FormView):
         context["upload_start_url"] = reverse("imports:upload-start")
         context["upload_chunk_url_template"] = _upload_url_template("imports:upload-chunk")
         context["upload_complete_url_template"] = _upload_url_template("imports:upload-complete")
+        context["upload_status_url_template"] = _upload_url_template("imports:upload-status")
         context["upload_chunk_size_bytes"] = settings.HOMOREPEAT_UPLOAD_CHUNK_BYTES
         return context
 
@@ -251,6 +253,17 @@ class UploadedRunImportView(StaffOnlyMixin, View):
                 },
             }
         )
+
+
+class UploadRunStatusView(StaffOnlyMixin, View):
+    http_method_names = ["get"]
+
+    def get(self, request, upload_id):
+        try:
+            payload = get_upload_status(upload_id=upload_id)
+        except UploadedRun.DoesNotExist:
+            return _json_error("Upload was not found.", status=404)
+        return JsonResponse(payload)
 
 
 def _request_bool(request, key: str) -> bool:

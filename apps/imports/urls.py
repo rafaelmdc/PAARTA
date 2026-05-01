@@ -6,6 +6,7 @@ from .views import (
     UploadRunChunkView,
     UploadRunCompleteView,
     UploadRunStartView,
+    UploadRunStatusView,
     UploadedRunImportView,
 )
 
@@ -18,5 +19,6 @@ urlpatterns = [
     path("uploads/start/", UploadRunStartView.as_view(), name="upload-start"),
     path("uploads/<uuid:upload_id>/chunk/", UploadRunChunkView.as_view(), name="upload-chunk"),
     path("uploads/<uuid:upload_id>/complete/", UploadRunCompleteView.as_view(), name="upload-complete"),
+    path("uploads/<uuid:upload_id>/status/", UploadRunStatusView.as_view(), name="upload-status"),
     path("uploads/<uuid:upload_id>/import/", UploadedRunImportView.as_view(), name="upload-import"),
 ]
