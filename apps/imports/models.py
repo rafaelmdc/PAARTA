@@ -320,6 +320,13 @@ class DeletionJob(models.Model):
         indexes = [
             models.Index(fields=["pipeline_run", "status"], name="imports_djob_run_status_idx"),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["pipeline_run"],
+                condition=Q(status__in=["pending", "running"]),
+                name="imports_djob_unique_active_per_run",
+            ),
+        ]
 
     def __str__(self):
         run_label = str(self.pipeline_run_id or "?")
