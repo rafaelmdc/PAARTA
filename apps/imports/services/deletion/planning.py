@@ -23,6 +23,7 @@ from apps.browser.models import (
     Sequence,
 )
 from apps.imports.models import CatalogVersion, DeletionJob, ImportBatch, UploadedRun
+from apps.imports.services.deletion.artifacts import ArtifactPathError, resolve_run_artifact_roots
 
 LARGE_TABLE_WARNING_THRESHOLD = 500_000
 
@@ -267,6 +268,14 @@ def build_deletion_plan(pipeline_run: PipelineRun) -> DeletionPlan:
                 "ensure chunk size and lock_timeout are tuned on staging before running."
             )
 
+    # --- Artifact roots ---
+
+    artifact_roots: list[str] = []
+    try:
+        artifact_roots = [str(p) for p in resolve_run_artifact_roots(pipeline_run)]
+    except ArtifactPathError as exc:
+        warnings.append(f"Artifact path safety check failed: {exc}")
+
     catalog_version = CatalogVersion.current()
 
     return DeletionPlan(
@@ -275,7 +284,7 @@ def build_deletion_plan(pipeline_run: PipelineRun) -> DeletionPlan:
         lifecycle_status=pipeline_run.lifecycle_status,
         active_job_id=active_job.pk if active_job else None,
         tables=tables,
-        artifact_roots=[],  # filled by Slice 3.3
+        artifact_roots=artifact_roots,
         catalog_version=catalog_version,
         warnings=warnings,
     )
