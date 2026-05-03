@@ -63,6 +63,45 @@ def _enqueue(job_pk: int) -> None:
     delete_pipeline_run_job.delay(job_pk)
 
 
+def retry_deletion(job: DeletionJob) -> DeletionJob:
+    """Re-enqueue a failed DeletionJob.
+
+    Only FAILED jobs are eligible. The same job row is reused: retry_count is
+    incremented, error fields are cleared, status is reset to PENDING, and the
+    Celery task is dispatched via transaction.on_commit().
+    """
+    from apps.imports.services.deletion.safety import DeletionTargetError
+
+    if job.status != DeletionJob.Status.FAILED:
+        raise DeletionTargetError(
+            f"DeletionJob {job.pk} has status={job.status!r}. Only failed jobs can be retried."
+        )
+
+    with transaction.atomic():
+        locked_job = DeletionJob.objects.select_for_update().get(pk=job.pk)
+
+        if locked_job.status != DeletionJob.Status.FAILED:
+            raise DeletionTargetError(
+                f"DeletionJob {locked_job.pk} is no longer failed (status={locked_job.status!r})."
+            )
+
+        locked_job.status = DeletionJob.Status.PENDING
+        locked_job.phase = ""
+        locked_job.error_message = ""
+        locked_job.error_debug = {}
+        locked_job.last_error_at = None
+        locked_job.retry_count += 1
+        locked_job.save(update_fields=[
+            "status", "phase", "error_message", "error_debug",
+            "last_error_at", "retry_count",
+        ])
+
+        job_pk = locked_job.pk
+        transaction.on_commit(lambda: _enqueue(job_pk))
+
+    return locked_job
+
+
 def get_active_job(pipeline_run: PipelineRun) -> DeletionJob | None:
     """Return the pending or running DeletionJob for pipeline_run, or None."""
     return (
