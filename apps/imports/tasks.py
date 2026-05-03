@@ -163,8 +163,17 @@ def cleanup_stale_uploaded_runs() -> dict[str, int]:
 
 @shared_task(bind=True, name="imports.delete_pipeline_run_job")
 def delete_pipeline_run_job(self, job_id: int) -> None:
-    """Execute async deletion for a DeletionJob. Implemented in Slice 5.1."""
-    raise NotImplementedError(f"Deletion task not yet implemented (job_id={job_id})")
+    """Claim and execute async deletion for a DeletionJob."""
+    from apps.imports.services.deletion.jobs import claim_deletion_job, execute_deletion_phases, mark_job_failed
+
+    job = claim_deletion_job(job_id)
+    if job is None:
+        return
+
+    try:
+        execute_deletion_phases(job)
+    except Exception as exc:
+        mark_job_failed(job, exc)
 
 
 def _remove_upload_working_directory(uploaded_run: UploadedRun) -> bool:
