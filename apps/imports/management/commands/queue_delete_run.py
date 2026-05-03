@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.browser.models import PipelineRun
+from apps.imports.services.deletion.jobs import queue_deletion
 from apps.imports.services.deletion.planning import build_deletion_plan
 from apps.imports.services.deletion.safety import DeletionTargetError, validate_deletion_target
 
@@ -46,11 +47,16 @@ class Command(BaseCommand):
             )
             return
 
-        # Actual queueing deferred to Slice 4.1.
-        raise CommandError(
-            "Queueing is not yet implemented (Slice 4.1). "
-            "Re-run without --confirm to inspect the plan."
-        )
+        job = queue_deletion(pipeline_run, reason=reason)
+
+        self.stdout.write("")
+        if plan.active_job_id == job.pk:
+            self.stdout.write(
+                self.style.WARNING(f"Reused existing active job (id={job.pk}, status={job.status}).")
+            )
+        else:
+            self.stdout.write(self.style.SUCCESS(f"Deletion job queued (id={job.pk}, status={job.status})."))
+        self.stdout.write(f"  Check progress : python manage.py deletion_status --job-id {job.pk}")
 
     def _print_plan(self, plan, run_id, confirm):
         w = self.stdout.write
